@@ -1,0 +1,47 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF Arbeitsnachweis</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; max-width: 800px; }
+    label { display: block; margin-top: 10px; font-weight: bold; }
+    input, textarea, select { width: 100%; padding: 6px; margin-top: 4px; }
+    .row { display: flex; gap: 10px; }
+    .row > div { flex: 1; }
+    .section { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
+    button { margin-top: 20px; padding: 10px 20px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h1>PDF Arbeitsnachweis</h1>
+
+  <div class="section">
+    <label for="datum">Datum der Leistungsausführung</label>
+    <input type="date" id="datum" />
+
+    <label for="ort">Bau und Ausführungsort</label>
+    <input type="text" id="ort" />
+
+    <label for="beauftragter">BASF-Beauftragter, Org.-Code</label>
+    <input type="text" id="beauftragter" />
+
+    <label for="auftrag">Einzelauftrags-Nr. (Avisor) oder Best.-Nr. (sonstige)</label>
+    <input type="text" id="auftrag" />
+
+    <label for="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
+    <textarea id="beschreibung" rows="6" maxlength="1000"></textarea>
+  </div>
+
+  <div class="section">
+    <h3>Personaleinsatz (bis zu 5 Zeilen)</h3>
+    <div id="rows-container"></div>
+  </div>
+
+  <button onclick="generatePDF()">PDF generieren</button>
+
+  <script src="script.js"></script>
+</body>
+</html>
