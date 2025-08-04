@@ -3,46 +3,37 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Arbeitsnachweis Kitöltés</title>
+    <title>Arbeitsnachweis Formular</title>
+    <script defer src="script.js"></script>
 </head>
 <body>
-    <h1>Arbeitsnachweis Kitöltés</h1>
-    <form id="form">
-        Dátum: <input type="date" id="datum"><br>
-        Bau und Ausführungsort: <input type="text" id="bau"><br>
-        Név: <input type="text" id="name"><br>
-        Utónév: <input type="text" id="vorname"><br>
-        Azonosító: <input type="text" id="ausweis"><br>
-        Kezdés (óra): <input type="number" id="start"><br>
-        Befejezés (óra): <input type="number" id="end"><br>
-        <button type="button" onclick="generate()">Mentés</button>
-    </form>
-    <script>
-        function generate() {
-            const datum = document.getElementById('datum').value;
-            const bau = document.getElementById('bau').value;
-            const name = document.getElementById('name').value;
-            const vorname = document.getElementById('vorname').value;
-            const ausweis = document.getElementById('ausweis').value;
-            const start = parseFloat(document.getElementById('start').value);
-            const end = parseFloat(document.getElementById('end').value);
-            const total = (end - start).toFixed(1);
+    <h1>Arbeitsnachweis Formular</h1>
+    <form id="workForm">
+        <label>Datum: <input type="date" name="Datum"></label><br>
+        <label>Bau und Ausführungsort: <input type="text" name="Bau"></label><br>
+        <label>Beauftragter: <input type="text" name="Beauftragter"></label><br><br>
 
-            const link = document.createElement('a');
-            const content = [
-                ['Datum der Leistungsausführung:', datum],
-                ['Bau und Ausführungsort:', bau],
-                ['Name', 'Vorname', 'Ausweis', 'Beginn', 'Ende', 'Anzahl Stunden (ohne Pausen)'],
-                [name, vorname, ausweis, start, end, total],
-                ['Gesamtstunden:', total]
-            ];
-            const rows = content.map(r => r.join("	")).join("
-");
-            const blob = new Blob([rows], { type: 'application/vnd.ms-excel' });
-            link.href = URL.createObjectURL(blob);
-            link.download = "arbeitsnachweis_kitoltve.xls";
-            link.click();
-        }
-    </script>
+        <!-- Wiederholbare Felder für Mitarbeiter -->
+        <div id="employeeFields">
+            <div>
+                <label>Name: <input type="text" name="Name1"></label>
+                <label>Vorname: <input type="text" name="Vorname1"></label>
+                <label>Ausweis-Nr.: <input type="text" name="Ausweis1"></label>
+                <label>Beginn: <input type="time" name="Beginn1"></label>
+                <label>Ende: <input type="time" name="Ende1"></label>
+                <label>Stunden: <input type="text" name="Stunden1" readonly></label>
+            </div>
+        </div>
+
+        <button type="button" onclick="addEmployee()">+ Mitarbeiter hinzufügen</button><br><br>
+
+        <label>Beschreibung der ausgeführten Arbeiten:<br>
+            <textarea name="Beschreibung" rows="5" cols="50" maxlength="1000"></textarea>
+        </label><br><br>
+
+        <label>Gesamtstunden: <input type="text" name="Gesamtstunden" readonly></label><br><br>
+
+        <button type="button" onclick="generateXLS()">Fertig</button>
+    </form>
 </body>
 </html>
