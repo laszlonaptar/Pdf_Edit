@@ -6,37 +6,41 @@
     <title>Arbeitsnachweis Kitöltés</title>
 </head>
 <body>
-    <h2><strong>Arbeitsnachweis Kitöltés</strong></h2>
-    <form id="dataForm">
+    <h1>Arbeitsnachweis Kitöltés</h1>
+    <form id="form">
+        Dátum: <input type="date" id="datum"><br>
+        Bau und Ausführungsort: <input type="text" id="bau"><br>
         Név: <input type="text" id="name"><br>
         Utónév: <input type="text" id="vorname"><br>
-        Azonosító: <input type="text" id="id"><br>
+        Azonosító: <input type="text" id="ausweis"><br>
         Kezdés (óra): <input type="number" id="start"><br>
         Befejezés (óra): <input type="number" id="end"><br>
-        Össz. óra: <input type="text" id="hours" readonly><br><br>
-        <button type="button" onclick="generateFile()">Mentés</button>
+        <button type="button" onclick="generate()">Mentés</button>
     </form>
-
     <script>
-        function generateFile() {
+        function generate() {
+            const datum = document.getElementById('datum').value;
+            const bau = document.getElementById('bau').value;
+            const name = document.getElementById('name').value;
+            const vorname = document.getElementById('vorname').value;
+            const ausweis = document.getElementById('ausweis').value;
             const start = parseFloat(document.getElementById('start').value);
             const end = parseFloat(document.getElementById('end').value);
-            const hours = end - start;
-            document.getElementById('hours').value = hours.toFixed(1);
+            const total = (end - start).toFixed(1);
 
-            const data = {
-                name: document.getElementById('name').value,
-                vorname: document.getElementById('vorname').value,
-                id: document.getElementById('id').value,
-                start: start,
-                end: end,
-                hours: hours.toFixed(1)
-            };
-
-            const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
-            const link = document.createElement("a");
+            const link = document.createElement('a');
+            const content = [
+                ['Datum der Leistungsausführung:', datum],
+                ['Bau und Ausführungsort:', bau],
+                ['Name', 'Vorname', 'Ausweis', 'Beginn', 'Ende', 'Anzahl Stunden (ohne Pausen)'],
+                [name, vorname, ausweis, start, end, total],
+                ['Gesamtstunden:', total]
+            ];
+            const rows = content.map(r => r.join("	")).join("
+");
+            const blob = new Blob([rows], { type: 'application/vnd.ms-excel' });
             link.href = URL.createObjectURL(blob);
-            link.download = "arbeitsnachweis.json";
+            link.download = "arbeitsnachweis_kitoltve.xls";
             link.click();
         }
     </script>
