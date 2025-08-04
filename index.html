@@ -2,48 +2,85 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>PDF Arbeitsnachweis</title>
-  <style>
-    body { font-family: sans-serif; margin: 20px; max-width: 900px; }
-    label { display: block; margin-top: 10px; font-weight: bold; }
-    input, textarea { width: 100%; padding: 6px; margin-top: 4px; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .row > div { flex: 1; min-width: 200px; }
-    .section { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
-    button { margin-top: 20px; padding: 10px 20px; font-size: 16px; }
-  </style>
+    <meta charset="UTF-8">
+    <title>Arbeitsnachweis Formular</title>
 </head>
 <body>
-  <h1>PDF Arbeitsnachweis</h1>
+    <h2>Arbeitsnachweis</h2>
+    <form action="/generate" method="post">
+        <label for="datum">Datum:</label><br>
+        <input type="text" id="datum" name="datum"><br><br>
 
-  <div class="section">
-    <label for="datum">Datum der Leistungsausführung</label>
-    <input type="date" id="datum" />
+        <label for="ort">Bau und Ausführungsort:</label><br>
+        <input type="text" id="ort" name="ort"><br><br>
 
-    <label for="ort">Bau und Ausführungsort</label>
-    <input type="text" id="ort" />
+        <label for="beschreibung">Beschreibung der ausgeführten Arbeiten:</label><br>
+        <textarea id="beschreibung" name="beschreibung" rows="4" cols="50"></textarea><br><br>
 
-    <label for="beauftragter">BASF-Beauftragter, Org.-Code</label>
-    <input type="text" id="beauftragter" />
+        <h3>Mitarbeiter</h3>
+        
+        <fieldset>
+        <legend>Mitarbeiter 1</legend>
+        <label for="name_0">Name:</label>
+        <input type="text" id="name_0" name="name_0">
+        <label for="vorname_0">Vorname:</label>
+        <input type="text" id="vorname_0" name="vorname_0">
+        <label for="ausweis_0">Ausweisnummer:</label>
+        <input type="text" id="ausweis_0" name="ausweis_0">
+        <label for="stunden_0">Stunden:</label>
+        <input type="text" id="stunden_0" name="stunden_0">
+        </fieldset><br>
 
-    <label for="auftrag">Einzelauftrags-Nr. (Avisor) oder Best.-Nr. (sonstige)</label>
-    <input type="text" id="auftrag" />
+        <fieldset>
+        <legend>Mitarbeiter 2</legend>
+        <label for="name_1">Name:</label>
+        <input type="text" id="name_1" name="name_1">
+        <label for="vorname_1">Vorname:</label>
+        <input type="text" id="vorname_1" name="vorname_1">
+        <label for="ausweis_1">Ausweisnummer:</label>
+        <input type="text" id="ausweis_1" name="ausweis_1">
+        <label for="stunden_1">Stunden:</label>
+        <input type="text" id="stunden_1" name="stunden_1">
+        </fieldset><br>
 
-    <label for="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
-    <textarea id="beschreibung" rows="6" maxlength="1000"></textarea>
-  </div>
+        <fieldset>
+        <legend>Mitarbeiter 3</legend>
+        <label for="name_2">Name:</label>
+        <input type="text" id="name_2" name="name_2">
+        <label for="vorname_2">Vorname:</label>
+        <input type="text" id="vorname_2" name="vorname_2">
+        <label for="ausweis_2">Ausweisnummer:</label>
+        <input type="text" id="ausweis_2" name="ausweis_2">
+        <label for="stunden_2">Stunden:</label>
+        <input type="text" id="stunden_2" name="stunden_2">
+        </fieldset><br>
 
-  <div class="section">
-    <h3>Personaleinsatz (bis zu 5 Zeilen)</h3>
-    <div id="rows-container"></div>
-    <div><strong>Gesamte gearbeitete Stunden:</strong> <span id="gesamt">0.00</span></div>
-  </div>
+        <fieldset>
+        <legend>Mitarbeiter 4</legend>
+        <label for="name_3">Name:</label>
+        <input type="text" id="name_3" name="name_3">
+        <label for="vorname_3">Vorname:</label>
+        <input type="text" id="vorname_3" name="vorname_3">
+        <label for="ausweis_3">Ausweisnummer:</label>
+        <input type="text" id="ausweis_3" name="ausweis_3">
+        <label for="stunden_3">Stunden:</label>
+        <input type="text" id="stunden_3" name="stunden_3">
+        </fieldset><br>
 
-  <button onclick="generatePDF()">PDF generieren</button>
+        <fieldset>
+        <legend>Mitarbeiter 5</legend>
+        <label for="name_4">Name:</label>
+        <input type="text" id="name_4" name="name_4">
+        <label for="vorname_4">Vorname:</label>
+        <input type="text" id="vorname_4" name="vorname_4">
+        <label for="ausweis_4">Ausweisnummer:</label>
+        <input type="text" id="ausweis_4" name="ausweis_4">
+        <label for="stunden_4">Stunden:</label>
+        <input type="text" id="stunden_4" name="stunden_4">
+        </fieldset><br>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="script.js"></script>
+
+        <input type="submit" value="Kész">
+    </form>
 </body>
 </html>
