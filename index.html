@@ -3,49 +3,40 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Arbeitsnachweis Generator</title>
+    <title>Arbeitsnachweis Kitöltés</title>
 </head>
 <body>
-    <h2>Arbeitsnachweis Kitöltés</h2>
-    <form id="form">
-        <label for="name">Név:</label><input type="text" id="name"><br>
-        <label for="vorname">Utónév:</label><input type="text" id="vorname"><br>
-        <label for="id">Azonosító:</label><input type="text" id="id"><br>
-        <label for="start">Kezdés (óra):</label><input type="text" id="start"><br>
-        <label for="end">Befejezés (óra):</label><input type="text" id="end"><br>
-        <label for="hours">Össz. óra:</label><input type="text" id="hours"><br>
-        <button type="button" onclick="generate()">Mentés</button>
+    <h2><strong>Arbeitsnachweis Kitöltés</strong></h2>
+    <form id="dataForm">
+        Név: <input type="text" id="name"><br>
+        Utónév: <input type="text" id="vorname"><br>
+        Azonosító: <input type="text" id="id"><br>
+        Kezdés (óra): <input type="number" id="start"><br>
+        Befejezés (óra): <input type="number" id="end"><br>
+        Össz. óra: <input type="text" id="hours" readonly><br><br>
+        <button type="button" onclick="generateFile()">Mentés</button>
     </form>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script>
-        async function generate() {
-            const response = await fetch('arbeitsnachweis_leeres_layout.xls');
-            const blob = await response.blob();
-            const arrayBuffer = await blob.arrayBuffer();
-            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        function generateFile() {
+            const start = parseFloat(document.getElementById('start').value);
+            const end = parseFloat(document.getElementById('end').value);
+            const hours = end - start;
+            document.getElementById('hours').value = hours.toFixed(1);
 
-            const name = document.getElementById("name").value;
-            const vorname = document.getElementById("vorname").value;
-            const id = document.getElementById("id").value;
-            const start = document.getElementById("start").value;
-            const end = document.getElementById("end").value;
-            const hours = document.getElementById("hours").value;
+            const data = {
+                name: document.getElementById('name').value,
+                vorname: document.getElementById('vorname').value,
+                id: document.getElementById('id').value,
+                start: start,
+                end: end,
+                hours: hours.toFixed(1)
+            };
 
-            sheet["A7"] = { t: "s", v: name };
-            sheet["B7"] = { t: "s", v: vorname };
-            sheet["C7"] = { t: "s", v: id };
-            sheet["D7"] = { t: "s", v: start };
-            sheet["E7"] = { t: "s", v: end };
-            sheet["F7"] = { t: "s", v: hours };
-            sheet["F10"] = { t: "s", v: hours };
-
-            const wbout = XLSX.write(workbook, { bookType: 'xls', type: 'array' });
-            const xlsBlob = new Blob([wbout], { type: 'application/vnd.ms-excel' });
+            const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
             const link = document.createElement("a");
-            link.href = URL.createObjectURL(xlsBlob);
-            link.download = "arbeitsnachweis_kitoltott.xls";
+            link.href = URL.createObjectURL(blob);
+            link.download = "arbeitsnachweis.json";
             link.click();
         }
     </script>
