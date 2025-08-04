@@ -3,14 +3,14 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>PDF Arbeitsnachweis</title>
   <style>
-    body { font-family: sans-serif; margin: 20px; max-width: 800px; }
+    body { font-family: sans-serif; margin: 20px; max-width: 900px; }
     label { display: block; margin-top: 10px; font-weight: bold; }
-    input, textarea, select { width: 100%; padding: 6px; margin-top: 4px; }
-    .row { display: flex; gap: 10px; }
-    .row > div { flex: 1; }
+    input, textarea { width: 100%; padding: 6px; margin-top: 4px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .row > div { flex: 1; min-width: 200px; }
     .section { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
     button { margin-top: 20px; padding: 10px 20px; font-size: 16px; }
   </style>
@@ -38,10 +38,12 @@
   <div class="section">
     <h3>Personaleinsatz (bis zu 5 Zeilen)</h3>
     <div id="rows-container"></div>
+    <div><strong>Gesamte gearbeitete Stunden:</strong> <span id="gesamt">0.00</span></div>
   </div>
 
   <button onclick="generatePDF()">PDF generieren</button>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
