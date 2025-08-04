@@ -3,84 +3,51 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Arbeitsnachweis Formular</title>
+    <title>Arbeitsnachweis Generator</title>
 </head>
 <body>
-    <h2>Arbeitsnachweis</h2>
-    <form action="/generate" method="post">
-        <label for="datum">Datum:</label><br>
-        <input type="text" id="datum" name="datum"><br><br>
-
-        <label for="ort">Bau und Ausführungsort:</label><br>
-        <input type="text" id="ort" name="ort"><br><br>
-
-        <label for="beschreibung">Beschreibung der ausgeführten Arbeiten:</label><br>
-        <textarea id="beschreibung" name="beschreibung" rows="4" cols="50"></textarea><br><br>
-
-        <h3>Mitarbeiter</h3>
-        
-        <fieldset>
-        <legend>Mitarbeiter 1</legend>
-        <label for="name_0">Name:</label>
-        <input type="text" id="name_0" name="name_0">
-        <label for="vorname_0">Vorname:</label>
-        <input type="text" id="vorname_0" name="vorname_0">
-        <label for="ausweis_0">Ausweisnummer:</label>
-        <input type="text" id="ausweis_0" name="ausweis_0">
-        <label for="stunden_0">Stunden:</label>
-        <input type="text" id="stunden_0" name="stunden_0">
-        </fieldset><br>
-
-        <fieldset>
-        <legend>Mitarbeiter 2</legend>
-        <label for="name_1">Name:</label>
-        <input type="text" id="name_1" name="name_1">
-        <label for="vorname_1">Vorname:</label>
-        <input type="text" id="vorname_1" name="vorname_1">
-        <label for="ausweis_1">Ausweisnummer:</label>
-        <input type="text" id="ausweis_1" name="ausweis_1">
-        <label for="stunden_1">Stunden:</label>
-        <input type="text" id="stunden_1" name="stunden_1">
-        </fieldset><br>
-
-        <fieldset>
-        <legend>Mitarbeiter 3</legend>
-        <label for="name_2">Name:</label>
-        <input type="text" id="name_2" name="name_2">
-        <label for="vorname_2">Vorname:</label>
-        <input type="text" id="vorname_2" name="vorname_2">
-        <label for="ausweis_2">Ausweisnummer:</label>
-        <input type="text" id="ausweis_2" name="ausweis_2">
-        <label for="stunden_2">Stunden:</label>
-        <input type="text" id="stunden_2" name="stunden_2">
-        </fieldset><br>
-
-        <fieldset>
-        <legend>Mitarbeiter 4</legend>
-        <label for="name_3">Name:</label>
-        <input type="text" id="name_3" name="name_3">
-        <label for="vorname_3">Vorname:</label>
-        <input type="text" id="vorname_3" name="vorname_3">
-        <label for="ausweis_3">Ausweisnummer:</label>
-        <input type="text" id="ausweis_3" name="ausweis_3">
-        <label for="stunden_3">Stunden:</label>
-        <input type="text" id="stunden_3" name="stunden_3">
-        </fieldset><br>
-
-        <fieldset>
-        <legend>Mitarbeiter 5</legend>
-        <label for="name_4">Name:</label>
-        <input type="text" id="name_4" name="name_4">
-        <label for="vorname_4">Vorname:</label>
-        <input type="text" id="vorname_4" name="vorname_4">
-        <label for="ausweis_4">Ausweisnummer:</label>
-        <input type="text" id="ausweis_4" name="ausweis_4">
-        <label for="stunden_4">Stunden:</label>
-        <input type="text" id="stunden_4" name="stunden_4">
-        </fieldset><br>
-
-
-        <input type="submit" value="Kész">
+    <h2>Arbeitsnachweis Kitöltés</h2>
+    <form id="form">
+        <label for="name">Név:</label><input type="text" id="name"><br>
+        <label for="vorname">Utónév:</label><input type="text" id="vorname"><br>
+        <label for="id">Azonosító:</label><input type="text" id="id"><br>
+        <label for="start">Kezdés (óra):</label><input type="text" id="start"><br>
+        <label for="end">Befejezés (óra):</label><input type="text" id="end"><br>
+        <label for="hours">Össz. óra:</label><input type="text" id="hours"><br>
+        <button type="button" onclick="generate()">Mentés</button>
     </form>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        async function generate() {
+            const response = await fetch('arbeitsnachweis_leeres_layout.xls');
+            const blob = await response.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+            const name = document.getElementById("name").value;
+            const vorname = document.getElementById("vorname").value;
+            const id = document.getElementById("id").value;
+            const start = document.getElementById("start").value;
+            const end = document.getElementById("end").value;
+            const hours = document.getElementById("hours").value;
+
+            sheet["A7"] = { t: "s", v: name };
+            sheet["B7"] = { t: "s", v: vorname };
+            sheet["C7"] = { t: "s", v: id };
+            sheet["D7"] = { t: "s", v: start };
+            sheet["E7"] = { t: "s", v: end };
+            sheet["F7"] = { t: "s", v: hours };
+            sheet["F10"] = { t: "s", v: hours };
+
+            const wbout = XLSX.write(workbook, { bookType: 'xls', type: 'array' });
+            const xlsBlob = new Blob([wbout], { type: 'application/vnd.ms-excel' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(xlsBlob);
+            link.download = "arbeitsnachweis_kitoltott.xls";
+            link.click();
+        }
+    </script>
 </body>
 </html>
