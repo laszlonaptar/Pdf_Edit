@@ -1,5 +1,5 @@
 fastapi
 uvicorn
 openpyxl
-gunicorn
-flask
+jinja2
+python-multipart
