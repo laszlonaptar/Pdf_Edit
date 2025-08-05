@@ -1,82 +1,51 @@
-from fastapi import FastAPI, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
+from flask import Flask, render_template, request, send_file
 from openpyxl import load_workbook
-import shutil
-import os
+import io
 from datetime import datetime
-from typing import Optional
 
-app = FastAPI()
+app = Flask(__name__)
 
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-# Főoldal – index.html betöltése
-@app.get("/", response_class=HTMLResponse)
-async def read_index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+@app.route('/generate', methods=['POST'])
+def generate():
+    datum = request.form.get('datum')
+    projekt = request.form.get('projekt')
+    geraet = request.form.get('geraet')
+    bf = request.form.get('bf')
+    beschreibung = request.form.get('beschreibung')
 
-# Fájl feltöltés oldal – csak sablon teszteléshez
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    file_location = f"temp/{file.filename}"
-    os.makedirs("temp", exist_ok=True)
-    with open(file_location, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    return {"info": f"File saved at {file_location}"}
+    mitarbeiter = []
+    for i in range(1, 6):
+        nachname = request.form.get(f'nachname{i}')
+        vorname = request.form.get(f'vorname{i}')
+        ausweis = request.form.get(f'ausweis{i}')
+        if nachname and vorname and ausweis:
+            mitarbeiter.append((nachname, vorname, ausweis))
 
-# Kitöltés és letöltés
-@app.post("/generate_excel")
-async def generate_excel(
-    datum: str = Form(...),
-    bauort: str = Form(...),
-    geraet: Optional[str] = Form(""),
-    arbeiter_name: str = Form(...),
-    arbeiter_vorname: str = Form(...),
-    arbeiter_ausweis: str = Form(...),
-    taetigkeit: str = Form(...),
-    beginn: str = Form(...),
-    ende: str = Form(...),
-):
-    template_path = "GP-t.xlsx"
-    wb = load_workbook(template_path)
+    wb = load_workbook("GP-t.xlsx")
     ws = wb.active
 
-    # Dátum és alapadatok
-    ws["C2"] = datum
-    ws["C3"] = bauort
-    ws["C4"] = geraet
+    ws['B2'] = datum
+    ws['B3'] = projekt
+    ws['B4'] = geraet
+    ws['F3'] = bf
+    ws['B5'] = beschreibung
 
-    # Munkaidő-számítás szünetekkel
-    def parse_time(t: str) -> datetime:
-        return datetime.strptime(t, "%H:%M")
+    for index, (nachname, vorname, ausweis) in enumerate(mitarbeiter):
+        row = 8 + index
+        ws[f'B{row}'] = nachname
+        ws[f'C{row}'] = vorname
+        ws[f'D{row}'] = ausweis
 
-    start = parse_time(beginn)
-    end = parse_time(ende)
-    pause = 0
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
 
-    if start <= parse_time("09:00") < end:
-        pause += 0.25
-    if start <= parse_time("12:00") < end:
-        pause += 0.75
+    filename = f"arbeitsnachweis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return send_file(output, as_attachment=True, download_name=filename, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-    total_hours = (end - start).seconds / 3600 - pause
-    total_hours = max(total_hours, 0)
-
-    # Kitöltés
-    ws["A7"] = arbeiter_name
-    ws["B7"] = arbeiter_vorname
-    ws["C7"] = arbeiter_ausweis
-    ws["D7"] = taetigkeit
-    ws["E7"] = beginn
-    ws["F7"] = ende
-    ws["G7"] = round(total_hours, 2)
-    ws["H7"] = round(total_hours, 2)
-
-    output_path = "output/generated.xlsx"
-    os.makedirs("output", exist_ok=True)
-    wb.save(output_path)
-
-    return FileResponse(output_path, filename="Arbeitsnachweis.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+if __name__ == '__main__':
+    app.run(debug=True)
