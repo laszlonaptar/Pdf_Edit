@@ -1,66 +1,39 @@
-
 <!DOCTYPE html>
-<html lang="hu">
+<html lang="de">
 <head>
     <meta charset="UTF-8">
     <title>Arbeitsnachweis Excel generálás</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-        }
-        label {
-            font-weight: bold;
-        }
-        .form-section {
-            margin-bottom: 15px;
-        }
-        .worker-group {
-            border: 1px solid #ccc;
-            padding: 10px;
-            margin-top: 10px;
-        }
-    </style>
 </head>
 <body>
     <h1>Arbeitsnachweis Excel generálás</h1>
-    <form method="post" action="/generate_excel">
-        <div class="form-section">
-            <label for="datum">Dátum:</label>
-            <input type="date" id="datum" name="datum" required>
-        </div>
-        <div class="form-section">
-            <label for="projekt">Projekt (Bau und Ausführungsort):</label>
-            <input type="text" id="projekt" name="projekt" required>
-        </div>
-        <div class="form-section">
-            <label for="geraet">Vorhaltung / beauftragtes Gerät / Fahrzeug:</label>
-            <input type="text" id="geraet" name="geraet">
-        </div>
-        <div id="workers">
-            <h3>Dolgozók</h3>
-            <div class="worker-group">
-                <label>Vezetéknév:</label>
-                <input type="text" name="lastname_1" required>
-                <label>Keresztnév:</label>
-                <input type="text" name="firstname_1" required>
-                <label>Igazolvány szám:</label>
-                <input type="text" name="idnumber_1" required>
-            </div>
-            {% for i in range(2, 6) %}
-            <div class="worker-group">
-                <label>Vezetéknév:</label>
-                <input type="text" name="lastname_{{i}}">
-                <label>Keresztnév:</label>
-                <input type="text" name="firstname_{{i}}">
-                <label>Igazolvány szám:</label>
-                <input type="text" name="idnumber_{{i}}">
-            </div>
-            {% endfor %}
-        </div>
-        <div class="form-section">
-            <button type="submit">Generálás</button>
-        </div>
+    <form action="/generate" method="post">
+        <label for="datum">Dátum:</label>
+        <input type="date" name="datum" required><br>
+
+        <label for="projekt">Projekt (Bau und Ausführungsort):</label>
+        <input type="text" name="projekt" required><br>
+
+        <label for="geraet">Vorhaltung / beauftragtes Gerät / Fahrzeug:</label>
+        <input type="text" name="geraet"><br>
+
+        <label for="bf">BF (Bauleiter/Fachbauleiter):</label>
+        <input type="text" name="bf" required><br>
+
+        <label for="beschreibung">Was wurde gemacht?</label><br>
+        <textarea name="beschreibung" rows="3" cols="50" required></textarea><br><br>
+
+        <h3>Dolgozók</h3>
+        {% for i in range(1, 6) %}
+            <label>Vezetéknév:</label>
+            <input type="text" name="nachname{{ i }}" {% if i == 1 %}required{% endif %}>
+            <label>Keresztnév:</label>
+            <input type="text" name="vorname{{ i }}" {% if i == 1 %}required{% endif %}>
+            <label>Igazolvány szám:</label>
+            <input type="text" name="ausweis{{ i }}" {% if i == 1 %}required{% endif %}>
+            <br><br>
+        {% endfor %}
+
+        <input type="submit" value="Generálás">
     </form>
 </body>
 </html>
