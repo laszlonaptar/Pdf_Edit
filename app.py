@@ -1,90 +1,79 @@
-from flask import Flask, render_template, request, send_file
-from openpyxl import load_workbook
-from io import BytesIO
-from datetime import datetime, timedelta
+import os
+import openpyxl
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.responses import RedirectResponse
+from datetime import datetime
 
-app = Flask(__name__)
+app = FastAPI()
 
-@app.route("/")
-def index():
-    return render_template("index.html")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
-@app.route("/generate_excel", methods=["POST"])
-def generate_excel():
-    # Dátum
-    datum = request.form.get("Datum", "")
-    if datum:
-        datum_formatted = datetime.strptime(datum, "%Y-%m-%d").strftime("%d.%m.%Y")
-    else:
-        datum_formatted = ""
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+EXCEL_TEMPLATE_PATH = os.path.join(BASE_DIR, "GP-t.xlsx")
 
-    # Projekt / Bauort
-    projekt = request.form.get("BauUndAusfuehrungsort", "")
-    
-    # BASF beauftragter
-    basf = request.form.get("BASFBeauftragter", "")
-    
-    # Tevékenység
-    taetigkeit = request.form.get("Taetigkeit", "")
-    
-    # Kezdési és befejezési idő
-    beginn = request.form.get("Beginn", "")
-    ende = request.form.get("Ende", "")
 
-    # Eszköz
-    geraet = request.form.get("Geraet", "")
+@app.get("/", response_class=HTMLResponse)
+async def form_get(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
-    # Munkaidő számítás
-    total_hours = ""
-    if beginn and ende:
-        fmt = "%H:%M"
-        start = datetime.strptime(beginn, fmt)
-        end = datetime.strptime(ende, fmt)
-        total = (end - start).total_seconds() / 3600
 
-        # Reggeli szünet: 9:00–9:15 (0,25h), ebéd: 12:00–12:45 (0,75h)
-        if start <= datetime.strptime("09:15", fmt) and end >= datetime.strptime("09:00", fmt):
-            total -= 0.25
-        if start <= datetime.strptime("12:45", fmt) and end >= datetime.strptime("12:00", fmt):
-            total -= 0.75
-
-        total_hours = round(total, 2)
-
-    # Dolgozók
-    mitarbeiter = []
-    for i in range(1, 6):
-        name = request.form.get(f"Nachname{i}", "")
-        vorname = request.form.get(f"Vorname{i}", "")
-        ausweis = request.form.get(f"Ausweis{i}", "")
-        if name and vorname and ausweis:
-            mitarbeiter.append((name, vorname, ausweis))
-
-    # Excel sablon betöltése
-    wb = load_workbook("GP-t.xlsx")
+@app.post("/generate", response_class=FileResponse)
+async def generate_excel(
+    request: Request,
+    datum: str = Form(...),
+    projekt: str = Form(...),
+    bf: str = Form(...),
+    was_wurde_gemacht: str = Form(...),
+    geraet: str = Form(""),  # nem kötelező
+    arbeiter_nachname: str = Form(...),
+    arbeiter_vorname: str = Form(...),
+    arbeiter_ausweis: str = Form(...),
+    beginn: str = Form(...),
+    ende: str = Form(...),
+):
+    wb = openpyxl.load_workbook(EXCEL_TEMPLATE_PATH)
     ws = wb.active
 
-    # Cellák kitöltése
-    ws["E6"] = datum_formatted
-    ws["E8"] = projekt
-    ws["E10"] = basf
-    ws["C14"] = taetigkeit
-    ws["E12"] = geraet
-    ws["K14"] = beginn
-    ws["M14"] = ende
-    ws["O14"] = total_hours
-    ws["P14"] = total_hours
+    ws["E4"] = datum
+    ws["E5"] = projekt
+    ws["E6"] = bf
+    ws["E7"] = was_wurde_gemacht
+    ws["E8"] = geraet
+    ws["B13"] = arbeiter_nachname
+    ws["C13"] = arbeiter_vorname
+    ws["D13"] = arbeiter_ausweis
+    ws["E13"] = beginn
+    ws["F13"] = ende
 
-    # Dolgozók beírása (1–5 sor)
-    row_start = 17
-    for idx, (name, vorname, ausweis) in enumerate(mitarbeiter):
-        ws[f"B{row_start + idx}"] = name
-        ws[f"C{row_start + idx}"] = vorname
-        ws[f"D{row_start + idx}"] = ausweis
+    # Munkaidő számítás
+    time_format = "%H:%M"
+    try:
+        start_dt = datetime.strptime(beginn, time_format)
+        end_dt = datetime.strptime(ende, time_format)
+        duration = (end_dt - start_dt).total_seconds() / 3600.0
 
-    # Fájl memóriába mentése
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
+        pause = 0.0
+        if start_dt.time() < datetime.strptime("09:15", time_format).time() and end_dt.time() > datetime.strptime("09:00", time_format).time():
+            pause += 0.25
+        if start_dt.time() < datetime.strptime("12:45", time_format).time() and end_dt.time() > datetime.strptime("12:00", time_format).time():
+            pause += 0.75
 
-    filename = f"Arbeitsnachweis_{datum}.xlsx"
-    return send_file(output, as_attachment=True, download_name=filename, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        worked_hours = max(duration - pause, 0)
+        ws["G13"] = round(worked_hours, 2)
+        ws["H13"] = round(worked_hours, 2)
+    except Exception as e:
+        ws["G13"] = "Hiba"
+        ws["H13"] = "Hiba"
+
+    output_filename = os.path.join(BASE_DIR, "arbeitsnachweis_kitoltve.xlsx")
+    wb.save(output_filename)
+
+    return FileResponse(
+        output_filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="arbeitsnachweis_kitoltve.xlsx"
+    )
