@@ -4,3 +4,4 @@ openpyxl
 jinja2
 python-multipart
 gunicorn
+flask
