@@ -1,28 +1,66 @@
+
 <!DOCTYPE html>
 <html lang="hu">
 <head>
-    <meta charset="UTF-8" />
-    <title>PDF Edit Frontend</title>
+    <meta charset="UTF-8">
+    <title>Arbeitsnachweis Excel generálás</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+        }
+        label {
+            font-weight: bold;
+        }
+        .form-section {
+            margin-bottom: 15px;
+        }
+        .worker-group {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 10px;
+        }
+    </style>
 </head>
 <body>
     <h1>Arbeitsnachweis Excel generálás</h1>
-    <form action="https://pdf-edit-k1qr.onrender.com/generate_excel/" method="POST">
-        <label for="datum">Dátum:</label>
-        <input type="date" id="datum" name="datum" required /><br /><br />
-
-        <label for="projekt">Projekt:</label>
-        <input type="text" id="projekt" name="projekt" required /><br /><br />
-
-        <label for="geraet">Gép/Eszköz:</label>
-        <input type="text" id="geraet" name="geraet" /><br /><br />
-
-        <label for="mitarbeiter1">Dolgozó neve:</label>
-        <input type="text" id="mitarbeiter1" name="mitarbeiter1" required /><br /><br />
-
-        <label for="stunden1">Munkaórák száma:</label>
-        <input type="number" step="0.01" id="stunden1" name="stunden1" required /><br /><br />
-
-        <button type="submit">Generálás</button>
+    <form method="post" action="/generate_excel">
+        <div class="form-section">
+            <label for="datum">Dátum:</label>
+            <input type="date" id="datum" name="datum" required>
+        </div>
+        <div class="form-section">
+            <label for="projekt">Projekt (Bau und Ausführungsort):</label>
+            <input type="text" id="projekt" name="projekt" required>
+        </div>
+        <div class="form-section">
+            <label for="geraet">Vorhaltung / beauftragtes Gerät / Fahrzeug:</label>
+            <input type="text" id="geraet" name="geraet">
+        </div>
+        <div id="workers">
+            <h3>Dolgozók</h3>
+            <div class="worker-group">
+                <label>Vezetéknév:</label>
+                <input type="text" name="lastname_1" required>
+                <label>Keresztnév:</label>
+                <input type="text" name="firstname_1" required>
+                <label>Igazolvány szám:</label>
+                <input type="text" name="idnumber_1" required>
+            </div>
+            {% for i in range(2, 6) %}
+            <div class="worker-group">
+                <label>Vezetéknév:</label>
+                <input type="text" name="lastname_{{i}}">
+                <label>Keresztnév:</label>
+                <input type="text" name="firstname_{{i}}">
+                <label>Igazolvány szám:</label>
+                <input type="text" name="idnumber_{{i}}">
+            </div>
+            {% endfor %}
+        </div>
+        <div class="form-section">
+            <button type="submit">Generálás</button>
+        </div>
     </form>
 </body>
 </html>
