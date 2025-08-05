@@ -1,67 +1,71 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Arbeitsnachweis Generator</title>
-    <link rel="stylesheet" href="/static/style.css" />
+  <meta charset="UTF-8">
+  <title>Arbeitsnachweis Generator</title>
 </head>
 <body>
-    <h1>Arbeitsnachweis Excel-Generator</h1>
-    <form action="/generate_excel" method="post">
-        <label for="datum">Datum:</label>
-        <input type="date" id="datum" name="datum" required><br>
+  <h1>Arbeitsnachweis ausfüllen</h1>
+  <form action="/generate_excel" method="post">
+    <label>Datum:</label>
+    <input type="date" name="Datum" required><br>
 
-        <label for="projekt">Bau und Ausführungsort:</label>
-        <input type="text" id="projekt" name="projekt" required><br>
+    <label>Bau und Ausführungsort:</label>
+    <input type="text" name="BauUndAusfuehrungsort" required><br>
 
-        <label for="basf">BASF-Beauftragter, Org.-Code:</label>
-        <input type="text" id="basf" name="basf" required><br>
+    <label>BASF-Beauftragter, Org.-Code:</label>
+    <input type="text" name="BASFBeauftragter" required><br>
 
-        <label for="beschreibung">Was wurde gemacht?</label>
-        <textarea id="beschreibung" name="beschreibung" rows="4" required></textarea><br>
+    <label>Was wurde gemacht?</label>
+    <input type="text" name="Taetigkeit" required><br>
 
-        <fieldset id="mitarbeiter-gruppe">
-            <legend>Mitarbeiter</legend>
+    <label>Beginn:</label>
+    <input type="time" name="Beginn" required><br>
 
-            <div class="mitarbeiter">
-                <label>Nachname:</label>
-                <input type="text" name="nachname_1" required>
+    <label>Ende:</label>
+    <input type="time" name="Ende" required><br>
 
-                <label>Vorname:</label>
-                <input type="text" name="vorname_1" required>
+    <label>Vorhaltung / beauftragtes Gerät / Fahrzeug:</label>
+    <input type="text" name="Geraet"><br>
 
-                <label>Ausweis-Nr.:</label>
-                <input type="text" name="ausweis_1" required>
-            </div>
-        </fieldset>
+    <hr>
+    <h2>Mitarbeiter</h2>
 
-        <button type="button" onclick="addMitarbeiter()">Weitere Mitarbeiter hinzufügen</button><br><br>
+    <div id="mitarbeiter-container">
+      <div class="mitarbeiter">
+        <label>Nachname:</label>
+        <input type="text" name="Nachname1" required>
+        <label>Vorname:</label>
+        <input type="text" name="Vorname1" required>
+        <label>Ausweis-Nr.:</label>
+        <input type="text" name="Ausweis1" required>
+      </div>
+    </div>
 
-        <button type="submit">Generieren</button>
-    </form>
+    <button type="button" onclick="addMitarbeiter()">+ Weitere Person hinzufügen</button><br><br>
 
-    <script>
-        let mitarbeiterCount = 1;
-        function addMitarbeiter() {
-            if (mitarbeiterCount >= 5) return;
-            mitarbeiterCount++;
+    <button type="submit">Excel generieren</button>
+  </form>
 
-            const feld = document.getElementById('mitarbeiter-gruppe');
-            const div = document.createElement('div');
-            div.className = 'mitarbeiter';
-            div.innerHTML = `
-                <label>Nachname:</label>
-                <input type="text" name="nachname_${mitarbeiterCount}">
+  <script>
+    let mitarbeiterIndex = 2;
+    function addMitarbeiter() {
+      if (mitarbeiterIndex > 5) return;
 
-                <label>Vorname:</label>
-                <input type="text" name="vorname_${mitarbeiterCount}">
-
-                <label>Ausweis-Nr.:</label>
-                <input type="text" name="ausweis_${mitarbeiterCount}">
-            `;
-            feld.appendChild(div);
-        }
-    </script>
+      const container = document.getElementById("mitarbeiter-container");
+      const div = document.createElement("div");
+      div.classList.add("mitarbeiter");
+      div.innerHTML = `
+        <label>Nachname:</label>
+        <input type="text" name="Nachname${mitarbeiterIndex}">
+        <label>Vorname:</label>
+        <input type="text" name="Vorname${mitarbeiterIndex}">
+        <label>Ausweis-Nr.:</label>
+        <input type="text" name="Ausweis${mitarbeiterIndex}">
+      `;
+      container.appendChild(div);
+      mitarbeiterIndex++;
+    }
+  </script>
 </body>
 </html>
