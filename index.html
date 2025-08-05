@@ -3,37 +3,39 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Arbeitsnachweis Formular</title>
-    <script defer src="script.js"></script>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>Arbeitsnachweis Formular</h1>
-    <form id="workForm">
-        <label>Datum: <input type="date" name="Datum"></label><br>
-        <label>Bau und Ausführungsort: <input type="text" name="Bau"></label><br>
-        <label>Beauftragter: <input type="text" name="Beauftragter"></label><br><br>
+    <h1>Arbeitsnachweis</h1>
+    <form id="form">
+        <label for="datum">Datum:</label>
+        <input type="date" id="datum" name="datum" required><br>
 
-        <!-- Wiederholbare Felder für Mitarbeiter -->
-        <div id="employeeFields">
-            <div>
-                <label>Name: <input type="text" name="Name1"></label>
-                <label>Vorname: <input type="text" name="Vorname1"></label>
-                <label>Ausweis-Nr.: <input type="text" name="Ausweis1"></label>
-                <label>Beginn: <input type="time" name="Beginn1"></label>
-                <label>Ende: <input type="time" name="Ende1"></label>
-                <label>Stunden: <input type="text" name="Stunden1" readonly></label>
-            </div>
+        <label for="bauort">Bau und Ausführungsort:</label>
+        <input type="text" id="bauort" name="bauort" required><br>
+
+        <div id="arbeiter-section">
+            <h2>Arbeiter 1</h2>
+            <label for="name1">Name:</label>
+            <input type="text" id="name1" name="name1" required><br>
+
+            <label for="vorname1">Vorname:</label>
+            <input type="text" id="vorname1" name="vorname1" required><br>
+
+            <label for="ausweis1">Ausweis-Nr.:</label>
+            <input type="text" id="ausweis1" name="ausweis1" required><br>
+
+            <label for="beginn1">Beginn:</label>
+            <input type="time" id="beginn1" name="beginn1" required><br>
+
+            <label for="ende1">Ende:</label>
+            <input type="time" id="ende1" name="ende1" required><br>
         </div>
 
-        <button type="button" onclick="addEmployee()">+ Mitarbeiter hinzufügen</button><br><br>
-
-        <label>Beschreibung der ausgeführten Arbeiten:<br>
-            <textarea name="Beschreibung" rows="5" cols="50" maxlength="1000"></textarea>
-        </label><br><br>
-
-        <label>Gesamtstunden: <input type="text" name="Gesamtstunden" readonly></label><br><br>
-
-        <button type="button" onclick="generateXLS()">Fertig</button>
+        <button type="button" onclick="generateXLSX()">Fertig</button>
     </form>
+    <script src="script.js"></script>
 </body>
 </html>

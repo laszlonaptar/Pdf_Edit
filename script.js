@@ -1,55 +1,28 @@
 
-let employeeCount = 1;
+async function generateXLSX() {
+    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.0/package/xlsx.mjs');
 
-function addEmployee() {
-    employeeCount++;
-    const container = document.getElementById("employeeFields");
-    const div = document.createElement("div");
-    div.innerHTML = \`
-        <label>Name: <input type="text" name="Name\${employeeCount}"></label>
-        <label>Vorname: <input type="text" name="Vorname\${employeeCount}"></label>
-        <label>Ausweis-Nr.: <input type="text" name="Ausweis\${employeeCount}"></label>
-        <label>Beginn: <input type="time" name="Beginn\${employeeCount}"></label>
-        <label>Ende: <input type="time" name="Ende\${employeeCount}"></label>
-        <label>Stunden: <input type="text" name="Stunden\${employeeCount}" readonly></label>
-    \`;
-    container.appendChild(div);
-}
+    const datum = document.getElementById('datum').value;
+    const bauort = document.getElementById('bauort').value;
+    const name = document.getElementById('name1').value;
+    const vorname = document.getElementById('vorname1').value;
+    const ausweis = document.getElementById('ausweis1').value;
+    const beginn = document.getElementById('beginn1').value;
+    const ende = document.getElementById('ende1').value;
 
-function parseTime(t) {
-    const [h, m] = t.split(":").map(Number);
-    return h + m / 60;
-}
+    const wb = XLSX.utils.book_new();
+    const ws_data = [
+        ["Datum", datum],
+        ["Bauort", bauort],
+        [],
+        ["Name", name],
+        ["Vorname", vorname],
+        ["Ausweis-Nr.", ausweis],
+        ["Beginn", beginn],
+        ["Ende", ende]
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
 
-function generateXLS() {
-    const form = document.forms['workForm'];
-    const formData = new FormData(form);
-    let totalHours = 0;
-
-    for (let i = 1; i <= employeeCount; i++) {
-        const start = formData.get("Beginn" + i);
-        const end = formData.get("Ende" + i);
-        if (start && end) {
-            const duration = parseTime(end) - parseTime(start) - 1;  // 1 Stunde Pause
-            const corrected = Math.round(duration * 4) / 4;
-            form["Stunden" + i].value = corrected.toFixed(2);
-            totalHours += corrected;
-        }
-    }
-
-    form["Gesamtstunden"].value = totalHours.toFixed(2);
-
-    // XLS Generierung (egyszerű CSV-ként)
-    let csvContent = "data:text/csv;charset=utf-8,";
-    formData.forEach((value, key) => {
-        csvContent += `${key},${value}\n`;
-    });
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "arbeitsnachweis.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    XLSX.utils.book_append_sheet(wb, ws, "Nachweis");
+    XLSX.writeFile(wb, "arbeitsnachweis.xlsx");
 }
