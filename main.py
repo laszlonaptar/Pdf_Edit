@@ -1,45 +1,33 @@
-from fastapi import FastAPI, File, UploadFile, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, Form
+from fastapi.responses import FileResponse
 from openpyxl import load_workbook
 import shutil
-import os
 
 app = FastAPI()
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
-@app.get("/", response_class=HTMLResponse)
-async def read_form(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-@app.post("/upload")
-async def upload_file(
-    request: Request,
-    file: UploadFile = File(...)
+@app.post("/generate_excel/")
+async def generate_excel(
+    datum: str = Form(...),
+    projekt: str = Form(...),
+    geraet: str = Form(""),
+    mitarbeiter1: str = Form(...),
+    stunden1: float = Form(...)
 ):
     try:
-        contents = await file.read()
-        filename = "GP-t_filled.xlsx"
-        with open("GP-t.xlsx", "wb") as f:
-            f.write(contents)
-
-        wb = load_workbook("GP-t.xlsx")
+        shutil.copyfile("GP-t.xlsx", "GP-t_filled.xlsx")
+        wb = load_workbook("GP-t_filled.xlsx")
         ws = wb.active
 
-        # Példa: első mezőbe minta adat
-        ws["B6"] = "2025.08.05"
-        ws["D6"] = "M715"
-        ws["G6"] = "John Doe"
-        ws["J6"] = "8"
-        ws["L6"] = "8"
+        # Cellák kitöltése
+        ws["B6"] = datum
+        ws["D6"] = projekt
+        ws["F6"] = geraet
+        ws["G6"] = mitarbeiter1
+        ws["J6"] = stunden1
+        ws["L6"] = stunden1
 
-        wb.save(filename)
-        return FileResponse(filename, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename=filename)
+        wb.save("GP-t_filled.xlsx")
+        return FileResponse("GP-t_filled.xlsx", media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename="GP-t_filled.xlsx")
+
     except Exception as e:
-        import traceback
-        print("❌ Internal Server Error:", str(e))
-        traceback.print_exc()
-        return HTMLResponse(content="Internal Server Error: " + str(e), status_code=500)
+        return {"error": str(e)}
