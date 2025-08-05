@@ -1,41 +1,53 @@
-
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Arbeitsnachweis Formular</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <h1>Arbeitsnachweis</h1>
-    <form id="form">
-        <label for="datum">Datum:</label>
-        <input type="date" id="datum" name="datum" required><br>
+    <h1>Arbeitsnachweis Formular</h1>
+    <form id="arbeitsForm">
+        <label>Datum:
+            <input type="date" id="datum" name="datum" required />
+        </label>
+        <label>Bau und Ausführungsort:
+            <input type="text" id="bauort" name="bauort" required />
+        </label>
+        <label>Beauftragter:
+            <input type="text" id="beauftragter" name="beauftragter" required />
+        </label>
 
-        <label for="bauort">Bau und Ausführungsort:</label>
-        <input type="text" id="bauort" name="bauort" required><br>
-
-        <div id="arbeiter-section">
-            <h2>Arbeiter 1</h2>
-            <label for="name1">Name:</label>
-            <input type="text" id="name1" name="name1" required><br>
-
-            <label for="vorname1">Vorname:</label>
-            <input type="text" id="vorname1" name="vorname1" required><br>
-
-            <label for="ausweis1">Ausweis-Nr.:</label>
-            <input type="text" id="ausweis1" name="ausweis1" required><br>
-
-            <label for="beginn1">Beginn:</label>
-            <input type="time" id="beginn1" name="beginn1" required><br>
-
-            <label for="ende1">Ende:</label>
-            <input type="time" id="ende1" name="ende1" required><br>
+        <div id="mitarbeiterContainer">
+            <div class="mitarbeiter">
+                <label>Name:
+                    <input type="text" name="name" required />
+                </label>
+                <label>Vorname:
+                    <input type="text" name="vorname" required />
+                </label>
+                <label>Ausweis-Nr.:
+                    <input type="text" name="ausweis" required />
+                </label>
+                <label>Beginn:
+                    <input type="time" name="beginn" required />
+                </label>
+                <label>Ende:
+                    <input type="time" name="ende" required />
+                </label>
+            </div>
         </div>
 
-        <button type="button" onclick="generateXLSX()">Fertig</button>
+        <button type="button" onclick="addMitarbeiter()">+ Mitarbeiter hinzufügen</button>
+
+        <label>Beschreibung der ausgeführten Arbeiten:
+            <textarea id="beschreibung" name="beschreibung" required></textarea>
+        </label>
+
+        <button type="submit">Fertig</button>
     </form>
+
     <script src="script.js"></script>
 </body>
 </html>
