@@ -1,15 +1,13 @@
 <!DOCTYPE html>
-<html lang="hu">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>PDF Edit</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>PDF-Excel generátor</title>
 </head>
 <body>
-    <h1>PDF / Excel generálás</h1>
-    <form id="generate-form" method="POST" action="/generate">
-        <button type="submit">Fájl letöltése</button>
+    <h1>Tölts fel sablon Excel fájlt</h1>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" required><br><br>
+        <input type="submit" value="Feltöltés">
     </form>
-    <script src="/static/script.js"></script>
 </body>
 </html>
