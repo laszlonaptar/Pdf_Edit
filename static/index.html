@@ -2,37 +2,24 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Arbeitsnachweis Generator</title>
+    <title>Arbeitsnachweis Formular</title>
 </head>
 <body>
-    <h1>Excel-Generierung</h1>
-    <form method="POST" action="/generate_excel">
-        <label for="datum">Datum:</label>
-        <input type="date" name="datum" required><br><br>
+    <h2>Arbeitsnachweis</h2>
+    <form method="post" action="/generate">
+        <label>Datum: <input type="date" name="datum" required></label><br>
+        <label>Projekt: <input type="text" name="projekt" required></label><br>
+        <label>Bauleiter (BF): <input type="text" name="bf" required></label><br>
+        <label>Was wurde gemacht? <input type="text" name="beschreibung" required></label><br><br>
+        
+        <h3>Arbeiter 1</h3>
+        <label>Vorname: <input type="text" name="vorname1" required></label><br>
+        <label>Nachname: <input type="text" name="nachname1" required></label><br>
+        <label>Ausweis-Nr.: <input type="text" name="ausweis1" required></label><br>
+        <label>Beginn: <input type="time" name="beginn1" required></label><br>
+        <label>Ende: <input type="time" name="ende1" required></label><br><br>
 
-        <label for="bauort">Bau und Ausführungsort:</label>
-        <input type="text" name="bauort" required><br><br>
-
-        <label for="bf">Bauleiter / Fachbauleiter:</label>
-        <input type="text" name="bf" required><br><br>
-
-        <label for="was">Was wurde gemacht?</label>
-        <input type="text" name="was" required><br><br>
-
-        <label for="arbeiter_vn">Vorname (Arbeiter 1):</label>
-        <input type="text" name="arbeiter_vn" required><br><br>
-
-        <label for="arbeiter_nn">Nachname (Arbeiter 1):</label>
-        <input type="text" name="arbeiter_nn" required><br><br>
-
-        <label for="arbeiter_ausweis">Ausweis-Nr. (Arbeiter 1):</label>
-        <input type="text" name="arbeiter_ausweis" required><br><br>
-
-        <label for="beginn">Beginn (z. B. 07:00):</label>
-        <input type="time" name="beginn" required><br><br>
-
-        <label for="ende">Ende (z. B. 16:00):</label>
-        <input type="time" name="ende" required><br><br>
+        <label>Vorhaltung/Gerät: <input type="text" name="geraet"></label><br><br>
 
         <button type="submit">Excel generieren</button>
     </form>
