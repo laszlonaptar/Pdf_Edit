@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-openpyxl
-jinja2
-python-multipart
-Flask==2.3.2
-gunicorn==21.2.0
