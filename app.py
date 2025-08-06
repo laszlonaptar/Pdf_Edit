@@ -1,65 +1,57 @@
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from openpyxl import load_workbook
-from datetime import datetime
+import io
+from datetime import datetime, timedelta
+import openpyxl
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
-def read_form(request: Request):
+async def read_form(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-@app.post("/generate_excel")
+@app.post("/generate", response_class=StreamingResponse)
 async def generate_excel(
+    request: Request,
     datum: str = Form(...),
     bauort: str = Form(...),
     bf: str = Form(...),
-    taetigkeit: str = Form(...),
-    beginn: str = Form(...),
-    ende: str = Form(...),
-    geraet: str = Form(None),
-    name1: str = Form(...),
-    vorname1: str = Form(...),
-    ausweis1: str = Form(...)
+    beschreibung: str = Form(...),
+    geraet: str = Form(""),
+    arbeiter_vorname: list[str] = Form(...),
+    arbeiter_nachname: list[str] = Form(...),
+    arbeiter_ausweis: list[str] = Form(...),
+    arbeiter_beginn: list[str] = Form(...),
+    arbeiter_ende: list[str] = Form(...),
+    gesamtstunden: str = Form(...)
 ):
-    # Sablon betöltése
-    wb = load_workbook("GP-t.xlsx")
+    wb = openpyxl.load_workbook("GP-t.xlsx")
     ws = wb.active
 
-    # Alapadatok beírása
-    ws["C4"] = datum
-    ws["C5"] = bauort
-    ws["C6"] = bf
-    ws["C7"] = taetigkeit
+    ws["D4"] = datum
+    ws["D5"] = bauort
+    ws["D6"] = bf
+    ws["D7"] = beschreibung
+    ws["D23"] = gesamtstunden
+    ws["D24"] = geraet
 
-    # Dolgozó 1
-    ws["B11"] = name1
-    ws["C11"] = vorname1
-    ws["D11"] = ausweis1
+    for i in range(len(arbeiter_vorname)):
+        ws[f"A{10 + i}"] = arbeiter_nachname[i]
+        ws[f"B{10 + i}"] = arbeiter_vorname[i]
+        ws[f"C{10 + i}"] = arbeiter_ausweis[i]
+        ws[f"D{10 + i}"] = arbeiter_beginn[i]
+        ws[f"E{10 + i}"] = arbeiter_ende[i]
 
-    # Munkaidő
-    ws["E11"] = beginn
-    ws["F11"] = ende
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
 
-    # Időtartam kiszámítása
-    fmt = "%H:%M"
-    start = datetime.strptime(beginn, fmt)
-    end = datetime.strptime(ende, fmt)
-    total = (end - start).seconds / 3600
-
-    # Szünetek levonása
-    if start <= datetime.strptime("09:15", fmt) and end >= datetime.strptime("09:00", fmt):
-        total -= 0.25
-    if start <= datetime.strptime("12:45", fmt) and end >= datetime.strptime("12:00", fmt):
-        total -= 0.75
-
-    ws["G11"] = round(total, 2)
-
-    if geraet:
-        ws["B21"] = geraet
-
-    output_path = "arbeitsnachweis.xlsx"
-    wb.save(output_path)
-    return FileResponse(output_path, filename=output_path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    filename = f"arbeitsnachweis_{datum}.xlsx"
+    headers = {
+        'Content-Disposition': f'attachment; filename="{filename}"'
+    }
+    return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
