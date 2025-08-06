@@ -1,115 +1,32 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <title>Arbeitsnachweis</title>
-  <style>
-    label {
-      display: block;
-      margin-top: 10px;
-      font-weight: bold;
-    }
-    input, textarea {
-      width: 300px;
-    }
-  </style>
-  <script>
-    let workerCount = 1;
-    const maxWorkers = 5;
-
-    function addWorker() {
-      if (workerCount >= maxWorkers) return;
-
-      workerCount++;
-      const container = document.getElementById("workers");
-
-      const html = `
-        <fieldset>
-          <legend>Arbeiter ${workerCount}</legend>
-          <label for="vorname${workerCount}">Vorname:</label>
-          <input type="text" name="vorname${workerCount}" required />
-          <label for="name${workerCount}">Nachname:</label>
-          <input type="text" name="name${workerCount}" required />
-          <label for="ausweis${workerCount}">Ausweis-Nr.:</label>
-          <input type="text" name="ausweis${workerCount}" required />
-        </fieldset>
-      `;
-
-      container.insertAdjacentHTML("beforeend", html);
-    }
-
-    function calculateHours() {
-      const start = document.querySelector("input[name='beginn']").value;
-      const end = document.querySelector("input[name='ende']").value;
-
-      if (!start || !end) return;
-
-      const [sh, sm] = start.split(":").map(Number);
-      const [eh, em] = end.split(":").map(Number);
-      let totalMinutes = (eh * 60 + em) - (sh * 60 + sm);
-
-      // Pausen abziehen
-      const breaks = [
-        { start: 9 * 60, end: 9 * 60 + 15 },   // 9:00–9:15
-        { start: 12 * 60, end: 12 * 60 + 45 }  // 12:00–12:45
-      ];
-
-      const workStart = sh * 60 + sm;
-      const workEnd = eh * 60 + em;
-
-      breaks.forEach(b => {
-        if (workStart < b.end && workEnd > b.start) {
-          const overlap = Math.min(workEnd, b.end) - Math.max(workStart, b.start);
-          totalMinutes -= Math.max(0, overlap);
-        }
-      });
-
-      const totalHours = (totalMinutes / 60).toFixed(2);
-      document.getElementById("gesamtstunden").textContent = `Gesamtstunden: ${totalHours} h`;
-    }
-  </script>
+    <meta charset="UTF-8">
+    <title>Arbeitsnachweis</title>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <h1>Arbeitsnachweis</h1>
-  <form method="post" action="/generate_excel">
-    <label for="datum">Datum:</label>
-    <input type="date" name="datum" required />
-
-    <label for="bauort">Bau und Ausführungsort:</label>
-    <input type="text" name="bauort" required />
-
-    <label for="bf">BASF Beafutragter (BF):</label>
-    <input type="text" name="bf" required />
-
-    <label for="taetigkeit">Was wurde gemacht?</label>
-    <input type="text" name="taetigkeit" required />
-
-    <div id="workers">
-      <fieldset>
-        <legend>Arbeiter 1</legend>
-        <label for="vorname1">Vorname:</label>
-        <input type="text" name="vorname1" required />
-        <label for="name1">Nachname:</label>
-        <input type="text" name="name1" required />
-        <label for="ausweis1">Ausweis-Nr.:</label>
-        <input type="text" name="ausweis1" required />
-      </fieldset>
+<h1>Arbeitsnachweis</h1>
+<form method="post" action="/generate">
+    <label>Datum: <input type="date" name="datum" required></label><br>
+    <label>Bauort: <input type="text" name="bauort" required></label><br>
+    <label>Bauleiter (BF): <input type="text" name="bf" required></label><br>
+    <label>Was wurde gemacht?<br><textarea name="beschreibung" required></textarea></label><br>
+    <div id="arbeiter-section">
+        <div class="arbeiter">
+            <h3>Arbeiter 1</h3>
+            <label>Vorname: <input type="text" name="arbeiter_vorname" required></label>
+            <label>Nachname: <input type="text" name="arbeiter_nachname" required></label>
+            <label>Ausweis-Nr.: <input type="text" name="arbeiter_ausweis" required></label>
+            <label>Beginn: <input type="time" name="arbeiter_beginn" required></label>
+            <label>Ende: <input type="time" name="arbeiter_ende" required></label>
+        </div>
     </div>
-    <button type="button" onclick="addWorker()">+ Weitere Arbeiter</button>
-
-    <label for="beginn">Beginn:</label>
-    <input type="time" name="beginn" required onchange="calculateHours()" />
-
-    <label for="ende">Ende:</label>
-    <input type="time" name="ende" required onchange="calculateHours()" />
-
-    <p id="gesamtstunden">Gesamtstunden: </p>
-
-    <label for="geraet">Vorhaltung/Gerät:</label>
-    <input type="text" name="geraet" />
-
-    <br /><br />
+    <button type="button" onclick="addArbeiter()">Weitere Arbeiter hinzufügen</button><br>
+    <label>Vorhaltung/Gerät: <input type="text" name="geraet"></label><br>
+    <label>Gesamtstunden: <input type="text" id="gesamtstunden" name="gesamtstunden" readonly></label><br>
     <button type="submit">Excel generieren</button>
-  </form>
+</form>
+<script src="/static/script.js"></script>
 </body>
 </html>
