@@ -1,45 +1,35 @@
-
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Arbeitsnachweis Generator</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>Arbeitsnachweis</title>
+    <script src="script.js" defer></script>
 </head>
 <body>
-    <h1>Arbeitsnachweis Generator</h1>
-    <form id="data-form" action="/generate" method="post">
-        <label for="datum">Datum:</label>
-        <input type="date" id="datum" name="datum" required><br>
+    <h1>Arbeitsnachweis</h1>
+    <form id="arbeitsForm" method="post" action="/generate_excel">
+        <label>Datum: <input type="date" name="datum" required></label><br>
+        <label>Bauort: <input type="text" name="bauort" required></label><br>
+        <label>Bauleiter (BF): <input type="text" name="bauleiter" required></label><br>
+        <label>Was wurde gemacht?<br>
+            <textarea name="beschreibung" required></textarea>
+        </label><br>
 
-        <label for="projekt">Bau und Ausführungsort:</label>
-        <input type="text" id="projekt" name="projekt" required><br>
-
-        <label for="bf">BF:</label>
-        <input type="text" id="bf" name="bf" required><br>
-
-        <label for="beschreibung">Was wurde gemacht?</label>
-        <textarea id="beschreibung" name="beschreibung" required></textarea><br>
-
-        <label for="geraet">Vorhaltung / beauftragtes Gerät / Fahrzeug:</label>
-        <input type="text" id="geraet" name="geraet"><br><br>
-
-        <div id="arbeiter-container">
-            <div class="arbeiter">
+        <div id="arbeiterContainer">
+            <div class="arbeiter" id="arbeiter1">
                 <h3>Arbeiter 1</h3>
-                <label>Vorname: <input type="text" name="vorname1" required></label><br>
-                <label>Nachname: <input type="text" name="nachname1" required></label><br>
-                <label>Ausweis-Nr.: <input type="text" name="ausweis1" required></label><br>
-                <label>Beginn: <input type="time" name="beginn1" required></label><br>
-                <label>Ende: <input type="time" name="ende1" required></label><br>
-                <label>Gesamtstunden: <input type="text" name="gesamt1" readonly></label><br><br>
+                <label>Vorname: <input type="text" name="vorname1" required></label>
+                <label>Nachname: <input type="text" name="nachname1" required></label>
+                <label>Ausweis-Nr.: <input type="text" name="ausweis1" required></label>
+                <label>Beginn: <input type="time" name="beginn1" required></label>
+                <label>Ende: <input type="time" name="ende1" required></label>
             </div>
         </div>
 
-        <button type="button" id="add-arbeiter">Weitere Arbeiter hinzufügen</button><br><br>
+        <button type="button" onclick="addArbeiter()">Weitere Arbeiter hinzufügen</button><br><br>
+        <label>Vorhaltung/Gerät: <input type="text" name="geraet"></label><br>
+        <label>Gesamtstunden: <input type="text" id="gesamtstunden" name="gesamtstunden" readonly></label><br><br>
         <button type="submit">Excel generieren</button>
     </form>
-
-    <script src="/static/script.js"></script>
 </body>
 </html>
