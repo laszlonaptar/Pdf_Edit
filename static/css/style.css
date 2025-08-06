@@ -1,0 +1,25 @@
+
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    padding: 0;
+    background-color: #f2f2f2;
+}
+form {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 8px;
+}
+label {
+    display: inline-block;
+    width: 180px;
+}
+input, textarea {
+    margin-bottom: 10px;
+}
+.mitarbeiter {
+    margin-bottom: 15px;
+    border: 1px dashed #ccc;
+    padding: 10px;
+    border-radius: 5px;
+}
