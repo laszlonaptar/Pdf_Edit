@@ -1,1 +1,42 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Arbeitsnachweis Formular</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/script.js" defer></script>
+</head>
+<body>
+    <h1>Arbeitsnachweis</h1>
+    <form action="/generate" method="post">
+        <label for="datum">Datum:</label>
+        <input type="date" id="datum" name="datum" required><br>
 
+        <label for="projekt">Bau und Ausführungsort:</label>
+        <input type="text" id="projekt" name="projekt" required><br>
+
+        <label for="basf">BASF-Beauftragter, Org.-Code:</label>
+        <input type="text" id="basf" name="basf" required><br>
+
+        <label for="beschreibung">Was wurde gemacht?</label>
+        <textarea id="beschreibung" name="beschreibung" required></textarea><br>
+
+        <div id="mitarbeiter-container">
+            <div class="mitarbeiter">
+                <label>Nachname:</label>
+                <input type="text" name="nachname[]" required>
+                <label>Vorname:</label>
+                <input type="text" name="vorname[]" required>
+                <label>Ausweis-Nr.:</label>
+                <input type="text" name="ausweis[]" required>
+                <label>Beginn:</label>
+                <input type="time" name="beginn[]" required>
+                <label>Ende:</label>
+                <input type="time" name="ende[]" required>
+            </div>
+        </div>
+        <button type="button" onclick="addMitarbeiter()">Weitere Mitarbeiter hinzufügen</button><br><br>
+        <button type="submit">Excel generieren</button>
+    </form>
+</body>
+</html>
