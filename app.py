@@ -1,69 +1,65 @@
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from datetime import datetime
 from openpyxl import load_workbook
-import uuid
-import os
+from datetime import datetime
 
 app = FastAPI()
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
-async def serve_form(request: Request):
+def read_form(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/generate_excel")
 async def generate_excel(
-    request: Request,
     datum: str = Form(...),
     bauort: str = Form(...),
     bf: str = Form(...),
     taetigkeit: str = Form(...),
     beginn: str = Form(...),
     ende: str = Form(...),
-    geraet: str = Form(""),
+    geraet: str = Form(None),
     name1: str = Form(...),
     vorname1: str = Form(...),
-    ausweis1: str = Form(...),
+    ausweis1: str = Form(...)
 ):
-    # Munkaidő számítás
-    start = datetime.strptime(beginn, "%H:%M")
-    end = datetime.strptime(ende, "%H:%M")
-    duration = (end - start).seconds / 3600
-
-    # Automatikus szünetlevonás
-    pause = 0
-    if start <= datetime.strptime("09:00", "%H:%M") < end:
-        pause += 0.25
-    if start <= datetime.strptime("12:00", "%H:%M") < end:
-        pause += 0.75
-
-    work_hours = duration - pause
-
-    # Excel sablon betöltés
+    # Sablon betöltése
     wb = load_workbook("GP-t.xlsx")
     ws = wb.active
 
-    ws["D4"] = datum
-    ws["D5"] = bauort
-    ws["D6"] = bf
-    ws["B8"] = taetigkeit
-    ws["B12"] = name1
-    ws["C12"] = vorname1
-    ws["D12"] = ausweis1
-    ws["F12"] = beginn
-    ws["G12"] = ende
-    ws["H12"] = work_hours
-    ws["I12"] = work_hours
-    ws["B10"] = geraet
+    # Alapadatok beírása
+    ws["C4"] = datum
+    ws["C5"] = bauort
+    ws["C6"] = bf
+    ws["C7"] = taetigkeit
 
-    # Fájl mentése
-    filename = f"arbeitsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
-    filepath = f"/tmp/{filename}"
-    wb.save(filepath)
+    # Dolgozó 1
+    ws["B11"] = name1
+    ws["C11"] = vorname1
+    ws["D11"] = ausweis1
 
-    return FileResponse(filepath, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename=filename)
+    # Munkaidő
+    ws["E11"] = beginn
+    ws["F11"] = ende
+
+    # Időtartam kiszámítása
+    fmt = "%H:%M"
+    start = datetime.strptime(beginn, fmt)
+    end = datetime.strptime(ende, fmt)
+    total = (end - start).seconds / 3600
+
+    # Szünetek levonása
+    if start <= datetime.strptime("09:15", fmt) and end >= datetime.strptime("09:00", fmt):
+        total -= 0.25
+    if start <= datetime.strptime("12:45", fmt) and end >= datetime.strptime("12:00", fmt):
+        total -= 0.75
+
+    ws["G11"] = round(total, 2)
+
+    if geraet:
+        ws["B21"] = geraet
+
+    output_path = "arbeitsnachweis.xlsx"
+    wb.save(output_path)
+    return FileResponse(output_path, filename=output_path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
