@@ -1,55 +1,63 @@
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Request, Form
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from openpyxl import load_workbook
-from datetime import datetime
+from datetime import datetime, timedelta
+import shutil
 import os
 
 app = FastAPI()
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
 @app.get("/", response_class=HTMLResponse)
-async def serve_form(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def serve_form():
+    with open("static/index.html", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
 
-@app.post("/generate_excel")
+@app.post("/generate")
 async def generate_excel(
-    bauort: str = Form(...),
+    datum: str = Form(...),
+    projekt: str = Form(...),
     bf: str = Form(...),
-    was: str = Form(...),
-    arbeiter_vn: str = Form(...),
-    arbeiter_nn: str = Form(...),
-    arbeiter_ausweis: str = Form(...),
-    beginn: str = Form(...),
-    ende: str = Form(...),
-    geraet: str = Form(None)
+    beschreibung: str = Form(...),
+    vorname1: str = Form(...),
+    nachname1: str = Form(...),
+    ausweis1: str = Form(...),
+    beginn1: str = Form(...),
+    ende1: str = Form(...),
+    geraet: str = Form("")
 ):
-    workbook = load_workbook("GP-t.xlsx")
-    sheet = workbook.active
+    template_path = "GP-t.xlsx"
+    filename = f"Arbeitsnachweis_{nachname1}_{datum}.xlsx"
+    output_path = f"/tmp/{filename}"
+    shutil.copy(template_path, output_path)
+    wb = load_workbook(output_path)
+    ws = wb.active
 
-    datum = datetime.today().strftime("%d.%m.%Y")
-    sheet["D4"] = datum
-    sheet["D5"] = bauort
-    sheet["D6"] = bf
-    sheet["A10"] = was
+    ws["C4"] = datum
+    ws["C5"] = projekt
+    ws["K5"] = bf
+    ws["C6"] = beschreibung
+    ws["C34"] = geraet
+    ws["B10"] = nachname1
+    ws["C10"] = vorname1
+    ws["D10"] = ausweis1
+    ws["E10"] = beginn1
+    ws["F10"] = ende1
 
-    sheet["A13"] = arbeiter_nn
-    sheet["B13"] = arbeiter_vn
-    sheet["C13"] = arbeiter_ausweis
-    sheet["D13"] = beginn
-    sheet["E13"] = ende
+    def parse_time(time_str):
+        return datetime.strptime(time_str, "%H:%M")
 
-    if geraet:
-        sheet["A32"] = geraet
+    start = parse_time(beginn1)
+    end = parse_time(ende1)
+    break_time = timedelta(0)
+    if start < datetime.strptime("09:15", "%H:%M") and end > datetime.strptime("09:00", "%H:%M"):
+        break_time += timedelta(minutes=15)
+    if start < datetime.strptime("12:45", "%H:%M") and end > datetime.strptime("12:00", "%H:%M"):
+        break_time += timedelta(minutes=45)
+    worked = end - start - break_time
+    worked_hours = round(worked.total_seconds() / 3600, 2)
+    ws["G10"] = worked_hours
+    ws["H10"] = worked_hours
 
-    output_filename = "generate_excel.xlsx"
-    workbook.save(output_filename)
-
-    return FileResponse(
-        output_filename,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=output_filename
-    )
+    wb.save(output_path)
+    return FileResponse(output_path, filename=filename, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
