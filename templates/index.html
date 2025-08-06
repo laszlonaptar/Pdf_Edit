@@ -1,41 +1,50 @@
+
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Arbeitsnachweis Formular</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <script src="/static/js/script.js" defer></script>
+    <title>Arbeitsnachweis</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script>
+        let workerCount = 1;
+        function addWorker() {
+            if (workerCount >= 5) return;
+            workerCount++;
+            const container = document.getElementById("workers");
+            const workerDiv = document.createElement("div");
+            workerDiv.innerHTML = `
+                <h2>Arbeiter ${workerCount}</h2>
+                <label>Vorname: <input name="vorname_${workerCount}" required></label><br>
+                <label>Nachname: <input name="nachname_${workerCount}" required></label><br>
+                <label>Ausweis-Nr.: <input name="ausweis_${workerCount}" required></label><br>
+                <label>Beginn: <input type="time" name="beginn_${workerCount}" required></label><br>
+                <label>Ende: <input type="time" name="ende_${workerCount}" required></label><br><br>
+            `;
+            container.appendChild(workerDiv);
+        }
+    </script>
 </head>
 <body>
     <h1>Arbeitsnachweis</h1>
-    <form action="/generate" method="post">
-        <label for="datum">Datum:</label>
-        <input type="date" id="datum" name="datum" required><br>
+    <form action="/generate_excel" method="post">
+        <label>Datum: <input type="date" name="datum" required></label><br>
+        <label>Bau und Ausführungsort: <input name="projekt" required></label><br>
+        <label>Bauleiter (BF): <input name="bauleiter" required></label><br>
+        <label>Was wurde gemacht?: <input name="beschreibung" required></label><br><br>
 
-        <label for="projekt">Bau und Ausführungsort:</label>
-        <input type="text" id="projekt" name="projekt" required><br>
-
-        <label for="basf">BASF-Beauftragter, Org.-Code:</label>
-        <input type="text" id="basf" name="basf" required><br>
-
-        <label for="beschreibung">Was wurde gemacht?</label>
-        <textarea id="beschreibung" name="beschreibung" required></textarea><br>
-
-        <div id="mitarbeiter-container">
-            <div class="mitarbeiter">
-                <label>Nachname:</label>
-                <input type="text" name="nachname[]" required>
-                <label>Vorname:</label>
-                <input type="text" name="vorname[]" required>
-                <label>Ausweis-Nr.:</label>
-                <input type="text" name="ausweis[]" required>
-                <label>Beginn:</label>
-                <input type="time" name="beginn[]" required>
-                <label>Ende:</label>
-                <input type="time" name="ende[]" required>
-            </div>
+        <div id="workers">
+            <h2>Arbeiter 1</h2>
+            <label>Vorname: <input name="vorname_1" required></label><br>
+            <label>Nachname: <input name="nachname_1" required></label><br>
+            <label>Ausweis-Nr.: <input name="ausweis_1" required></label><br>
+            <label>Beginn: <input type="time" name="beginn_1" required></label><br>
+            <label>Ende: <input type="time" name="ende_1" required></label><br><br>
         </div>
-        <button type="button" onclick="addMitarbeiter()">Weitere Mitarbeiter hinzufügen</button><br><br>
+
+        <button type="button" onclick="addWorker()">Weitere Arbeiter hinzufügen</button><br><br>
+
+        <label>Vorhaltung/Gerät: <input name="geraet"></label><br><br>
+
         <button type="submit">Excel generieren</button>
     </form>
 </body>
