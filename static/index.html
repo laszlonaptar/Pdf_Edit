@@ -1,1 +1,40 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Excel-Generierung</title>
+</head>
+<body>
+    <h1>Arbeitsnachweis Formular</h1>
+    <form action="/generate_excel" method="post">
+        <label for="datum">Datum:</label>
+        <input type="date" name="datum" required><br><br>
 
+        <label for="bauort">Bau und Ausführungsort:</label>
+        <input type="text" name="bauort" required><br><br>
+
+        <label for="bf">Bauleiter/Fachbauleiter:</label>
+        <input type="text" name="bf" required><br><br>
+
+        <label for="was">Was wurde gemacht?</label><br>
+        <textarea name="was" rows="4" cols="50" required></textarea><br><br>
+
+        <label for="geraet">Vorhaltung / beauftragtes Gerät / Fahrzeug:</label><br>
+        <input type="text" name="geraet"><br><br>
+
+        <label for="arbeiter_nn[]">1. Arbeiter Nachname:</label>
+        <input type="text" name="arbeiter_nn" required><br>
+        <label for="arbeiter_vn[]">1. Arbeiter Vorname:</label>
+        <input type="text" name="arbeiter_vn" required><br>
+        <label for="arbeiter_ausweis[]">1. Ausweis-Nr.:</label>
+        <input type="text" name="arbeiter_ausweis" required><br><br>
+
+        <label for="beginn">Beginn:</label>
+        <input type="time" name="beginn" required><br>
+        <label for="ende">Ende:</label>
+        <input type="time" name="ende" required><br><br>
+
+        <button type="submit">Excel generieren</button>
+    </form>
+</body>
+</html>
