@@ -1,33 +1,28 @@
+
 <!DOCTYPE html>
-<html lang="de">
+<html>
 <head>
+    <title>PDF Edit</title>
     <meta charset="UTF-8">
-    <title>Arbeitsnachweis Formular</title>
     <script src="/static/script.js" defer></script>
 </head>
 <body>
-    <h1>Arbeitsnachweis</h1>
+    <h1>Arbeitsnachweis Generator</h1>
     <form action="/generate_excel" method="post">
         <label>Datum: <input type="date" name="datum" required></label><br>
-        <label>Bau und Ausführungsort: <input type="text" name="bauort" required></label><br>
+        <label>Bau und Ausführungsort: <input type="text" name="projekt" required></label><br>
         <label>BF: <input type="text" name="bf" required></label><br>
-        <label>Was wurde gemacht? <textarea name="beschreibung" required></textarea></label><br>
-        <label>Vorhaltung / Gerät: <input type="text" name="geraet"></label><br><br>
+        <label>Vorhaltung / Gerät: <input type="text" name="geraet"></label><br>
+        <label>Was wurde gemacht? <textarea name="was_gemacht" required></textarea></label><br><br>
 
-        <div id="arbeiter-container">
-            <div class="arbeiter">
-                <h3>Arbeiter 1</h3>
-                <label>Vorname: <input type="text" name="vorname1" required></label><br>
-                <label>Nachname: <input type="text" name="nachname1" required></label><br>
-                <label>Ausweis-Nr.: <input type="text" name="ausweis1" required></label><br>
-                <label>Beginn: <input type="time" name="beginn1" required></label><br>
-                <label>Ende: <input type="time" name="ende1" required></label><br>
-                <label>Gesamtstunden: <input type="text" name="stunden1" readonly></label><br>
-            </div>
-        </div>
-        <button type="button" onclick="addWorker()">+ Weitere Arbeiter</button><br><br>
+        <h3>Arbeiter 1</h3>
+        <label>Name: <input type="text" name="name1" required></label>
+        <label>Vorname: <input type="text" name="vorname1" required></label>
+        <label>Ausweis-Nr.: <input type="text" name="ausweis1" required></label><br>
+        <label>Beginn: <input type="time" name="beginn1" required></label>
+        <label>Ende: <input type="time" name="ende1" required></label><br><br>
 
-        <button type="submit">Excel generieren</button>
+        <button type="submit">Generieren</button>
     </form>
 </body>
 </html>
