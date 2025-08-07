@@ -1,1 +1,1 @@
-// jelenleg nincs dinamikus JS funkció
+// Optional JavaScript
