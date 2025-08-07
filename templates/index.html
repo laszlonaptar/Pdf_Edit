@@ -1,27 +1,17 @@
-
 <!DOCTYPE html>
 <html>
-<head>
-    <title>PDF Edit</title>
-    <meta charset="UTF-8">
-    <script src="/static/script.js" defer></script>
-</head>
+<head><title>PDF Edit</title></head>
 <body>
-    <h1>Arbeitsnachweis Generator</h1>
     <form action="/generate_excel" method="post">
-        <label>Datum: <input type="date" name="datum" required></label><br>
-        <label>Bau und Ausführungsort: <input type="text" name="projekt" required></label><br>
-        <label>BF: <input type="text" name="bf" required></label><br>
-        <label>Vorhaltung / Gerät: <input type="text" name="geraet"></label><br>
-        <label>Was wurde gemacht? <textarea name="was_gemacht" required></textarea></label><br><br>
-
-        <h3>Arbeiter 1</h3>
-        <label>Name: <input type="text" name="name1" required></label>
-        <label>Vorname: <input type="text" name="vorname1" required></label>
-        <label>Ausweis-Nr.: <input type="text" name="ausweis1" required></label><br>
-        <label>Beginn: <input type="time" name="beginn1" required></label>
-        <label>Ende: <input type="time" name="ende1" required></label><br><br>
-
+        <input name="datum" placeholder="Datum"><br>
+        <input name="projekt" placeholder="Projekt"><br>
+        <input name="bf" placeholder="BF"><br>
+        <textarea name="beschreibung" placeholder="Was wurde gemacht?"></textarea><br>
+        <input name="name1" placeholder="Name"><br>
+        <input name="vorname1" placeholder="Vorname"><br>
+        <input name="ausweis1" placeholder="Ausweis-Nr."><br>
+        <input name="beginn1" placeholder="Beginn (HH:MM)"><br>
+        <input name="ende1" placeholder="Ende (HH:MM)"><br>
         <button type="submit">Generieren</button>
     </form>
 </body>
