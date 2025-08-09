@@ -1,35 +1,59 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <title>Arbeitsnachweis</title>
-    <script src="script.js" defer></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tagesbericht – Generator</title>
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-    <h1>Arbeitsnachweis</h1>
-    <form id="arbeitsForm" method="post" action="/generate_excel">
-        <label>Datum: <input type="date" name="datum" required></label><br>
-        <label>Bauort: <input type="text" name="bauort" required></label><br>
-        <label>Bauleiter (BF): <input type="text" name="bauleiter" required></label><br>
-        <label>Was wurde gemacht?<br>
-            <textarea name="beschreibung" required></textarea>
-        </label><br>
+  <div class="container">
+    <h1>Tagesbericht</h1>
 
-        <div id="arbeiterContainer">
-            <div class="arbeiter" id="arbeiter1">
-                <h3>Arbeiter 1</h3>
-                <label>Vorname: <input type="text" name="vorname1" required></label>
-                <label>Nachname: <input type="text" name="nachname1" required></label>
-                <label>Ausweis-Nr.: <input type="text" name="ausweis1" required></label>
-                <label>Beginn: <input type="time" name="beginn1" required></label>
-                <label>Ende: <input type="time" name="ende1" required></label>
-            </div>
+    <form id="reportForm" action="/generate_excel" method="post">
+      <div class="grid">
+        <label>
+          Datum
+          <input type="date" name="datum" required />
+        </label>
+
+        <label>
+          Bau
+          <input type="text" name="bau" placeholder="Bau / Projekt" required />
+        </label>
+
+        <label>
+          BASF-Beauftragter
+          <input type="text" name="basf_beauftragter" placeholder="Name" />
+        </label>
+
+        <label>
+          Gerät/Fahrzeug
+          <input type="text" name="geraet" placeholder="Optional" />
+        </label>
+      </div>
+
+      <label>
+        Tätigkeiten (Beschreibung des Tages)
+        <textarea name="beschreibung" rows="6" required placeholder="Was wurde gemacht?"></textarea>
+      </label>
+
+      <h2>Mitarbeiter</h2>
+      <div id="workers"></div>
+
+      <div class="actions">
+        <button type="button" id="addWorker">Weitere Mitarbeiter hinzufügen</button>
+        <div class="total">
+          Gesamtstunden: <span id="totalHours">0.00</span>
         </div>
+      </div>
 
-        <button type="button" onclick="addArbeiter()">Weitere Arbeiter hinzufügen</button><br><br>
-        <label>Vorhaltung/Gerät: <input type="text" name="geraet"></label><br>
-        <label>Gesamtstunden: <input type="text" id="gesamtstunden" name="gesamtstunden" readonly></label><br><br>
+      <div class="submit">
         <button type="submit">Excel generieren</button>
+      </div>
     </form>
+  </div>
+
+  <script src="/static/script.js"></script>
 </body>
 </html>
