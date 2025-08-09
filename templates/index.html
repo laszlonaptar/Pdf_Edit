@@ -1,44 +1,49 @@
-<!DOCTYPE html>
-<html lang="hu">
+<!doctype html>
+<html lang="de">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Arbeitsnachweis – Excel generálás</title>
+  <title>Arbeitsnachweis</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <div class="container">
-    <h1>Arbeitsnachweis – Excel generálás</h1>
+  <main class="container">
+    <h1>Arbeitsnachweis</h1>
 
-    <form id="workForm" action="/generate_excel" method="POST">
-      <div class="grid">
-        <label>Dátum
-          <input type="date" name="datum" required />
-        </label>
-        <label>Bau
-          <input type="text" name="bau" placeholder="Projekt/Bau" required />
-        </label>
-        <label>Gép/Eszköz
-          <input type="text" name="geraet" placeholder="pl. M715" />
-        </label>
-      </div>
-
-      <label>Leírás (napiszintű)
-        <textarea name="beschreibung" rows="6" placeholder="Mit csináltunk ma?" required></textarea>
+    <form method="post" action="/generate_excel">
+      <label>Datum
+        <input type="date" name="datum" required />
       </label>
 
-      <h2>Dolgozók</h2>
-      <div id="workers"></div>
-      <button class="secondary" type="button" id="addWorkerBtn">+ További dolgozó</button>
+      <label>Bau / Ausführungsort
+        <input type="text" name="bau" placeholder="z.B. G725" required />
+      </label>
 
-      <div class="total">
-        <strong>Összes óraszám (szünetekkel):</strong>
-        <span id="totalHours">0</span>
+      <label>BASF-Beauftragter (BF)
+        <input type="text" name="bf" />
+      </label>
+
+      <label>Vorhaltung / Gerät / Fahrzeug
+        <input type="text" name="geraet" placeholder="z.B. M715" />
+      </label>
+
+      <label>Beschreibung (tagesgenau)
+        <textarea name="beschreibung" rows="6" placeholder="Was wurde gemacht?"></textarea>
+      </label>
+
+      <h2>Arbeiter</h2>
+      <div id="workers"></div>
+      <button type="button" id="addWorker">+ Weiteren Arbeiter hinzufügen</button>
+
+      <div class="totals">
+        <label>Gesamtstunden (ohne Pausen)
+          <input type="text" id="gesamt" readonly />
+        </label>
       </div>
 
-      <button type="submit">Excel generálása</button>
+      <button type="submit">Excel generieren</button>
     </form>
-  </div>
+  </main>
 
   <script src="/static/script.js"></script>
 </body>
