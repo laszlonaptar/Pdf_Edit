@@ -1,11 +1,10 @@
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from datetime import datetime, time
 from io import BytesIO
 from openpyxl import load_workbook
-from typing import List
 
 app = FastAPI()
 
@@ -18,79 +17,136 @@ async def form_page(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-def calculate_hours(start: str, end: str) -> float:
-    """Munkaidő számítás szünetek levonásával."""
+def _calc_hours(start: str, end: str) -> float:
+    """Munkaidő számítás a rögzített szünetek levonásával."""
     if not start or not end:
         return 0.0
+    try:
+        s = datetime.strptime(start, "%H:%M")
+        e = datetime.strptime(end, "%H:%M")
+    except ValueError:
+        return 0.0
 
-    start_time = datetime.strptime(start, "%H:%M")
-    end_time = datetime.strptime(end, "%H:%M")
-    work_duration = (end_time - start_time).total_seconds() / 3600
+    hours = (e - s).total_seconds() / 3600.0
 
-    # Szünetek
-    breaks = 0.0
-    if start_time.time() <= time(9, 15) and end_time.time() >= time(9, 0):
-        breaks += 0.25
-    if start_time.time() <= time(12, 45) and end_time.time() >= time(12, 0):
-        breaks += 0.75
+    # 09:00–09:15 (0.25 h) és 12:00–12:45 (0.75 h) szünet
+    if s.time() <= time(9, 15) and e.time() >= time(9, 0):
+        hours -= 0.25
+    if s.time() <= time(12, 45) and e.time() >= time(12, 0):
+        hours -= 0.75
 
-    return max(work_duration - breaks, 0)
+    return max(hours, 0.0)
+
+
+def _first(form, *keys, default=""):
+    """Az első létező kulcs értéke (alias-ok támogatása)."""
+    for k in keys:
+        if k in form and form[k]:
+            return form[k]
+    return default
+
+
+def _get_list(form, *names):
+    """
+    Listát ad vissza dolgozói mezőkből.
+    Támogatott:
+      - többszörös azonos név (getlist)
+      - indexelt kulcsok: name1/name2..., vorname1/vorname2... stb.
+    """
+    # 1) getlist, ha van
+    for n in names:
+        vals = form.getlist(n)
+        if vals:
+            return [v for v in vals if str(v).strip() != ""]
+    # 2) indexelt felderítés 1..10
+    out = []
+    for i in range(1, 11):
+        for n in names:
+            key = f"{n}{i}"
+            if key in form and str(form[key]).strip() != "":
+                out.append(form[key])
+                break
+    return out
 
 
 @app.post("/generate_excel")
-async def generate_excel(
-    request: Request,
-    datum: str = Form(...),
-    projekt: str = Form(...),
-    bf: str = Form(...),
-    taetigkeit: str = Form(...),
-    vorhaltung: str = Form(""),
-    name: List[str] = Form(...),
-    vorname: List[str] = Form(...),
-    ausweis: List[str] = Form(...),
-    beginn: List[str] = Form(...),
-    ende: List[str] = Form(...)
-):
-    # Excel sablon betöltése
+async def generate_excel(request: Request):
+    form = await request.form()
+
+    # --- Fejléc mezők (több alias megengedett) ---
+    datum       = _first(form, "datum", "date")
+    projekt     = _first(form, "projekt", "bau", "bauort")
+    bf          = _first(form, "bf", "beauftragter", "basf")
+    taetigkeit  = _first(form, "taetigkeit", "beschreibung", "leiras")
+    vorhaltung  = _first(form, "vorhaltung", "geraet", "eszkoz", default="")
+
+    # --- Dolgozói listák (többféle elnevezés támogatása) ---
+    names    = _get_list(form, "name", "nachname")
+    vornamen = _get_list(form, "vorname", "keresztnev")
+    ausweise = _get_list(form, "ausweis", "ausweisnr", "id", "szemelyi")
+    begins   = _get_list(form, "beginn", "start")
+    ends     = _get_list(form, "ende", "finish", "end")
+
+    # Minimális validáció: legyen legalább egy dolgozó + projekt
+    if not projekt or not names:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Hiányzó kötelező mezők: projekt/bau és legalább 1 dolgozó (név)."}
+        )
+
+    # --- Excel sablon betöltése ---
     wb = load_workbook("GP-t.xlsx")
     ws = wb.active
 
-    # Fejléc adatok
-    ws["A1"] = datum
-    ws["B2"] = projekt
-    ws["G2"] = bf
+    # A sablonodon eddig ezek a helyek működtek stabilan:
+    # Dátum (fejléc bal blokk jobb oldala), Bau (alatta bal oldal), BASF megbízott (jobb felső blokk)
+    # Ha nálad más cellák a tutik, írd át ezeket a címeket.
+    ws["E3"] = datum          # dátum
+    ws["E4"] = projekt        # Bau / Ausführungsort
+    ws["J3"] = bf             # BASF-Beauftragter (ha van ilyen mező a sablonban)
 
-    if vorhaltung:
-        ws["A3"] = vorhaltung
+    # Tevékenység (A6–G15 tartomány – a sablonod így nézett ki)
+    # Egyszerűen soronként írjuk, a wrap-ot az Excel nézi.
+    lines = [ln.strip() for ln in str(taetigkeit).split("\n")]
+    start_r = 6
+    for i, ln in enumerate(lines[:10]):
+        ws[f"A{start_r + i}"] = ln
 
-    # Tevékenység szöveg tördelve A6-G15 cellák közé
-    lines = taetigkeit.split("\n")
-    for i, line in enumerate(lines[:10]):
-        ws[f"A{6+i}"] = line
+    # Dolgozók táblázat kezdősora (a legutóbbi jó képen ez 17 volt)
+    row0 = 17
+    total_sum = 0.0
+    n = max(len(names), len(vornamen), len(ausweise), len(begins), len(ends))
+    for i in range(n):
+        r = row0 + i
+        name    = names[i] if i < len(names) else ""
+        vorname = vornamen[i] if i < len(vornamen) else ""
+        ausw    = ausweise[i] if i < len(ausweise) else ""
+        b       = begins[i] if i < len(begins) else ""
+        e       = ends[i] if i < len(ends) else ""
 
-    # Dolgozói adatok feltöltése
-    start_row = 17
-    for i in range(len(name)):
-        if not name[i]:
+        if not name and not vorname:
             continue
-        ws[f"A{start_row + i}"] = name[i]
-        ws[f"B{start_row + i}"] = vorname[i]
-        ws[f"C{start_row + i}"] = ausweis[i]
-        ws[f"D{start_row + i}"] = beginn[i]
-        ws[f"E{start_row + i}"] = ende[i]
 
-        total_hours = calculate_hours(beginn[i], ende[i])
-        ws[f"F{start_row + i}"] = total_hours
-        ws[f"G{start_row + i}"] = total_hours  # Gesamtstunden
+        ws[f"A{r}"] = name
+        ws[f"B{r}"] = vorname
+        ws[f"C{r}"] = ausw
+        ws[f"D{r}"] = b
+        ws[f"E{r}"] = e
 
-    # Excel letöltés
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
+        h = _calc_hours(b, e)
+        ws[f"F{r}"] = h
+        total_sum += h
 
-    filename = f"arbeitsnachweis_{datum}.xlsx"
+    # Összesített munkaóra (a képed alapján az alsó "Gesamtstunden" mező)
+    ws["H26"] = total_sum  # ha nem stimmel a hely, írd át a pontos célcellára
+
+    # Kész fájl visszaadása
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"arbeitsnachweis_{datum or 'heute'}.xlsx"
     return StreamingResponse(
-        output,
+        buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f"attachment; filename={fname}"}
     )
