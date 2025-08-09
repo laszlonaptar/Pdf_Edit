@@ -1,79 +1,70 @@
-const workersDiv = document.getElementById('workers');
-const addBtn = document.getElementById('addWorkerBtn');
-const totalEl = document.getElementById('totalHours');
+(function () {
+  const workersDiv = document.getElementById("workers");
+  const addBtn = document.getElementById("addWorker");
+  const totalEl = document.getElementById("gesamt");
 
-const BREAKS = [
-  { start: "09:00", end: "09:15" },
-  { start: "12:00", end: "12:45" },
-];
+  const BREAKS = [
+    { start: "09:00", end: "09:15" },
+    { start: "12:00", end: "12:45" },
+  ];
 
-let workerCount = 0;
-const MAX_WORKERS = 5;
-
-function addWorker(prefill = {}) {
-  if (workerCount >= MAX_WORKERS) return;
-  workerCount++;
-
-  const wrap = document.createElement('div');
-  wrap.className = 'row';
-  wrap.dataset.index = workerCount;
-
-  wrap.innerHTML = `
-    <input class="wide" name="mitarbeiter_vorname${workerCount === 1 ? '' : workerCount}" placeholder="Vezetéknév" value="${prefill.vorname || ''}" required>
-    <input class="wide" name="mitarbeiter_nachname${workerCount === 1 ? '' : workerCount}" placeholder="Keresztnév" value="${prefill.nachname || ''}" required>
-    <input class="small" name="ausweis${workerCount === 1 ? '' : workerCount}" placeholder="Igazolvány" value="${prefill.ausweis || ''}" required>
-    <input class="small" type="time" name="beginn${workerCount === 1 ? '' : workerCount}" value="${prefill.beginn || ''}" required>
-    <input class="small" type="time" name="ende${workerCount === 1 ? '' : workerCount}" value="${prefill.ende || ''}" required>
-  `;
-
-  workersDiv.appendChild(wrap);
-  attachTimeHandlers(wrap);
-  recomputeTotal();
-}
-
-function parseMinutes(hhmm) {
-  const [h, m] = hhmm.split(':').map(Number);
-  return h*60 + m;
-}
-
-function overlapMinutes(aStart, aEnd, bStart, bEnd) {
-  const L = Math.max(aStart, bStart);
-  const R = Math.min(aEnd, bEnd);
-  return Math.max(0, R - L);
-}
-
-function computeOne(begin, end) {
-  if (!begin || !end) return 0;
-  const s = parseMinutes(begin);
-  const e = parseMinutes(end);
-  if (e <= s) return 0;
-  let mins = e - s;
-  for (const br of BREAKS) {
-    mins -= overlapMinutes(s, e, parseMinutes(br.start), parseMinutes(br.end));
-  }
-  return Math.max(0, mins) / 60.0;
-}
-
-function attachTimeHandlers(row) {
-  row.addEventListener('change', (e) => {
-    if (e.target.name.startsWith('beginn') || e.target.name.startsWith('ende')) {
-      recomputeTotal();
+  function parse(t) {
+    if (!t) return null;
+    const s = t.replace(".", ":");
+    const [H, M] = s.split(":").map(x => parseInt(x, 10));
+    if (Number.isNaN(H) || Number.isNaN(M)) return null;
+    return H * 60 + M;
     }
-  });
-}
 
-function recomputeTotal() {
-  let total = 0;
-  const rows = Array.from(workersDiv.children);
-  for (const row of rows) {
-    const beg = row.querySelector('input[name^="beginn"]').value;
-    const end = row.querySelector('input[name^="ende"]').value;
-    total += computeOne(beg, end);
+  function overlap(a0, a1, b0, b1) {
+    return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
   }
-  totalEl.textContent = total.toFixed(2);
-}
 
-addBtn.addEventListener('click', () => addWorker());
+  function computeTotals() {
+    let total = 0;
+    document.querySelectorAll(".worker-row").forEach(row => {
+      const b = parse(row.querySelector('input[name="beginn[]"]').value);
+      const e = parse(row.querySelector('input[name="ende[]"]').value);
+      if (b != null && e != null && e > b) {
+        let mins = e - b;
+        BREAKS.forEach(br => {
+          const bs = parse(br.start), be = parse(br.end);
+          mins -= overlap(b, e, bs, be);
+        });
+        total += Math.max(0, mins);
+        row.querySelector(".row-total").textContent = (mins / 60).toFixed(2);
+      } else {
+        row.querySelector(".row-total").textContent = "";
+      }
+    });
+    totalEl.value = (total / 60).toFixed(2);
+  }
 
-// Start with one required worker
-addWorker();
+  function addWorker(prefill = {}) {
+    const row = document.createElement("div");
+    row.className = "worker-row";
+    row.innerHTML = `
+      <input type="text"   name="nachname[]" placeholder="Name" value="${prefill.nachname || ""}" />
+      <input type="text"   name="vorname[]"  placeholder="Vorname" value="${prefill.vorname || ""}" />
+      <input type="text"   name="ausweis[]"  placeholder="Ausweis-Nr." value="${prefill.ausweis || ""}" />
+      <input type="time"   name="beginn[]"   value="${prefill.beginn || ""}" />
+      <input type="time"   name="ende[]"     value="${prefill.ende || ""}" />
+      <span class="row-total"></span>
+      <button type="button" class="remove">✕</button>
+    `;
+    row.querySelectorAll('input[name="beginn[]"], input[name="ende[]"]').forEach(inp => {
+      inp.addEventListener("change", computeTotals);
+      inp.addEventListener("input", computeTotals);
+    });
+    row.querySelector(".remove").addEventListener("click", () => {
+      row.remove();
+      computeTotals();
+    });
+    workersDiv.appendChild(row);
+  }
+
+  // induláskor egy sor
+  addWorker();
+
+  addBtn.addEventListener("click", () => addWorker());
+})();
