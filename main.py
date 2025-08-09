@@ -1,218 +1,193 @@
-# main.py
-from io import BytesIO
-from datetime import datetime, time, timedelta
-
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from starlette.templating import Jinja2Templates
 
 from openpyxl import load_workbook
-
-# =========================
-# SABLON CELLAPOZÍCIÓK
-# (ha a sablonod mást kíván, ezeket a címeket kell átírni)
-CELL_DATE = "E3"          # Dátum
-CELL_BAU = "E4"           # Bau / Ausführungsort
-CELL_BF  = "J3"           # BASF-Beauftragter
-TOTAL_CELL = "H26"        # Összes óraszám (alsó összesítés cella)
-DESC_FIRST_ROW = 6        # Napi leírás kezdő sora (A6..A15)
-DESC_MAX_LINES = 10       # ennyi sort írunk ki a leírásból
-WORKERS_FIRST_ROW = 17    # első dolgozó sora
-# =========================
-
-# Fix szünetek (zárt intervallumok)
-BREAKS = [
-    (time(9, 0),  time(9, 15)),   # 09:00–09:15  -> 0.25 óra
-    (time(12, 0), time(12, 45)),  # 12:00–12:45 -> 0.75 óra
-]
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment
+from datetime import datetime, time, timedelta
+import uuid
+import os
 
 app = FastAPI()
 
+# statikus fájlok + HTML sablon
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-
-# ---------- Segédfüggvények ----------
-
-def _first(form, *keys, default=""):
-    """Vegye az első, létező és nem üres mezőt a megadott kulcsok közül."""
-    for k in keys:
-        v = form.get(k)
-        if v is None:
-            # többértékes kulcs (MultiDict) esetén próbáljuk listaként
-            vals = form.getlist(k) if hasattr(form, "getlist") else []
-            if vals:
-                v = vals[0]
-        if v is not None and str(v).strip() != "":
-            return str(v)
-    return default
-
-
-def _get_list(form, *keys):
-    """Olvasson ki többször előforduló mezőket listába (name, vorname, stb.)."""
-    out = []
-    for k in keys:
-        vals = []
-        if hasattr(form, "getlist"):
-            vals = form.getlist(k) or []
-        else:
-            v = form.get(k)
-            if v is not None:
-                # ha vesszővel elválasztott érkezik
-                vals = [x.strip() for x in str(v).split(",")]
-        vals = [str(x).strip() for x in vals if str(x).strip() != ""]
-        if vals:
-            # összevonjuk (a legelső kulcs döntő; a többi kiegészíthet)
-            if not out:
-                out = vals[:]
-            else:
-                # ha hosszabb, bővítjük üresekkel, hogy zip-szerűen illeszkedjen
-                if len(vals) > len(out):
-                    out += [""] * (len(vals) - len(out))
-                for i, v in enumerate(vals):
-                    if out[i] == "" and v != "":
-                        out[i] = v
-    return out
-
-
-def _parse_hhmm(s: str) -> time | None:
-    s = (s or "").strip()
-    for fmt in ("%H:%M", "%H.%M", "%H%M"):
-        try:
-            return datetime.strptime(s, fmt).time()
-        except Exception:
-            pass
-    return None
-
-
-def _overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
-    """Két időintervallum átfedésének hossza percben (fél nyitott: [start, end])."""
-    dt = datetime.combine(datetime.today(), time(0, 0))
-    A1, A2 = dt.replace(hour=a1.hour, minute=a1.minute), dt.replace(hour=a2.hour, minute=a2.minute)
-    B1, B2 = dt.replace(hour=b1.hour, minute=b1.minute), dt.replace(hour=b2.hour, minute=b2.minute)
-    start = max(A1, B1)
-    end = min(A2, B2)
-    delta = (end - start).total_seconds() / 60
-    return max(0, int(delta))
-
-
-def _calc_hours(beg: str, end: str) -> float:
-    """Bruttó munkaidő – fix szünetek levonása (órában)."""
-    tb = _parse_hhmm(beg)
-    te = _parse_hhmm(end)
-    if not tb or not te:
-        return 0.0
-    if te <= tb:
-        # ha átnyúlik éjfélen, korrigáljuk
-        dt0 = datetime.combine(datetime.today(), tb)
-        dt1 = datetime.combine(datetime.today(), te) + timedelta(days=1)
-    else:
-        dt0 = datetime.combine(datetime.today(), tb)
-        dt1 = datetime.combine(datetime.today(), te)
-
-    gross_min = int((dt1 - dt0).total_seconds() // 60)
-
-    # szünetek levonása
-    minus = 0
-    for sb, se in BREAKS:
-        minus += _overlap_minutes(tb, te, sb, se)
-
-    net_min = max(0, gross_min - minus)
-    return round(net_min / 60.0, 2)
-
-
-# ---------- Routes ----------
 
 @app.get("/", response_class=HTMLResponse)
 async def form_page(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-@app.post("/generate_excel")
-async def generate_excel(request: Request):
-    try:
-        form = await request.form()
+# --------- SEGÉDFÜGGVÉNYEK (merge-kezelés, időszámítás) ---------
+def top_left_of_merge(ws, r: int, c: int):
+    """Ha (r,c) egy összevont tartományon belül van, adja vissza a bal-felső cella koordinátáját."""
+    for m in ws.merged_cells.ranges:
+        if (r, c) in m:
+            return m.min_row, m.min_col
+    return r, c
 
-        # fejléc mezők (több kulcsnév támogatása a régi verziók miatt)
-        datum      = _first(form, "datum", "date")
-        projekt    = _first(form, "projekt", "bau", "bauort")
-        bf         = _first(form, "bf", "beauftragter", "basf")
-        taetigkeit = _first(form, "taetigkeit", "beschreibung", "leiras")
-        vorhaltung = _first(form, "vorhaltung", "geraet", "eszkoz", default="")
 
-        # dolgozók
-        names    = _get_list(form, "name", "nachname")
-        vornamen = _get_list(form, "vorname", "keresztnev")
-        ausweise = _get_list(form, "ausweis", "ausweisnr", "id", "szemelyi")
-        begins   = _get_list(form, "beginn", "start")
-        ends     = _get_list(form, "ende", "finish", "end")
-
-        if not projekt or not names:
-            return JSONResponse(
-                status_code=400,
-                content={"detail": "Kötelező mezők hiányoznak: projekt/bau és legalább egy dolgozó (név)."}
-            )
-
-        # Excel sablon betöltése
-        wb = load_workbook("GP-t.xlsx")
-        ws = wb.active
-
-        # Fejléc cellák
-        ws[CELL_DATE] = str(datum or "")
-        ws[CELL_BAU]  = str(projekt or "")
-        ws[CELL_BF]   = str(bf or "")
-
-        # Napi leírás A6..A15 (soronként egy bejegyzés)
-        lines = [ln.strip() for ln in str(taetigkeit or "").split("\n")]
-        for i, ln in enumerate(lines[:DESC_MAX_LINES]):
-            ws[f"A{DESC_FIRST_ROW + i}"] = ln
-
-        # Dolgozók kitöltése
-        r0 = WORKERS_FIRST_ROW
-        total = 0.0
-        n = max(len(names), len(vornamen), len(ausweise), len(begins), len(ends))
-        for i in range(n):
-            r = r0 + i
-            name    = str(names[i]) if i < len(names) else ""
-            vorname = str(vornamen[i]) if i < len(vornamen) else ""
-            ausw    = str(ausweise[i]) if i < len(ausweise) else ""
-            b       = str(begins[i]) if i < len(begins) else ""
-            e       = str(ends[i]) if i < len(ends) else ""
-
-            if not name and not vorname:
-                continue
-
-            # A..F oszlopok: Név, Keresztnév, Ausweis, Kezd, Vég, Óra
-            ws[f"A{r}"] = name
-            ws[f"B{r}"] = vorname
-            ws[f"C{r}"] = ausw
-            ws[f"D{r}"] = b
-            ws[f"E{r}"] = e
-            h = _calc_hours(b, e)
-            ws[f"F{r}"] = h
-            total += h
-
-            # G (Vorhaltung/Gerät) – egyelőre minden sorba ugyanazt tesszük (ha kell)
-            if vorhaltung:
-                ws[f"G{r}"] = str(vorhaltung)
-
-        # Összes óra
-        ws[TOTAL_CELL] = total
-
-        # Válasz (xlsx letöltés)
-        buf = BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        fname = f"arbeitsnachweis_{(datum or 'heute').replace('.', '-')}.xlsx"
-        return StreamingResponse(
-            buf,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={fname}"}
+def set_cell(ws, r: int, c: int, value, wrap=False, align_left=False):
+    """Írás összevont cellák figyelembevételével."""
+    r0, c0 = top_left_of_merge(ws, r, c)
+    cell = ws.cell(row=r0, column=c0)
+    cell.value = value
+    if wrap or align_left:
+        cell.alignment = Alignment(
+            wrap_text=True if wrap else cell.alignment.wrap_text,
+            horizontal="left" if align_left else cell.alignment.horizontal,
+            vertical="top",
         )
 
-    except Exception as e:
-        # részletes stacktrace a Render logba
-        import sys, traceback
-        traceback.print_exc(file=sys.stderr)
-        return JSONResponse(status_code=500, content={"error": str(e)})
+
+def parse_hhmm(s: str) -> time | None:
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s.strip(), "%H:%M").time()
+    except Exception:
+        return None
+
+
+def overlap_minutes(a_start: time, a_end: time, b_start: time, b_end: time) -> int:
+    """Két időintervallum átfedése percekben (zárt-balos, nyílt-jobbos logika elég ide)."""
+    dt0 = datetime(2000, 1, 1)
+    A1 = dt0.replace(hour=a_start.hour, minute=a_start.minute)
+    A2 = dt0.replace(hour=a_end.hour, minute=a_end.minute)
+    B1 = dt0.replace(hour=b_start.hour, minute=b_start.minute)
+    B2 = dt0.replace(hour=b_end.hour, minute=b_end.minute)
+    start = max(A1, B1)
+    end = min(A2, B2)
+    if end <= start:
+        return 0
+    return int((end - start).total_seconds() // 60)
+
+
+def worked_minutes_with_breaks(beg: time, end: time) -> int:
+    """Nettó percek levonva a fix szüneteket: 09:00–09:15 (15p) és 12:00–12:45 (45p)."""
+    if not beg or not end:
+        return 0
+    if end <= beg:
+        return 0
+    total = (datetime.combine(datetime.min, end) - datetime.combine(datetime.min, beg)).seconds // 60
+    # fix szünetek
+    total -= overlap_minutes(beg, end, time(9, 0), time(9, 15))
+    total -= overlap_minutes(beg, end, time(12, 0), time(12, 45))
+    return max(total, 0)
+
+
+def fmt_hours(mins: int) -> str:
+    h = mins // 60
+    m = mins % 60
+    return f"{h}:{m:02d}"
+
+
+# --------- BEKÜLDÉS ---------
+@app.post("/generate_excel")
+async def generate_excel(
+    request: Request,
+    datum: str = Form(...),
+    bau: str = Form(...),
+    taetigkeit: str = Form(""),
+    basf_beauftragter: str = Form(""),
+    # dolgozók (max 5)
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""),
+    beginn1: str = Form(""),  ende1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""),
+    beginn2: str = Form(""),  ende2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""),
+    beginn3: str = Form(""),  ende3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""),
+    beginn4: str = Form(""),  ende4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""),
+    beginn5: str = Form(""),  ende5: str = Form(""),
+):
+    # minimális validáció
+    if not bau or not datum:
+        return HTMLResponse(
+            content='{"detail":"Kötelező mezők hiányoznak: projekt/bau és dátum."}',
+            status_code=400,
+            media_type="application/json",
+        )
+
+    # dolgozók összegyűjtése
+    workers_raw = [
+        (vorname1, nachname1, ausweis1, beginn1, ende1),
+        (vorname2, nachname2, ausweis2, beginn2, ende2),
+        (vorname3, nachname3, ausweis3, beginn3, ende3),
+        (vorname4, nachname4, ausweis4, beginn4, ende4),
+        (vorname5, nachname5, ausweis5, beginn5, ende5),
+    ]
+    workers = []
+    total_minutes = 0
+    for v, n, a, b, e in workers_raw:
+        if (v or n or a or b or e):  # van-e bármilyen adat
+            beg = parse_hhmm(b)
+            end = parse_hhmm(e)
+            mins = worked_minutes_with_breaks(beg, end) if (beg and end) else 0
+            total_minutes += mins
+            workers.append({
+                "name": f"{v.strip()} {n.strip()}".strip(),
+                "ausweis": a.strip(),
+                "beginn": b.strip(),
+                "ende": e.strip(),
+                "mins": mins
+            })
+
+    # Excel sablon betöltése
+    template_path = "GP-t.xlsx"
+    if not os.path.exists(template_path):
+        return HTMLResponse(
+            content='{"detail":"Hiányzik a GP-t.xlsx sablon a gyökérben."}',
+            status_code=500,
+            media_type="application/json",
+        )
+
+    wb = load_workbook(template_path)
+    ws = wb.active
+
+    # --- FEJLÉC MEZŐK (összevont cellákra figyelve) ---
+    # Dátum -> D3
+    set_cell(ws, 3, 4, datum)
+    # Bau -> D4
+    set_cell(ws, 4, 4, bau)
+    # BASF-Beauftragter -> E3
+    if basf_beauftragter:
+        set_cell(ws, 3, 5, basf_beauftragter)
+
+    # --- Tätigkeiten (A6:G15 egy nagy összevont blokk) ---
+    # biztos ami biztos: egyesítjük (idempotens, ha már egyesítve van, nem gond)
+    try:
+        ws.merge_cells(start_row=6, start_column=1, end_row=15, end_column=7)
+    except Exception:
+        pass
+    set_cell(ws, 6, 1, taetigkeit, wrap=True, align_left=True)
+
+    # --- Dolgozók blokk (pozíciók feltételezve, ha eltér: finomhangoljuk) ---
+    # Kiindulás: név -> A18..A22, Ausweis -> C18..C22, Beginn -> E18..E22, Ende -> F18..F22, Óra -> G18..G22
+    start_row = 18
+    for idx, w in enumerate(workers[:5]):
+        r = start_row + idx
+        set_cell(ws, r, 1, w["name"])          # A: név
+        set_cell(ws, r, 3, w["ausweis"])       # C: Ausweis
+        set_cell(ws, r, 5, w["beginn"])        # E: Beginn
+        set_cell(ws, r, 6, w["ende"])          # F: Ende
+        set_cell(ws, r, 7, fmt_hours(w["mins"]))  # G: ledolgozott idő
+
+    # --- Összesített munkaidő (G16) ---
+    set_cell(ws, 16, 7, fmt_hours(total_minutes))
+
+    # ideiglenes fájlnév és mentés
+    out_name = f"GP-t_filled_{uuid.uuid4().hex[:8]}.xlsx"
+    out_path = os.path.join("/tmp", out_name)
+    wb.save(out_path)
+
+    return FileResponse(
+        out_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=out_name,
+    )
