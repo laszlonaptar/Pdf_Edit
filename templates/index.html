@@ -1,49 +1,57 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Arbeitsnachweis</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Leistungsnachweis</title>
+  <link rel="stylesheet" href="/static/style.css"/>
 </head>
 <body>
-  <main class="container">
-    <h1>Arbeitsnachweis</h1>
+  <div class="container">
+    <h1>Leistungsnachweis</h1>
 
-    <form method="post" action="/generate_excel">
-      <label>Datum
-        <input type="date" name="datum" required />
-      </label>
+    <form id="lnForm" method="post" action="/generate_excel">
+      <div class="grid">
+        <label>Datum
+          <input type="date" name="datum" id="datum" required/>
+        </label>
 
-      <label>Bau / Ausführungsort
-        <input type="text" name="bau" placeholder="z.B. G725" required />
-      </label>
+        <label>Bau und Ausführungsort
+          <input type="text" name="bau" id="bau" placeholder="z. B. G725" required/>
+        </label>
 
-      <label>BASF-Beauftragter (BF)
-        <input type="text" name="bf" />
-      </label>
+        <label>BF (optional)
+          <input type="text" name="bf" id="bf" placeholder="z. B. Bernatz"/>
+        </label>
 
-      <label>Vorhaltung / Gerät / Fahrzeug
-        <input type="text" name="geraet" placeholder="z.B. M715" />
-      </label>
+        <label>Vorhaltung / Gerät (optional)
+          <input type="text" name="geraet" id="geraet" placeholder="z. B. M715"/>
+        </label>
 
-      <label>Beschreibung (tagesgenau)
-        <textarea name="beschreibung" rows="6" placeholder="Was wurde gemacht?"></textarea>
-      </label>
-
-      <h2>Arbeiter</h2>
-      <div id="workers"></div>
-      <button type="button" id="addWorker">+ Weiteren Arbeiter hinzufügen</button>
-
-      <div class="totals">
-        <label>Gesamtstunden (ohne Pausen)
-          <input type="text" id="gesamt" readonly />
+        <label class="full">Was wurde gemacht? (Tagesbeschreibung)
+          <textarea name="taetigkeit" id="taetigkeit" rows="6" required></textarea>
         </label>
       </div>
 
-      <button type="submit">Excel generieren</button>
+      <h2>Arbeiter</h2>
+
+      <div id="workers"></div>
+
+      <div class="actions">
+        <button type="button" id="addWorker">+ Weitere Arbeiter</button>
+      </div>
+
+      <div class="totals">
+        <label>Gesamtstunden (ohne Pausen)
+          <input type="text" id="gesamt" readonly/>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="submit">Excel generieren</button>
+      </div>
     </form>
-  </main>
+  </div>
 
   <script src="/static/script.js"></script>
 </body>
