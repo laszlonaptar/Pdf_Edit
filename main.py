@@ -12,7 +12,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ---------- breaks & time ----------
+# ---------- idő / szünetek ----------
 def parse_hhmm(s: str) -> time:
     return datetime.strptime(s.strip(), "%H:%M").time()
 
@@ -31,7 +31,7 @@ def net_hours(begin: str, end: str) -> float:
     brk += overlap_minutes(b, e, time(12, 0), time(12, 45)) / 60.0
     return max(0.0, round(total - brk, 2))
 
-# ---------- Excel helpers ----------
+# ---------- Excel segédek ----------
 def ensure_merge(ws, min_row, min_col, max_row, max_col):
     from openpyxl.utils import get_column_letter
     rng = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
@@ -41,7 +41,7 @@ def ensure_merge(ws, min_row, min_col, max_row, max_col):
     ws.merge_cells(rng)
 
 def top_left_of_merge(ws, r, c):
-    # FIX: numerikus ellenőrzés, nem "(r,c) in m"
+    # fontos: numerikus ellenőrzés, nem "(r,c) in m"
     for m in ws.merged_cells.ranges:
         if m.min_row <= r <= m.max_row and m.min_col <= c <= m.max_col:
             return (m.min_row, m.min_col)
@@ -58,15 +58,23 @@ def set_cell(ws, r, c, value, wrap=False, align_left=False):
             vertical="top"
         )
 
-def find_label_cell(ws, label_text: str):
+def find_cell_eq(ws, text: str):
     for row in ws.iter_rows(values_only=False):
         for cell in row:
-            if isinstance(cell.value, str) and cell.value.strip() == label_text:
+            if isinstance(cell.value, str) and cell.value.strip() == text:
+                return (cell.row, cell.column)
+    return None
+
+def find_cell_contains(ws, part: str):
+    p = part.strip().lower()
+    for row in ws.iter_rows(values_only=False):
+        for cell in row:
+            if isinstance(cell.value, str) and p in cell.value.strip().lower():
                 return (cell.row, cell.column)
     return None
 
 def right_region_top_left(ws, row: int, col: int):
-    # ugyanazon a soron lévő merge tartományok közül a következő blokknak a bal felső cellája
+    # adott sor merge-régiói, a label utáni régió bal-felső cellája
     regions = [m for m in ws.merged_cells.ranges if m.min_row == m.max_row == row]
     regions.sort(key=lambda m: m.min_col)
     for i, m in enumerate(regions):
@@ -94,7 +102,7 @@ async def generate_excel(
     beginn: List[str] = Form(...),
     ende: List[str] = Form(...)
 ):
-    # óraszámok
+    # órák számítása
     stunden = []
     total_hours = 0.0
     for b, e in zip(beginn, ende):
@@ -103,66 +111,60 @@ async def generate_excel(
         total_hours += h
     total_hours = round(total_hours, 2)
 
-    # sablon betöltése
     wb = openpyxl.load_workbook("GP-t.xlsx")
     ws = wb.active
 
-    # 1) napi leírás A6:G15
-    ensure_merge(ws, 6, 1, 15, 7)  # A6:G15
+    # Leírás terület (A6:G15) + magasság igazítás, hogy ne vágjon le sort
+    ensure_merge(ws, 6, 1, 15, 7)
     set_cell(ws, 6, 1, taetigkeit, wrap=True, align_left=True)
+    for r in range(6, 16):
+        ws.row_dimensions[r].height = 20  # kicsit nagyobb sor-magasság
 
-    # 2) címke melletti mezők
-    if (pos := find_label_cell(ws, "Datum der Leistungsausführung:")):
+    # Dátum és Bau a címke utáni blokkba
+    if (pos := find_cell_eq(ws, "Datum der Leistungsausführung:")):
         r, c = right_region_top_left(ws, pos[0], pos[1])
         set_cell(ws, r, c, datum)
-
-    if (pos := find_label_cell(ws, "Bau und Ausführungsort:")):
+    if (pos := find_cell_eq(ws, "Bau und Ausführungsort:")):
         r, c = right_region_top_left(ws, pos[0], pos[1])
         set_cell(ws, r, c, bau)
-
-    if bf and (pos := find_label_cell(ws, "BASF-Beauftragter, Org.-Code:")):
+    if bf and (pos := find_cell_contains(ws, "BASF-Beauftragter")):
         r, c = right_region_top_left(ws, pos[0], pos[1])
         set_cell(ws, r, c, bf)
 
-    # 3) dolgozói tábla
-    header_row = None
-    cols = {}
-    for row in ws.iter_rows(values_only=False):
-        for cell in row:
-            if isinstance(cell.value, str) and cell.value.strip() == "Name":
-                header_row = cell.row
-                # fejlécek oszlopai
-                for hc in ws[header_row]:
-                    val = hc.value.strip() if isinstance(hc.value, str) else None
-                    if val:
-                        cols[val] = hc.column
-                break
-        if header_row:
-            break
+    # --- Dolgozói tábla oszlopok felderítése címszavak alapján ---
+    pos_name   = find_cell_eq(ws, "Name")
+    pos_vor    = find_cell_eq(ws, "Vorname")
+    # a sablonban több soros: "Ausweis- Nr.\noder\nKennzeichen"
+    pos_ausw   = find_cell_contains(ws, "Ausweis")
+    pos_beginn = find_cell_eq(ws, "Beginn")
+    pos_ende   = find_cell_eq(ws, "Ende")
+    pos_std    = find_cell_contains(ws, "Anzahl Stunden")
 
-    # fejlécek kulcsai (sablon szövege alapján)
-    KEY_NAME = "Name"
-    KEY_VOR = "Vorname"
-    KEY_AUSW = "Ausweis- Nr.\noder\nKennzeichen"
-    KEY_BEG = "Beginn"
-    KEY_END = "Ende"
-    KEY_STD = "Anzahl Stunden\n(ohne Pausen)"
+    col_name = pos_name[1] if pos_name else None
+    col_vor  = pos_vor[1]  if pos_vor  else None
+    col_ausw = pos_ausw[1] if pos_ausw else None
+    col_beg  = pos_beginn[1] if pos_beginn else None
+    col_end  = pos_ende[1]   if pos_ende else None
+    col_std  = pos_std[1]    if pos_std  else None
 
-    if header_row:
-        first_row = header_row + 2  # elválasztó sorral számolunk
-        for i in range(len(vorname)):
-            r = first_row + i
-            if KEY_NAME in cols: set_cell(ws, r, cols[KEY_NAME], nachname[i])
-            if KEY_VOR in cols: set_cell(ws, r, cols[KEY_VOR], vorname[i])
-            if KEY_AUSW in cols: set_cell(ws, r, cols[KEY_AUSW], ausweis[i])
-            if KEY_BEG in cols: set_cell(ws, r, cols[KEY_BEG], beginn[i])
-            if KEY_END in cols: set_cell(ws, r, cols[KEY_END], ende[i])
-            if KEY_STD in cols: set_cell(ws, r, cols[KEY_STD], stunden[i])
+    # adatkezdő sor: a fenti címkék közül a legalsó + 1
+    rows = [p[0] for p in [pos_name, pos_vor, pos_ausw, pos_beginn, pos_ende, pos_std] if p]
+    data_start = (max(rows) + 1) if rows else 1
 
-        # összesített óraszám: a fejléc oszlopában egy sorral feljebb
-        if KEY_STD in cols:
-            sum_row = header_row - 1
-            set_cell(ws, sum_row, cols[KEY_STD], total_hours)
+    for i in range(len(vorname)):
+        r = data_start + i
+        if col_name: set_cell(ws, r, col_name, nachname[i])
+        if col_vor:  set_cell(ws, r, col_vor,  vorname[i])
+        if col_ausw: set_cell(ws, r, col_ausw, ausweis[i])
+        if col_beg:  set_cell(ws, r, col_beg,  beginn[i])
+        if col_end:  set_cell(ws, r, col_end,  ende[i])
+        if col_std:  set_cell(ws, r, col_std,  stunden[i])
+
+    # Gesamtstunden a megfelelő sorba (ahol "Gesamtstunden" felirat van)
+    if col_std:
+        pos_total = find_cell_contains(ws, "Gesamtstunden")
+        if pos_total:
+            set_cell(ws, pos_total[0], col_std, total_hours)
 
     # letöltés
     bio = BytesIO()
