@@ -1,57 +1,90 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Leistungsnachweis</title>
-  <link rel="stylesheet" href="/static/style.css"/>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tagesbericht – Excel Generator</title>
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <div class="container">
-    <h1>Leistungsnachweis</h1>
+  <main class="container">
+    <h1>Tagesbericht</h1>
 
-    <form id="lnForm" method="post" action="/generate_excel">
-      <div class="grid">
-        <label>Datum
-          <input type="date" name="datum" id="datum" required/>
+    <form id="reportForm" method="post" action="/generate_excel">
+      <section class="grid">
+        <label>
+          Datum
+          <input type="date" name="datum" required />
         </label>
 
-        <label>Bau und Ausführungsort
-          <input type="text" name="bau" id="bau" placeholder="z. B. G725" required/>
+        <label>
+          Bau
+          <input type="text" name="bau" required />
         </label>
 
-        <label>BF (optional)
-          <input type="text" name="bf" id="bf" placeholder="z. B. Bernatz"/>
+        <label>
+          BASF-Beauftragter
+          <input type="text" name="basf_beauftragter" />
         </label>
 
-        <label>Vorhaltung / Gerät (optional)
-          <input type="text" name="geraet" id="geraet" placeholder="z. B. M715"/>
+        <label>
+          Gerät/Fahrzeug
+          <input type="text" name="geraet" />
         </label>
+      </section>
 
-        <label class="full">Was wurde gemacht? (Tagesbeschreibung)
-          <textarea name="taetigkeit" id="taetigkeit" rows="6" required></textarea>
-        </label>
-      </div>
+      <section>
+        <h2>Beschreibung (Tagesbericht)</h2>
+        <textarea name="beschreibung" rows="6" required placeholder="Was wurde gemacht?"></textarea>
+      </section>
 
-      <h2>Arbeiter</h2>
+      <section id="workers">
+        <h2>Mitarbeiter</h2>
 
-      <div id="workers"></div>
+        <!-- Mitarbeiter 1 (kötelező) -->
+        <div class="worker" data-index="1">
+          <h3>Mitarbeiter 1</h3>
+          <div class="grid">
+            <label>Vorname
+              <input type="text" name="vorname1" required />
+            </label>
+            <label>Nachname
+              <input type="text" name="nachname1" required />
+            </label>
+            <label>Ausweis-Nr.
+              <input type="text" name="ausweis1" required />
+            </label>
+            <label>Beginn
+              <input type="time" name="beginn1" required />
+            </label>
+            <label>Ende
+              <input type="time" name="ende1" required />
+            </label>
+          </div>
+        </div>
 
-      <div class="actions">
-        <button type="button" id="addWorker">+ Weitere Arbeiter</button>
-      </div>
+        <div id="moreWorkers"></div>
 
-      <div class="totals">
-        <label>Gesamtstunden (ohne Pausen)
-          <input type="text" id="gesamt" readonly/>
-        </label>
-      </div>
+        <div class="row">
+          <button type="button" id="addWorkerBtn">+ Weitere Mitarbeiter hinzufügen</button>
+        </div>
+      </section>
 
-      <div class="actions">
+      <section>
+        <h2>Gesamtzeit</h2>
+        <div class="grid">
+          <label>Gesamtstunden (auto)
+            <input type="text" id="totalHours" readonly />
+          </label>
+          <small>Automatisch berechnet, mit Pausenabzug: 09:00–09:15 (0,25h) und 12:00–12:45 (0,75h).</small>
+        </div>
+      </section>
+
+      <div class="row">
         <button type="submit">Excel generieren</button>
       </div>
     </form>
-  </div>
+  </main>
 
   <script src="/static/script.js"></script>
 </body>
