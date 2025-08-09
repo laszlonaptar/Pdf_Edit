@@ -12,7 +12,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ---------- idő / szünetek ----------
+# --------------------- idő / szünetek ---------------------
 def parse_hhmm(s: str) -> time:
     return datetime.strptime(s.strip(), "%H:%M").time()
 
@@ -31,7 +31,10 @@ def net_hours(begin: str, end: str) -> float:
     brk += overlap_minutes(b, e, time(12, 0), time(12, 45)) / 60.0
     return max(0.0, round(total - brk, 2))
 
-# ---------- Excel segédek ----------
+# --------------------- Excel segédek ---------------------
+def norm(s: Optional[str]) -> str:
+    return (s or "").strip().replace("\n", " ").replace("  ", " ")
+
 def ensure_merge(ws, min_row, min_col, max_row, max_col):
     from openpyxl.utils import get_column_letter
     rng = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
@@ -41,7 +44,6 @@ def ensure_merge(ws, min_row, min_col, max_row, max_col):
     ws.merge_cells(rng)
 
 def top_left_of_merge(ws, r, c):
-    # fontos: numerikus ellenőrzés, nem "(r,c) in m"
     for m in ws.merged_cells.ranges:
         if m.min_row <= r <= m.max_row and m.min_col <= c <= m.max_col:
             return (m.min_row, m.min_col)
@@ -59,30 +61,48 @@ def set_cell(ws, r, c, value, wrap=False, align_left=False):
         )
 
 def find_cell_eq(ws, text: str):
+    t = norm(text)
     for row in ws.iter_rows(values_only=False):
         for cell in row:
-            if isinstance(cell.value, str) and cell.value.strip() == text:
+            if isinstance(cell.value, str) and norm(cell.value) == t:
                 return (cell.row, cell.column)
     return None
 
 def find_cell_contains(ws, part: str):
-    p = part.strip().lower()
+    p = norm(part).lower()
     for row in ws.iter_rows(values_only=False):
         for cell in row:
-            if isinstance(cell.value, str) and p in cell.value.strip().lower():
+            if isinstance(cell.value, str) and p in norm(cell.value).lower():
                 return (cell.row, cell.column)
     return None
 
-def right_region_top_left(ws, row: int, col: int):
-    # adott sor merge-régiói, a label utáni régió bal-felső cellája
+def next_merged_region_right(ws, row: int, col: int):
+    """A megadott (row,col) cella merge-régióját megkeresi, és visszaadja a KÖZVETLEN jobb oldali régió bal-felső pontját."""
+    # gyűjtsd össze a sor összes merge-régióját
     regions = [m for m in ws.merged_cells.ranges if m.min_row == m.max_row == row]
     regions.sort(key=lambda m: m.min_col)
+    # melyikben ül a címke?
+    idx = None
     for i, m in enumerate(regions):
         if m.min_col <= col <= m.max_col:
-            if i + 1 < len(regions):
-                return (regions[i+1].min_row, regions[i+1].min_col)
+            idx = i
             break
-    return (row, col + 1)
+    if idx is None:
+        return (row, col + 1)
+    # jobb oldali szomszéd
+    if idx + 1 < len(regions):
+        right = regions[idx + 1]
+        return (right.min_row, right.min_col)
+    return (row, regions[idx].max_col + 1)
+
+def set_value_right_of_label(ws, label_text: str, value: str):
+    pos = find_cell_contains(ws, label_text)
+    if not pos:
+        return False
+    r_label, c_label = pos
+    r_target, c_target = next_merged_region_right(ws, r_label, c_label)
+    set_cell(ws, r_target, c_target, value, wrap=False, align_left=True)
+    return True
 
 @app.get("/", response_class=HTMLResponse)
 def form_page(request: Request):
@@ -102,7 +122,7 @@ async def generate_excel(
     beginn: List[str] = Form(...),
     ende: List[str] = Form(...)
 ):
-    # órák számítása
+    # órák
     stunden = []
     total_hours = 0.0
     for b, e in zip(beginn, ende):
@@ -114,27 +134,21 @@ async def generate_excel(
     wb = openpyxl.load_workbook("GP-t.xlsx")
     ws = wb.active
 
-    # Leírás terület (A6:G15) + magasság igazítás, hogy ne vágjon le sort
+    # Leírás blokk (A6:G15), magasabb sorok
     ensure_merge(ws, 6, 1, 15, 7)
     set_cell(ws, 6, 1, taetigkeit, wrap=True, align_left=True)
     for r in range(6, 16):
-        ws.row_dimensions[r].height = 20  # kicsit nagyobb sor-magasság
+        ws.row_dimensions[r].height = 28  # nagyobb, hogy a 2. sor se vágódjon le
 
-    # Dátum és Bau a címke utáni blokkba
-    if (pos := find_cell_eq(ws, "Datum der Leistungsausführung:")):
-        r, c = right_region_top_left(ws, pos[0], pos[1])
-        set_cell(ws, r, c, datum)
-    if (pos := find_cell_eq(ws, "Bau und Ausführungsort:")):
-        r, c = right_region_top_left(ws, pos[0], pos[1])
-        set_cell(ws, r, c, bau)
-    if bf and (pos := find_cell_contains(ws, "BASF-Beauftragter")):
-        r, c = right_region_top_left(ws, pos[0], pos[1])
-        set_cell(ws, r, c, bf)
+    # Fejléc mezők – mindig a címke utáni MERGED blokkba írunk
+    set_value_right_of_label(ws, "Datum der Leistungsausführung", datum)
+    set_value_right_of_label(ws, "Bau und Ausführungsort", bau)
+    if bf:
+        set_value_right_of_label(ws, "BASF-Beauftragter", bf)
 
-    # --- Dolgozói tábla oszlopok felderítése címszavak alapján ---
+    # Dolgozói táblázat oszlopok felderítése
     pos_name   = find_cell_eq(ws, "Name")
     pos_vor    = find_cell_eq(ws, "Vorname")
-    # a sablonban több soros: "Ausweis- Nr.\noder\nKennzeichen"
     pos_ausw   = find_cell_contains(ws, "Ausweis")
     pos_beginn = find_cell_eq(ws, "Beginn")
     pos_ende   = find_cell_eq(ws, "Ende")
@@ -147,7 +161,6 @@ async def generate_excel(
     col_end  = pos_ende[1]   if pos_ende else None
     col_std  = pos_std[1]    if pos_std  else None
 
-    # adatkezdő sor: a fenti címkék közül a legalsó + 1
     rows = [p[0] for p in [pos_name, pos_vor, pos_ausw, pos_beginn, pos_ende, pos_std] if p]
     data_start = (max(rows) + 1) if rows else 1
 
@@ -160,13 +173,12 @@ async def generate_excel(
         if col_end:  set_cell(ws, r, col_end,  ende[i])
         if col_std:  set_cell(ws, r, col_std,  stunden[i])
 
-    # Gesamtstunden a megfelelő sorba (ahol "Gesamtstunden" felirat van)
+    # Gesamtstunden
     if col_std:
         pos_total = find_cell_contains(ws, "Gesamtstunden")
         if pos_total:
             set_cell(ws, pos_total[0], col_std, total_hours)
 
-    # letöltés
     bio = BytesIO()
     wb.save(bio)
     bio.seek(0)
