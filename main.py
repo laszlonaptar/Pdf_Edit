@@ -1,193 +1,190 @@
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.templating import Jinja2Templates
-
-from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
+from fastapi.templating import Jinja2Templates
+from typing import List, Optional
+from datetime import datetime, time
+from io import BytesIO
+import openpyxl
 from openpyxl.styles import Alignment
-from datetime import datetime, time, timedelta
-import uuid
-import os
 
 app = FastAPI()
-
-# statikus fájlok + HTML sablon
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+# --------------------- idő / szünetek ---------------------
+def parse_hhmm(s: str) -> time:
+    return datetime.strptime(s.strip(), "%H:%M").time()
 
-@app.get("/", response_class=HTMLResponse)
-async def form_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+def overlap_minutes(a_start: time, a_end: time, b_start: time, b_end: time) -> int:
+    to_min = lambda t: t.hour * 60 + t.minute
+    a1, a2, b1, b2 = to_min(a_start), to_min(a_end), to_min(b_start), to_min(b_end)
+    left, right = max(a1, b1), min(a2, b2)
+    return max(0, right - left)
 
+def net_hours(begin: str, end: str) -> float:
+    b = parse_hhmm(begin)
+    e = parse_hhmm(end)
+    total = (datetime.combine(datetime.today(), e) - datetime.combine(datetime.today(), b)).total_seconds() / 3600.0
+    brk = 0.0
+    brk += overlap_minutes(b, e, time(9, 0), time(9, 15)) / 60.0
+    brk += overlap_minutes(b, e, time(12, 0), time(12, 45)) / 60.0
+    return max(0.0, round(total - brk, 2))
 
-# --------- SEGÉDFÜGGVÉNYEK (merge-kezelés, időszámítás) ---------
-def top_left_of_merge(ws, r: int, c: int):
-    """Ha (r,c) egy összevont tartományon belül van, adja vissza a bal-felső cella koordinátáját."""
+# --------------------- Excel segédek ---------------------
+def norm(s: Optional[str]) -> str:
+    return (s or "").strip().replace("\n", " ").replace("  ", " ")
+
+def ensure_merge(ws, min_row, min_col, max_row, max_col):
+    from openpyxl.utils import get_column_letter
+    rng = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
     for m in ws.merged_cells.ranges:
-        if (r, c) in m:
-            return m.min_row, m.min_col
-    return r, c
+        if m.coord == rng:
+            return
+    ws.merge_cells(rng)
 
+def top_left_of_merge(ws, r, c):
+    for m in ws.merged_cells.ranges:
+        if m.min_row <= r <= m.max_row and m.min_col <= c <= m.max_col:
+            return (m.min_row, m.min_col)
+    return (r, c)
 
-def set_cell(ws, r: int, c: int, value, wrap=False, align_left=False):
-    """Írás összevont cellák figyelembevételével."""
+def set_cell(ws, r, c, value, wrap=False, align_left=False):
     r0, c0 = top_left_of_merge(ws, r, c)
-    cell = ws.cell(row=r0, column=c0)
+    cell = ws.cell(r0, c0)
     cell.value = value
     if wrap or align_left:
         cell.alignment = Alignment(
-            wrap_text=True if wrap else cell.alignment.wrap_text,
-            horizontal="left" if align_left else cell.alignment.horizontal,
-            vertical="top",
+            wrap_text=wrap,
+            horizontal="left" if align_left else (cell.alignment.horizontal if cell.alignment else "general"),
+            vertical="top"
         )
 
+def find_cell_eq(ws, text: str):
+    t = norm(text)
+    for row in ws.iter_rows(values_only=False):
+        for cell in row:
+            if isinstance(cell.value, str) and norm(cell.value) == t:
+                return (cell.row, cell.column)
+    return None
 
-def parse_hhmm(s: str) -> time | None:
-    if not s:
-        return None
-    try:
-        return datetime.strptime(s.strip(), "%H:%M").time()
-    except Exception:
-        return None
+def find_cell_contains(ws, part: str):
+    p = norm(part).lower()
+    for row in ws.iter_rows(values_only=False):
+        for cell in row:
+            if isinstance(cell.value, str) and p in norm(cell.value).lower():
+                return (cell.row, cell.column)
+    return None
 
+def next_merged_region_right(ws, row: int, col: int):
+    """A megadott (row,col) cella merge-régióját megkeresi, és visszaadja a KÖZVETLEN jobb oldali régió bal-felső pontját."""
+    # gyűjtsd össze a sor összes merge-régióját
+    regions = [m for m in ws.merged_cells.ranges if m.min_row == m.max_row == row]
+    regions.sort(key=lambda m: m.min_col)
+    # melyikben ül a címke?
+    idx = None
+    for i, m in enumerate(regions):
+        if m.min_col <= col <= m.max_col:
+            idx = i
+            break
+    if idx is None:
+        return (row, col + 1)
+    # jobb oldali szomszéd
+    if idx + 1 < len(regions):
+        right = regions[idx + 1]
+        return (right.min_row, right.min_col)
+    return (row, regions[idx].max_col + 1)
 
-def overlap_minutes(a_start: time, a_end: time, b_start: time, b_end: time) -> int:
-    """Két időintervallum átfedése percekben (zárt-balos, nyílt-jobbos logika elég ide)."""
-    dt0 = datetime(2000, 1, 1)
-    A1 = dt0.replace(hour=a_start.hour, minute=a_start.minute)
-    A2 = dt0.replace(hour=a_end.hour, minute=a_end.minute)
-    B1 = dt0.replace(hour=b_start.hour, minute=b_start.minute)
-    B2 = dt0.replace(hour=b_end.hour, minute=b_end.minute)
-    start = max(A1, B1)
-    end = min(A2, B2)
-    if end <= start:
-        return 0
-    return int((end - start).total_seconds() // 60)
+def set_value_right_of_label(ws, label_text: str, value: str):
+    pos = find_cell_contains(ws, label_text)
+    if not pos:
+        return False
+    r_label, c_label = pos
+    r_target, c_target = next_merged_region_right(ws, r_label, c_label)
+    set_cell(ws, r_target, c_target, value, wrap=False, align_left=True)
+    return True
 
+@app.get("/", response_class=HTMLResponse)
+def form_page(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
-def worked_minutes_with_breaks(beg: time, end: time) -> int:
-    """Nettó percek levonva a fix szüneteket: 09:00–09:15 (15p) és 12:00–12:45 (45p)."""
-    if not beg or not end:
-        return 0
-    if end <= beg:
-        return 0
-    total = (datetime.combine(datetime.min, end) - datetime.combine(datetime.min, beg)).seconds // 60
-    # fix szünetek
-    total -= overlap_minutes(beg, end, time(9, 0), time(9, 15))
-    total -= overlap_minutes(beg, end, time(12, 0), time(12, 45))
-    return max(total, 0)
-
-
-def fmt_hours(mins: int) -> str:
-    h = mins // 60
-    m = mins % 60
-    return f"{h}:{m:02d}"
-
-
-# --------- BEKÜLDÉS ---------
 @app.post("/generate_excel")
 async def generate_excel(
     request: Request,
     datum: str = Form(...),
     bau: str = Form(...),
-    taetigkeit: str = Form(""),
-    basf_beauftragter: str = Form(""),
-    # dolgozók (max 5)
-    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""),
-    beginn1: str = Form(""),  ende1: str = Form(""),
-    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""),
-    beginn2: str = Form(""),  ende2: str = Form(""),
-    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""),
-    beginn3: str = Form(""),  ende3: str = Form(""),
-    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""),
-    beginn4: str = Form(""),  ende4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""),
-    beginn5: str = Form(""),  ende5: str = Form(""),
+    bf: Optional[str] = Form(None),
+    geraet: Optional[str] = Form(None),
+    taetigkeit: str = Form(...),
+    vorname: List[str] = Form(...),
+    nachname: List[str] = Form(...),
+    ausweis: List[str] = Form(...),
+    beginn: List[str] = Form(...),
+    ende: List[str] = Form(...)
 ):
-    # minimális validáció
-    if not bau or not datum:
-        return HTMLResponse(
-            content='{"detail":"Kötelező mezők hiányoznak: projekt/bau és dátum."}',
-            status_code=400,
-            media_type="application/json",
-        )
+    # órák
+    stunden = []
+    total_hours = 0.0
+    for b, e in zip(beginn, ende):
+        h = net_hours(b, e)
+        stunden.append(h)
+        total_hours += h
+    total_hours = round(total_hours, 2)
 
-    # dolgozók összegyűjtése
-    workers_raw = [
-        (vorname1, nachname1, ausweis1, beginn1, ende1),
-        (vorname2, nachname2, ausweis2, beginn2, ende2),
-        (vorname3, nachname3, ausweis3, beginn3, ende3),
-        (vorname4, nachname4, ausweis4, beginn4, ende4),
-        (vorname5, nachname5, ausweis5, beginn5, ende5),
-    ]
-    workers = []
-    total_minutes = 0
-    for v, n, a, b, e in workers_raw:
-        if (v or n or a or b or e):  # van-e bármilyen adat
-            beg = parse_hhmm(b)
-            end = parse_hhmm(e)
-            mins = worked_minutes_with_breaks(beg, end) if (beg and end) else 0
-            total_minutes += mins
-            workers.append({
-                "name": f"{v.strip()} {n.strip()}".strip(),
-                "ausweis": a.strip(),
-                "beginn": b.strip(),
-                "ende": e.strip(),
-                "mins": mins
-            })
-
-    # Excel sablon betöltése
-    template_path = "GP-t.xlsx"
-    if not os.path.exists(template_path):
-        return HTMLResponse(
-            content='{"detail":"Hiányzik a GP-t.xlsx sablon a gyökérben."}',
-            status_code=500,
-            media_type="application/json",
-        )
-
-    wb = load_workbook(template_path)
+    wb = openpyxl.load_workbook("GP-t.xlsx")
     ws = wb.active
 
-    # --- FEJLÉC MEZŐK (összevont cellákra figyelve) ---
-    # Dátum -> D3
-    set_cell(ws, 3, 4, datum)
-    # Bau -> D4
-    set_cell(ws, 4, 4, bau)
-    # BASF-Beauftragter -> E3
-    if basf_beauftragter:
-        set_cell(ws, 3, 5, basf_beauftragter)
-
-    # --- Tätigkeiten (A6:G15 egy nagy összevont blokk) ---
-    # biztos ami biztos: egyesítjük (idempotens, ha már egyesítve van, nem gond)
-    try:
-        ws.merge_cells(start_row=6, start_column=1, end_row=15, end_column=7)
-    except Exception:
-        pass
+    # Leírás blokk (A6:G15), magasabb sorok
+    ensure_merge(ws, 6, 1, 15, 7)
     set_cell(ws, 6, 1, taetigkeit, wrap=True, align_left=True)
+    for r in range(6, 16):
+        ws.row_dimensions[r].height = 28  # nagyobb, hogy a 2. sor se vágódjon le
 
-    # --- Dolgozók blokk (pozíciók feltételezve, ha eltér: finomhangoljuk) ---
-    # Kiindulás: név -> A18..A22, Ausweis -> C18..C22, Beginn -> E18..E22, Ende -> F18..F22, Óra -> G18..G22
-    start_row = 18
-    for idx, w in enumerate(workers[:5]):
-        r = start_row + idx
-        set_cell(ws, r, 1, w["name"])          # A: név
-        set_cell(ws, r, 3, w["ausweis"])       # C: Ausweis
-        set_cell(ws, r, 5, w["beginn"])        # E: Beginn
-        set_cell(ws, r, 6, w["ende"])          # F: Ende
-        set_cell(ws, r, 7, fmt_hours(w["mins"]))  # G: ledolgozott idő
+    # Fejléc mezők – mindig a címke utáni MERGED blokkba írunk
+    set_value_right_of_label(ws, "Datum der Leistungsausführung", datum)
+    set_value_right_of_label(ws, "Bau und Ausführungsort", bau)
+    if bf:
+        set_value_right_of_label(ws, "BASF-Beauftragter", bf)
 
-    # --- Összesített munkaidő (G16) ---
-    set_cell(ws, 16, 7, fmt_hours(total_minutes))
+    # Dolgozói táblázat oszlopok felderítése
+    pos_name   = find_cell_eq(ws, "Name")
+    pos_vor    = find_cell_eq(ws, "Vorname")
+    pos_ausw   = find_cell_contains(ws, "Ausweis")
+    pos_beginn = find_cell_eq(ws, "Beginn")
+    pos_ende   = find_cell_eq(ws, "Ende")
+    pos_std    = find_cell_contains(ws, "Anzahl Stunden")
 
-    # ideiglenes fájlnév és mentés
-    out_name = f"GP-t_filled_{uuid.uuid4().hex[:8]}.xlsx"
-    out_path = os.path.join("/tmp", out_name)
-    wb.save(out_path)
+    col_name = pos_name[1] if pos_name else None
+    col_vor  = pos_vor[1]  if pos_vor  else None
+    col_ausw = pos_ausw[1] if pos_ausw else None
+    col_beg  = pos_beginn[1] if pos_beginn else None
+    col_end  = pos_ende[1]   if pos_ende else None
+    col_std  = pos_std[1]    if pos_std  else None
 
-    return FileResponse(
-        out_path,
+    rows = [p[0] for p in [pos_name, pos_vor, pos_ausw, pos_beginn, pos_ende, pos_std] if p]
+    data_start = (max(rows) + 1) if rows else 1
+
+    for i in range(len(vorname)):
+        r = data_start + i
+        if col_name: set_cell(ws, r, col_name, nachname[i])
+        if col_vor:  set_cell(ws, r, col_vor,  vorname[i])
+        if col_ausw: set_cell(ws, r, col_ausw, ausweis[i])
+        if col_beg:  set_cell(ws, r, col_beg,  beginn[i])
+        if col_end:  set_cell(ws, r, col_end,  ende[i])
+        if col_std:  set_cell(ws, r, col_std,  stunden[i])
+
+    # Gesamtstunden
+    if col_std:
+        pos_total = find_cell_contains(ws, "Gesamtstunden")
+        if pos_total:
+            set_cell(ws, pos_total[0], col_std, total_hours)
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    filename = f"Arbeitsnachweis_{datum.replace('.', '-')}.xlsx"
+    return StreamingResponse(
+        bio,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=out_name,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
