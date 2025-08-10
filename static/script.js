@@ -1,68 +1,109 @@
-// Add up to 5 workers
-const workersDiv = document.getElementById('workers');
-const addBtn = document.getElementById('addWorker');
-let workerCount = 0;
-const MAX_WORKERS = 5;
+// ---- Utils ----
+function q(sel, root = document) { return root.querySelector(sel); }
+function qa(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
 
-function addWorkerRow() {
-  if (workerCount >= MAX_WORKERS) return;
-  workerCount++;
-  const wrap = document.createElement('div');
-  wrap.className = 'worker';
-  wrap.innerHTML = `
-    <label>Vorname
-      <input type="text" name="vorname${workerCount}" />
-    </label>
-    <label>Nachname
-      <input type="text" name="nachname${workerCount}" />
-    </label>
-    <label>Ausweis-Nr.
-      <input type="text" name="ausweis${workerCount}" />
-    </label>
-    <div class="row">
-      <label>Beginn
-        <input type="time" name="beginn${workerCount}" />
-      </label>
-      <label>Ende
-        <input type="time" name="ende${workerCount}" />
-      </label>
-    </div>
-  `;
-  workersDiv.appendChild(wrap);
+function parseHHMM(str) {
+  if (!str) return null;
+  const [h, m] = str.split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return { h, m };
+}
+function toMinutes(t) { return t.h * 60 + t.m; }
+function overlap(a1, a2, b1, b2) {
+  const s = Math.max(a1, b1);
+  const e = Math.min(a2, b2);
+  return Math.max(0, e - s);
+}
+function hoursWithBreaks(begStr, endStr) {
+  const b = parseHHMM(begStr);
+  const e = parseHHMM(endStr);
+  if (!b || !e) return 0;
+  let B = toMinutes(b), E = toMinutes(e);
+  if (E <= B) return 0;
+  let total = E - B;
+  // breaks: 09:00–09:15 (15m), 12:00–12:45 (45m)
+  total -= overlap(B, E, 9*60, 9*60 + 15);
+  total -= overlap(B, E, 12*60, 12*60 + 45);
+  return Math.max(0, total) / 60;
+}
+function fmtHours(h) {
+  return (Math.round(h * 100) / 100).toFixed(2).replace('.', ',');
 }
 
-addBtn.addEventListener('click', addWorkerRow);
-// add first worker by default
-addWorkerRow();
+// ---- Beschreibung counter ----
+(function() {
+  const ta = q('#beschreibung');
+  const cnt = q('#besch-count');
+  const update = () => { cnt.textContent = `${ta.value.length} / 1000`; };
+  ta.addEventListener('input', update);
+  update();
+})();
 
-// Compute total hours minus fixed breaks
-function parseHM(t){
-  if(!t) return null;
-  const [h,m] = t.split(':').map(x=>parseInt(x,10));
-  return h*60+m;
+// ---- Workers ----
+const workerList = q('#worker-list');
+const addBtn = q('#add-worker');
+let maxWorkers = 5;
+
+function updateHoursForWorker(fs) {
+  const idx = fs.dataset.index;
+  const beg = q(`input[name="beginn${idx}"]`, fs).value;
+  const end = q(`input[name="ende${idx}"]`, fs).value;
+  const hours = hoursWithBreaks(beg, end);
+  q('.stunden-display', fs).value = hours ? fmtHours(hours) : '';
 }
-function overlap(a1,a2,b1,b2){
-  const s = Math.max(a1,b1), e = Math.min(a2,b2);
-  return Math.max(0, e-s);
+function updateTotal() {
+  let sum = 0;
+  qa('.worker').forEach(fs => {
+    const idx = fs.dataset.index;
+    const beg = q(`input[name="beginn${idx}"]`, fs).value;
+    const end = q(`input[name="ende${idx}"]`, fs).value;
+    sum += hoursWithBreaks(beg, end);
+  });
+  q('#gesamtstunden_auto').value = sum ? fmtHours(sum) : '';
 }
-function minutesToHours(m){ return Math.round((m/60)*100)/100; }
+function attachWorkerEvents(fs) {
+  const idx = fs.dataset.index;
+  ['beginn', 'ende'].forEach(k => {
+    q(`input[name="${k}${idx}"]`, fs).addEventListener('input', () => {
+      updateHoursForWorker(fs);
+      updateTotal();
+    });
+  });
+}
 
-function computeTotal(){
-  let totalMin = 0;
-  const break1 = [parseHM('09:00'), parseHM('09:15')];
-  const break2 = [parseHM('12:00'), parseHM('12:45')];
+attachWorkerEvents(q('.worker'));
 
-  for(let i=1;i<=workerCount;i++){
-    const b = document.querySelector(`[name="beginn${i}"]`)?.value;
-    const e = document.querySelector(`[name="ende${i}"]`)?.value;
-    if(!b || !e) continue;
-    const mb = parseHM(b), me = parseHM(e);
-    if(mb==null || me==null || me<=mb) continue;
-    let dur = me - mb;
-    dur -= overlap(mb, me, break1[0], break1[1]);
-    dur -= overlap(mb, me, break2[0], break2[1]);
-    if(dur>0) totalMin += dur;
+addBtn.addEventListener('click', () => {
+  const current = qa('.worker').length;
+  if (current >= maxWorkers) return;
+
+  const next = current + 1;
+  const tpl = qa('.worker')[0].cloneNode(true);
+  tpl.dataset.index = String(next);
+  q('legend', tpl).textContent = `Mitarbeiter ${next}`;
+
+  // Reset values + rename names
+  [
+    'vorname', 'nachname', 'ausweis',
+    'beginn', 'ende'
+  ].forEach(key => {
+    const inp = q(`input[name^="${key}"]`, tpl);
+    inp.name = `${key}${next}`;
+    inp.value = '';
+  });
+
+  q('.stunden-display', tpl).value = '';
+  workerList.appendChild(tpl);
+  attachWorkerEvents(tpl);
+});
+
+// ---- Default date today ----
+(function setDefaultDate() {
+  const el = q('#datum');
+  if (!el.value) {
+    const d = new Date();
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    el.value = `${d.getFullYear()}-${mm}-${dd}`;
   }
-  document.getElementById('total_hours').value = minutesToHours(totalMin).toFixed(2);
-}
-setInterval(computeTotal, 500);
+})();
