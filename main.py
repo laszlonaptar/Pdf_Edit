@@ -141,34 +141,16 @@ def find_header_positions(ws):
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
 
-def find_total_cell(ws):
-    for row in ws.iter_rows(min_row=1, max_row=200):
+def find_total_row(ws):
+    """A 'Gesamtstunden' címke sorát adja vissza."""
+    for row in ws.iter_rows(min_row=1, max_row=300, values_only=False):
         for cell in row:
             v = cell.value
             if isinstance(v, str) and "Gesamtstunden" in v:
-                r, c = cell.row, cell.column
-                neigh = right_neighbor_block(ws, r, c)
-                if neigh:
-                    return neigh
-                else:
-                    return (r, c+1)
-    return None
-
-def footer_hours_cell(ws, pos):
-    """Find the footer cell in the Stunden column (the one that currently shows 0)."""
-    col = pos["stunden_col"]
-    # Scan from bottom upwards for a top-left cell in that column that is empty/zero.
-    for r in range(ws.max_row, pos["data_start_row"] - 1, -1):
-        rr, cc = top_left_of_block(ws, r, col)
-        if (rr, cc) != (r, col):
-            continue  # skip non-top-left of merged regions
-        v = ws.cell(row=r, column=col).value
-        if v is None or (isinstance(v, (int, float)) and abs(v) < 1e-9) or (isinstance(v, str) and v.strip() in ("", "0", "0,00", "0.00")):
-            return (r, col)
-    return None
+                return cell.row, cell.column
+    return None, None
 
 def find_big_description_block(ws):
-    """Return (r1,c1,r2,c2) for the large description area."""
     best = None
     for (r1,c1,r2,c2) in merged_ranges(ws):
         height = r2 - r1 + 1
@@ -211,7 +193,7 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         put_value_right_of_label(ws, "BASF-Beauftragter, Org.-Code:", basf_beauftragter)
 
-    # Beschreibung – magasabb sormagasság
+    # Beschreibung – magasabb sormagasság, hogy 3 sor is biztosan kiférjen
     r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
         ws.row_dimensions[r].height = 22
@@ -246,15 +228,16 @@ async def generate_excel(
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
 
-    # Összeg két helyre: "Gesamtstunden" melletti cella + Stunden oszlop lábléc
-    tot_cell = find_total_cell(ws)
-    if tot_cell:
-        tr, tc = tot_cell
-        set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
-    footer = footer_hours_cell(ws, pos)
-    if footer:
-        fr, fc = footer
-        set_text(ws, fr, fc, round(total_hours, 2), wrap=False, align_left=True)
+    # Összeg helyes POZÍCIÓ: ugyanabban a sorban, ahol a 'Gesamtstunden' címke van,
+    # de az 'Anzahl Stunden' oszlop alatt (nem a címke melletti cellában!)
+    total_row, label_col = find_total_row(ws)
+    if total_row:
+        set_text(ws, total_row, pos["stunden_col"], round(total_hours, 2), wrap=False, align_left=True)
+        # ha a címke melletti érték-cellában "0" maradt volna, töröljük:
+        right_of_label = right_neighbor_block(ws, total_row, label_col)
+        if right_of_label:
+            rr, cc = right_of_label
+            set_text(ws, rr, cc, "", wrap=False, align_left=True)
 
     bio = BytesIO()
     wb.save(bio)
