@@ -55,3 +55,37 @@ button#generateExcel, #generateExcel.btn {
   background-color: var(--btn-bg) !important;
   color: var(--btn-text) !important;
 }
+/* --- Szűk, óvatos felülírások --- */
+main.container {
+  color: #4a4a4a; /* alap szövegszín */
+}
+
+/* Címkék, címek, segédszövegek */
+main.container h1,
+main.container h2,
+main.container label,
+main.container legend,
+main.container .muted,
+main.container .small {
+  color: #4a4a4a;
+}
+
+/* Beviteli mezők szövegszíne (iOS/Safari fix-szel) */
+main.container input,
+main.container textarea,
+main.container select {
+  color: #4a4a4a;
+  -webkit-text-fill-color: #4a4a4a; /* iOS Safari */
+}
+
+/* Placeholder halványabb szürkére */
+main.container ::placeholder {
+  color: #8a8a8a;
+  opacity: 1;
+}
+
+/* „Excel generieren” gomb – fehér felirat, kék háttér */
+main.container .actions .btn.primary {
+  background: #0a84ff;
+  color: #ffffff;
+}
