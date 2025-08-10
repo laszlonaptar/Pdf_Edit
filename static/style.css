@@ -88,3 +88,113 @@ textarea{
 /* Apróságok */
 .helper{ color:var(--muted); font-size:13px; }
 .divider{ height:1px; background:var(--line); margin:16px 0 }
+/* ===== Apple-ish unified look (overrides) ===== */
+:root{
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --bg: #f5f5f7;
+  --card: #ffffff;
+  --border: #d2d2d7;
+  --primary: #007aff; /* iOS kék */
+}
+
+html, body{
+  color: var(--text);
+  background: var(--bg);
+}
+
+h1,h2,h3,h4, legend, label{
+  color: var(--text);
+  font-weight: 600;
+}
+
+.small, .hint, .help, .helper, .description, .subtext, .counter{
+  color: var(--muted);
+}
+
+/* input/textarea egységes */
+input[type="text"],
+input[type="date"],
+input[type="time"],
+input[type="number"],
+textarea, select{
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 16px;
+  color: var(--text);
+  outline: none;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+}
+
+input::placeholder,
+textarea::placeholder{
+  color: var(--muted);
+}
+
+/* textarea – azonos szélesség és szép belső margó */
+textarea{
+  min-height: 140px;
+  line-height: 1.4;
+}
+
+/* Szaggatott vonalak környékén is szürke szöveg */
+.section-title, .group-title{
+  color: var(--text);
+}
+
+/* Gombok – egységes iOS stílus */
+button, .btn, input[type="submit"]{
+  appearance: none;
+  border: none;
+  border-radius: 16px;
+  padding: 12px 18px;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform .02s ease, box-shadow .2s ease, background-color .2s ease;
+}
+
+/* Primary (pl. Excel generieren) */
+button.primary, .btn-primary, input[type="submit"]{
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0,122,255,.2);
+}
+button.primary:active, .btn-primary:active, input[type="submit"]:active{
+  transform: translateY(1px);
+}
+
+/* Outline / Secondary (pl. „+ Weitere Mitarbeiter hinzufügen”) */
+button.secondary, .btn-outline, .btn-secondary{
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+}
+
+/* Kerek „pill” forma a másodlagos gombnak */
+button.secondary, .btn-outline{
+  border-radius: 22px;
+  padding: 10px 18px;
+  font-weight: 600;
+}
+
+/* Focus-gyűrű */
+:where(input, textarea, select, button):focus{
+  box-shadow: 0 0 0 3px rgba(0,122,255,.25);
+}
+
+/* Kártyák / szekciók */
+.card, .panel, .fieldset{
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+
+/* Címkék és input közti térköz */
+.form-row, .field{
+  margin-bottom: 14px;
+}
