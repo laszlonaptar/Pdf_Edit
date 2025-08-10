@@ -48,7 +48,7 @@ def right_neighbor_block(ws, r, c):
     _, rr, cc = candidates[0]
     return rr, cc
 
-def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
+def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False, indent=0):
     rr, cc = top_left_of_block(ws, r, c)
     cell = ws.cell(row=rr, column=cc)
     cell.value = text
@@ -56,6 +56,7 @@ def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
         wrap_text=wrap,
         horizontal=("left" if align_left else "center"),
         vertical=("top" if valign_top else "center"),
+        indent=indent
     )
 
 def put_value_right_of_label(ws, label_text, value, wrap=False, align_left=False, valign_top=False):
@@ -158,7 +159,6 @@ def find_big_description_block(ws):
     for (r1,c1,r2,c2) in merged_ranges(ws):
         height = r2 - r1 + 1
         width  = c2 - c1 + 1
-        # a Beschreibung blokk tipikusan 6. sortól lefelé, nagy terület
         if r1 >= 6 and height >= 4 and width >= 4:
             area = height * width
             if not best or area > best[-1]:
@@ -166,7 +166,7 @@ def find_big_description_block(ws):
     if best:
         r1, c1, r2, c2, _ = best
         return (r1, c1, r2, c2)
-    return (6, 1, 15, 7)  # fallback A6–G15
+    return (6, 1, 15, 7)
 
 # ---------- routes ----------
 
@@ -188,20 +188,24 @@ async def generate_excel(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""),
 ):
+    # 1000 karakteres limit a leírásra (biztonsági)
+    beschreibung = (beschreibung or "")[:1000]
+
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # Felső mezők (a jelenlegi űrlap mezőneveihez igazítva)
+    # Felső mezők
     put_value_right_of_label(ws, "Datum der Leistungsausführung:", datum)
     put_value_right_of_label(ws, "Bau und Ausführungsort:", bau)
     if (basf_beauftragter or "").strip():
         put_value_right_of_label(ws, "BASF-Beauftragter, Org.-Code:", basf_beauftragter)
 
-    # Beschreibung – NE vágja le a 2. sort: wrap + top + nagyobb sormagasság
+    # Beschreibung: NAGYOBB sormagasság + TOP + balra + kis behúzás
     r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = 24  # emelhető 26–28-ra, ha kell
-    set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
+        ws.row_dimensions[r].height = 28  # általános magasság
+    ws.row_dimensions[r1].height = 36     # extra hely az első sorban
+    set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True, indent=1)
 
     # Dolgozók
     pos = find_header_positions(ws)
@@ -226,8 +230,7 @@ async def generate_excel(
         set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
 
-        hb = parse_hhmm(bg)
-        he = parse_hhmm(en)
+        hb = parse_hhmm(bg); he = parse_hhmm(en)
         h = round(hours_with_breaks(hb, he), 2)
         total_hours += h
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
