@@ -2,118 +2,108 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Leistungsnachweis – Excel Generator</title>
-
-  <!-- Stílusok -->
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Leistungsnachweis</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <main class="container">
     <h1>Leistungsnachweis</h1>
 
-    <form id="ln-form" action="/generate_excel" method="post">
-      <!-- Kopfdaten -->
+    <form id="ln-form" method="post" action="/generate_excel">
+      <!-- Kopf -->
       <section class="card">
-        <h2>Kopfdaten</h2>
-
         <div class="grid grid-2">
           <div class="field">
-            <label for="datum">Datum</label>
-            <input type="date" id="datum" name="datum" required />
+            <label for="datum">Datum der Leistungsausführung</label>
+            <input id="datum" name="datum" type="date" required />
           </div>
-
           <div class="field">
-            <label for="bau">Bau</label>
-            <input type="text" id="bau" name="bau" placeholder="z. B. G725" required />
+            <label for="bau">Bau und Ausführungsort</label>
+            <input id="bau" name="bau" type="text" placeholder="z. B. G725" />
           </div>
-
           <div class="field">
             <label for="basf_beauftragter">BASF-Beauftragter, Org.-Code</label>
-            <input type="text" id="basf_beauftragter" name="basf_beauftragter" placeholder="Name / Org.-Code" />
+            <input id="basf_beauftragter" name="basf_beauftragter" type="text" />
           </div>
-
           <div class="field">
-            <label for="geraet">Gerät/Fahrzeug (optional)</label>
-            <input type="text" id="geraet" name="geraet" placeholder="z. B. M715" />
+            <label for="geraet">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+            <input id="geraet" name="geraet" type="text" />
           </div>
         </div>
+      </section>
 
+      <!-- Beschreibung -->
+      <section class="card">
         <div class="field">
-          <label for="beschreibung">Was wurde gemacht? (max. 1000 Zeichen)</label>
-          <!-- KÉRT MÓDOSÍTÁS: 8 sor magas, max 1000 karakter, tördelés, nincs görgetés -->
-          <textarea
-            id="beschreibung"
-            name="beschreibung"
-            rows="8"
-            maxlength="1000"
-            style="width:100%; resize:none; white-space:pre-wrap; word-wrap:break-word; overflow:hidden;"
-            placeholder="Kurze, stichpunktartige Tagesbeschreibung…"
-          ></textarea>
+          <label for="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
+          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6"
+            placeholder="Max. 1000 Zeichen"></textarea>
+          <div class="muted" id="besch-count">0 / 1000</div>
         </div>
       </section>
 
       <!-- Mitarbeiter -->
       <section class="card">
-        <h2>Arbeitszeiten</h2>
-
-        <div id="mitarbeiter-wrapper">
-          <!-- Mitarbeiter #1 -->
-          <div class="arbeiter" data-index="1">
-            <div class="grid grid-2">
-              <div class="field">
-                <label for="nachname1">Name</label>
-                <input type="text" id="nachname1" name="nachname1" placeholder="Nachname" required />
-              </div>
-              <div class="field">
-                <label for="vorname1">Vorname</label>
-                <input type="text" id="vorname1" name="vorname1" placeholder="Vorname" required />
-              </div>
-            </div>
-
+        <h2>Mitarbeiter</h2>
+        <div id="worker-list" class="stack">
+          <!-- Worker #1 -->
+          <fieldset class="worker" data-index="1">
+            <legend>Mitarbeiter 1</legend>
             <div class="grid grid-3">
               <div class="field">
-                <label for="ausweis1">Ausweis-Nr.</label>
-                <input type="text" id="ausweis1" name="ausweis1" placeholder="z. B. 467608" required />
+                <label>Vorname</label>
+                <input name="vorname1" type="text" />
               </div>
               <div class="field">
-                <label for="beginn1">Beginn</label>
-                <input type="time" id="beginn1" name="beginn1" required />
+                <label>Nachname</label>
+                <input name="nachname1" type="text" />
               </div>
               <div class="field">
-                <label for="ende1">Ende</label>
-                <input type="time" id="ende1" name="ende1" required />
+                <label>Ausweis-Nr. / Kennzeichen</label>
+                <input name="ausweis1" type="text" />
               </div>
             </div>
-          </div>
+            <div class="grid grid-3">
+              <div class="field">
+                <label>Beginn</label>
+                <input name="beginn1" type="time" step="60" />
+              </div>
+              <div class="field">
+                <label>Ende</label>
+                <input name="ende1" type="time" step="60" />
+              </div>
+              <div class="field">
+                <label>Stunden (auto)</label>
+                <input class="stunden-display" type="text" value="" readonly />
+              </div>
+            </div>
+          </fieldset>
         </div>
 
-        <button type="button" id="add_worker" class="btn btn-secondary">
-          + Weitere Mitarbeiter hinzufügen
-        </button>
+        <button type="button" id="add-worker" class="btn secondary">+ Weitere Mitarbeiter hinzufügen</button>
       </section>
 
       <!-- Gesamtzeit -->
       <section class="card">
         <h2>Gesamtzeit</h2>
-        <div class="grid grid-2">
+        <div class="grid">
           <div class="field">
-            <label for="gesamtstunden">Gesamtstunden (auto)</label>
-            <input type="text" id="gesamtstunden" name="gesamtstunden" readonly />
-          </div>
-          <div class="muted" style="align-self:end;">
-            Automatisch berechnet, mit Pausenabzug: 09:00–09:15 (0,25h) und 12:00–12:45 (0,75h).
+            <label>Gesamtstunden (auto)</label>
+            <input id="gesamtstunden_auto" type="text" value="" readonly />
+            <div class="muted small">
+              Automatisch berechnet, mit Pausenabzug: 09:00–09:15 (0,25 h) und 12:00–12:45 (0,75 h).
+            </div>
           </div>
         </div>
       </section>
 
       <div class="actions">
-        <button type="submit" class="btn btn-primary">Excel generieren</button>
+        <button class="btn primary" type="submit">Excel generieren</button>
       </div>
     </form>
   </main>
 
-  <!-- JS (a meglévő logika marad) -->
   <script src="/static/script.js"></script>
 </body>
 </html>
