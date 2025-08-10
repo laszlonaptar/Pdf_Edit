@@ -111,6 +111,18 @@ def find_header_positions(ws):
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
 
+def find_total_cell(ws):
+    for row in ws.iter_rows(min_row=1, max_row=200):
+        for cell in row:
+            v = cell.value
+            if isinstance(v, str) and "Gesamtstunden" in v:
+                r, c = cell.row, cell.column
+                # jobb oldali szomszéd blokk bal felső cellája
+                # (ha merge-ölt a mező, akkor is a helyes "top-left"-be írunk)
+                rr, cc = top_left_of_block(ws, r, c+1)
+                return (rr, cc)
+    return None
+
 def find_big_description_block(ws):
     best = None
     for (r1,c1,r2,c2) in merged_ranges(ws):
@@ -151,7 +163,7 @@ async def generate_excel(
     set_text_addr(ws, "B2", datum, horizontal="left")
     set_text_addr(ws, "B3", bau,   horizontal="left")
     if (basf_beauftragter or "").strip():
-        set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")  # ha jobbra kell: horizontal="right"
+        set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
     # --- Beschreibung: nagy sormagasság + wrap ---
     r1, c1, r2, c2 = find_big_description_block(ws)
@@ -188,7 +200,11 @@ async def generate_excel(
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
 
-    # Nem írunk külön "Gesamtstunden"-t, marad a sablon összesítése.
+    # --- Összóraszám beírása a "Gesamtstunden" melletti cellába ---
+    tot = find_total_cell(ws)
+    if tot:
+        tr, tc = tot
+        set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
 
     bio = BytesIO()
     wb.save(bio)
