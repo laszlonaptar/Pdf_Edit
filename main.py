@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
@@ -21,7 +21,6 @@ def coord(r: int, c: int) -> str:
     return f"{get_column_letter(c)}{r}"
 
 def top_left_of_merge(ws, r, c):
-    """Ha (r,c) merge-ben van, visszaadja a merge bal-felső celláját, különben (r,c)."""
     here = coord(r, c)
     for rng in ws.merged_cells.ranges:
         if here in rng:
@@ -29,8 +28,6 @@ def top_left_of_merge(ws, r, c):
     return r, c
 
 def next_merged_block_right(ws, r, c):
-    """Ugyanazon soron megkeresi a (r,c) blokkot és a KÖVETKEZŐ blokk bal-felső sarkát adja vissza (r0,c0,r1,c1)."""
-    # 1) aktuális blokk
     this_min_c = c
     this_max_c = c
     here = coord(r, c)
@@ -40,7 +37,6 @@ def next_merged_block_right(ws, r, c):
             this_max_c = rng.max_col
             break
 
-    # 2) sor blokkjai (merge-ek + magányos oszlopok)
     blocks = []
     occupied_cols = set()
     for rng in ws.merged_cells.ranges:
@@ -56,14 +52,12 @@ def next_merged_block_right(ws, r, c):
 
     blocks.sort(key=lambda x: x[0])
 
-    # 3) következő jobbra
     for min_c, min_r, max_c, max_r in blocks:
         if min_c > this_max_c:
             return (min_r, min_c, max_r, max_c)
     return None
 
 def write_in_block(ws, r, c, value, wrap=False, align_left=True):
-    """A (r,c) blokk bal-felső cellájába ír, helyes igazítással."""
     r0, c0 = top_left_of_merge(ws, r, c)
     cell = ws.cell(r0, c0)
     cell.value = value
@@ -131,7 +125,7 @@ async def generate_excel(
     except Exception as e:
         return JSONResponse({"detail": f"Sablon hiba: {e}"}, status_code=500)
 
-    # -------- fejrészek: label -> következő jobb oldali blokk --------
+    # -------- fejrészek --------
     def put_by_label(label_text: str, value: str):
         for row in ws.iter_rows(min_row=1, max_row=30, values_only=False):
             for cell in row:
@@ -151,13 +145,13 @@ async def generate_excel(
     put_by_label("BASF-Beauftragter, Org.-Code:", basf)
     put_by_label("Einzelauftrags-Nr. (Avisor) oder Best.-Nr. (sonstige):", auftrag)
 
-    # -------- leírás blokk --------
+    # -------- leírás --------
     write_in_block(ws, 6, 1, beschreibung, wrap=True, align_left=True)
     for r in range(6, 16):
         ws.row_dimensions[r].height = 28
 
     # -------- dolgozók --------
-    START_ROW = 21  # ha nem itt kezdődik az első adat sor, szólj és átírjuk
+    START_ROW = 21
     cols = {"name": 2, "vorname": 4, "ausweis": 6, "beginn": 8, "ende": 9, "stunden": 11}
 
     def put_worker(i, nachname, vorname, ausweis, b, e):
@@ -187,7 +181,7 @@ async def generate_excel(
     total += put_worker(4, name4, vorname4, ausweis4, beginn4, ende4)
     total += put_worker(5, name5, vorname5, ausweis5, beginn5, ende5)
 
-    # összóra a "Gesamtstunden" felirat melletti blokkba
+    # összóra
     def put_total(label_text: str, value: str):
         for row in ws.iter_rows(values_only=False):
             for cell in row:
@@ -204,12 +198,14 @@ async def generate_excel(
 
     put_total("Gesamtstunden", f"{total:.2f}")
 
-    # vissza
+    # -------- visszaküldés: NEM FileResponse, hanem Response a BytesIO tartalmával --------
     out = io.BytesIO()
     wb.save(out)
-    out.seek(0)
+    content = out.getvalue()
     filename = f"leistungsnachweis_{uuid.uuid4().hex}.xlsx"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
-    return FileResponse(out,
-                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        headers=headers)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
