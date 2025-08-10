@@ -149,3 +149,15 @@ legend + .grid, legend + .field{ margin-top: 8px; }
 body{ color: var(--text); }
 h1,h2,legend,label,strong,b{ color: var(--heading); font-weight: 600; }
 .muted,.small{ color:#6e6e73; }
+/* --- Szövegszín finomhangolás Safarihoz --- */
+body, input, textarea, select, button {
+  color: #2c2c2e !important;   /* puhább sötétszürke minden alap szövegre */
+}
+
+h1, h2, h3, h4, legend, label, strong, b {
+  color: #1d1d1f !important;   /* kicsit mélyebb, de nem fekete címek */
+}
+
+.muted, .small, .hint {
+  color: #6e6e73 !important;   /* halvány szürke megjegyzések */
+}
