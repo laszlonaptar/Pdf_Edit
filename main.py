@@ -58,26 +58,6 @@ def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
         vertical=("top" if valign_top else cell.alignment.vertical or "center"),
     )
 
-def put_value_right_of_label(ws, label_text, value, wrap=False, align_left=False, valign_top=False):
-    found = None
-    for row in ws.iter_rows(values_only=False):
-        for cell in row:
-            v = cell.value
-            if isinstance(v, str) and v.strip() == label_text:
-                found = (cell.row, cell.column)
-                break
-        if found:
-            break
-    if not found:
-        return False
-    r, c = found
-    neigh = right_neighbor_block(ws, r, c)
-    if not neigh:
-        return False
-    nr, nc = neigh
-    set_text(ws, nr, nc, value, wrap=wrap, align_left=align_left, valign_top=valign_top)
-    return True
-
 # ---------- time & hours ----------
 
 def parse_hhmm(s: str) -> time | None:
@@ -88,13 +68,13 @@ def parse_hhmm(s: str) -> time | None:
     return time(int(hh), int(mm))
 
 def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
-    dt = datetime(2000,1,1)
+    dt = datetime(2000, 1, 1)
     A1 = dt.replace(hour=a1.hour, minute=a1.minute)
     A2 = dt.replace(hour=a2.hour, minute=a2.minute)
     B1 = dt.replace(hour=b1.hour, minute=b1.minute)
     B2 = dt.replace(hour=b2.hour, minute=b2.minute)
     start = max(A1, B1)
-    end   = min(A2, B2)
+    end = min(A2, B2)
     if end <= start:
         return 0
     return int((end - start).total_seconds() // 60)
@@ -102,14 +82,14 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
 def hours_with_breaks(beg: time | None, end: time | None) -> float:
     if not beg or not end:
         return 0.0
-    dt = datetime(2000,1,1)
+    dt = datetime(2000, 1, 1)
     start = dt.replace(hour=beg.hour, minute=beg.minute)
     finish = dt.replace(hour=end.hour, minute=end.minute)
     if finish <= start:
         return 0.0
     total_min = int((finish - start).total_seconds() // 60)
-    # breaks: 09:00–09:15 (15m), 12:00–12:45 (45m)
-    minus = overlap_minutes(beg, end, time(9,0), time(9,15)) + overlap_minutes(beg, end, time(12,0), time(12,45))
+    # breaks: 09:00–09:15 (15m), 12:00–12:45 (45m) -> összesen akár 60 perc levonás
+    minus = overlap_minutes(beg, end, time(9, 0), time(9, 15)) + overlap_minutes(beg, end, time(12, 0), time(12, 45))
     return max(0.0, (total_min - minus) / 60.0)
 
 # ---------- table helpers ----------
@@ -136,7 +116,7 @@ def find_header_positions(ws):
                     pos["ende_col"] = cell.column
                 if "Anzahl Stunden" in t:
                     pos["stunden_col"] = cell.column
-        if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
+        if all(k in pos for k in ["name_col", "vorname_col", "ausweis_col", "beginn_col", "ende_col", "stunden_col", "subheader_row"]):
             break
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
@@ -151,15 +131,15 @@ def find_total_cell(ws):
                 if neigh:
                     return neigh
                 else:
-                    return (r, c+1)
+                    return (r, c + 1)
     return None
 
 def find_big_description_block(ws):
     """Return (r1,c1,r2,c2) for the large description area."""
     best = None
-    for (r1,c1,r2,c2) in merged_ranges(ws):
+    for (r1, c1, r2, c2) in merged_ranges(ws):
         height = r2 - r1 + 1
-        width  = c2 - c1 + 1
+        width = c2 - c1 + 1
         if r1 >= 6 and height >= 4 and width >= 4:
             area = height * width
             if not best or area > best[-1]:
@@ -192,29 +172,31 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # Felső mezők — KÖZVETLEN írás B2 és B3 cellába, BALRA igazítva
-    ws["B2"].value = datum
+    # --- Felső mezők: direkt cellacímek + balra igazítás ---
+    # Dátum -> A2 balra
+    ws["A2"] = datum
+    ws["A2"].alignment = Alignment(horizontal="left")
+
+    # BASF-Beauftragter -> B2 balra
+    ws["B2"] = basf_beauftragter
     ws["B2"].alignment = Alignment(horizontal="left")
-    ws["B3"].value = bau
+
+    # Bau -> B3 balra
+    ws["B3"] = bau
     ws["B3"].alignment = Alignment(horizontal="left")
 
-    # (Ha szükséges lesz később:)
-    # if (basf_beauftragter or "").strip():
-    #     ws["E3"].value = basf_beauftragter
-    #     ws["E3"].alignment = Alignment(horizontal="left")
-
-    # Beschreibung – sormagasságok, hogy 2–3 sor se vágódjon le
+    # --- Beschreibung: ne vágódjon le (nagyobb sormagasság + wrap, top, left) ---
     r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = 22
+        ws.row_dimensions[r].height = 22  # kb. ~22pt
     set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
-    # Dolgozók
+    # --- Dolgozók és órák ---
     pos = find_header_positions(ws)
     row = pos["data_start_row"]
 
     workers = []
-    for i in range(1, 5+1):
+    for i in range(1, 5 + 1):
         vn = locals().get(f"vorname{i}", "") or ""
         nn = locals().get(f"nachname{i}", "") or ""
         aw = locals().get(f"ausweis{i}", "") or ""
@@ -231,6 +213,7 @@ async def generate_excel(
         set_text(ws, row, pos["ausweis_col"], aw, wrap=False, align_left=True)
         set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
+
         hb = parse_hhmm(bg)
         he = parse_hhmm(en)
         h = round(hours_with_breaks(hb, he), 2)
@@ -243,6 +226,7 @@ async def generate_excel(
         tr, tc = tot_cell
         set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
 
+    # --- Válasz (xlsx letöltés) ---
     bio = BytesIO()
     wb.save(bio)
     bio.seek(0)
