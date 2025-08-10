@@ -16,8 +16,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ---------- helpers: merged-cell safe writing ----------
-
+# ---------- helpers for merged cells ----------
 def merged_ranges(ws):
     return [(r.min_row, r.min_col, r.max_row, r.max_col) for r in ws.merged_cells.ranges]
 
@@ -35,19 +34,6 @@ def top_left_of_block(ws, r, c):
     r1, c1, _, _ = block_of(ws, r, c)
     return r1, c1
 
-def right_neighbor_block(ws, r, c):
-    cur = block_of(ws, r, c)
-    _, _, _, cur_max_c = cur
-    candidates = []
-    for (r1, c1, r2, _) in merged_ranges(ws):
-        if r1 <= r <= r2 and c1 > cur_max_c:
-            candidates.append((c1, r1, c1))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda x: x[0])
-    _, rr, cc = candidates[0]
-    return rr, cc
-
 def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
     rr, cc = top_left_of_block(ws, r, c)
     cell = ws.cell(row=rr, column=cc)
@@ -58,25 +44,14 @@ def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
         vertical=("top" if valign_top else cell.alignment.vertical or "center"),
     )
 
-def put_value_right_of_any_label(ws, labels, value, *, wrap=False, align_left=True, valign_top=False):
-    """Keres bármelyik megadott feliratot, és a tőle jobbra eső értékcellába ír."""
-    if value is None:
-        value = ""
-    for row in ws.iter_rows(values_only=False):
-        for cell in row:
-            v = cell.value
-            if isinstance(v, str):
-                s = v.strip()
-                if any(lbl in s for lbl in labels):
-                    neigh = right_neighbor_block(ws, cell.row, cell.column)
-                    if neigh:
-                        r, c = neigh
-                        set_text(ws, r, c, value, wrap=wrap, align_left=align_left, valign_top=valign_top)
-                        return True
-    return False
+def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="center"):
+    cell = ws[addr]
+    rr, cc = top_left_of_block(ws, cell.row, cell.column)
+    tgt = ws.cell(row=rr, column=cc)
+    tgt.value = text
+    tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical)
 
 # ---------- time & hours ----------
-
 def parse_hhmm(s: str) -> time | None:
     s = (s or "").strip()
     if not s:
@@ -85,13 +60,13 @@ def parse_hhmm(s: str) -> time | None:
     return time(int(hh), int(mm))
 
 def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
-    dt = datetime(2000, 1, 1)
+    dt = datetime(2000,1,1)
     A1 = dt.replace(hour=a1.hour, minute=a1.minute)
     A2 = dt.replace(hour=a2.hour, minute=a2.minute)
     B1 = dt.replace(hour=b1.hour, minute=b1.minute)
     B2 = dt.replace(hour=b2.hour, minute=b2.minute)
     start = max(A1, B1)
-    end = min(A2, B2)
+    end   = min(A2, B2)
     if end <= start:
         return 0
     return int((end - start).total_seconds() // 60)
@@ -99,17 +74,16 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
 def hours_with_breaks(beg: time | None, end: time | None) -> float:
     if not beg or not end:
         return 0.0
-    dt = datetime(2000, 1, 1)
+    dt = datetime(2000,1,1)
     start = dt.replace(hour=beg.hour, minute=beg.minute)
     finish = dt.replace(hour=end.hour, minute=end.minute)
     if finish <= start:
         return 0.0
     total_min = int((finish - start).total_seconds() // 60)
-    minus = overlap_minutes(beg, end, time(9, 0), time(9, 15)) + overlap_minutes(beg, end, time(12, 0), time(12, 45))
+    minus = overlap_minutes(beg, end, time(9,0), time(9,15)) + overlap_minutes(beg, end, time(12,0), time(12,45))
     return max(0.0, (total_min - minus) / 60.0)
 
 # ---------- table helpers ----------
-
 def find_header_positions(ws):
     pos = {}
     header_row = None
@@ -137,19 +111,6 @@ def find_header_positions(ws):
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
 
-def find_total_cell(ws):
-    for row in ws.iter_rows(min_row=1, max_row=200):
-        for cell in row:
-            v = cell.value
-            if isinstance(v, str) and "Gesamtstunden" in v:
-                r, c = cell.row, cell.column
-                neigh = right_neighbor_block(ws, r, c)
-                if neigh:
-                    return neigh
-                else:
-                    return (r, c+1)
-    return None
-
 def find_big_description_block(ws):
     best = None
     for (r1,c1,r2,c2) in merged_ranges(ws):
@@ -165,7 +126,6 @@ def find_big_description_block(ws):
     return (6, 1, 20, 8)
 
 # ---------- routes ----------
-
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -187,18 +147,13 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- Felső 3 mező: mindig a címke melletti értékcellába írunk ---
-    put_value_right_of_any_label(ws, ["Datum der Leistungsausführung:"], datum, align_left=True)
-    put_value_right_of_any_label(ws, ["Bau und Ausführungsort:"], bau, align_left=True)
+    # --- Felső mezők: fix címek ---
+    set_text_addr(ws, "B2", datum, horizontal="left")
+    set_text_addr(ws, "B3", bau,   horizontal="left")
     if (basf_beauftragter or "").strip():
-        put_value_right_of_any_label(
-            ws,
-            ["BASF-Beauftragter", "BASF-Beauftragter", "BASF-Beauftragter, Org.-Code:"],
-            basf_beauftragter,
-            align_left=True
-        )
+        set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")  # ha jobbra kell: horizontal="right"
 
-    # --- Beschreibung: nagyobb sormagasság + wrap ---
+    # --- Beschreibung: nagy sormagasság + wrap ---
     r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
         ws.row_dimensions[r].height = 22
@@ -226,7 +181,6 @@ async def generate_excel(
         set_text(ws, row, pos["ausweis_col"], aw, wrap=False, align_left=True)
         set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
-
         hb = parse_hhmm(bg)
         he = parse_hhmm(en)
         h = round(hours_with_breaks(hb, he), 2)
@@ -234,12 +188,8 @@ async def generate_excel(
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
 
-    tot_cell = find_total_cell(ws)
-    if tot_cell:
-        tr, tc = tot_cell
-        set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
+    # Nem írunk külön "Gesamtstunden"-t, marad a sablon összesítése.
 
-    # --- Válasz (xlsx letöltés) ---
     bio = BytesIO()
     wb.save(bio)
     bio.seek(0)
