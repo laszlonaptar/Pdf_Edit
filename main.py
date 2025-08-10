@@ -111,17 +111,32 @@ def find_header_positions(ws):
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
 
-def find_total_cell(ws):
+def find_total_cells(ws, stunden_col):
+    """
+    Visszaad:
+      - right_of_label: a 'Gesamtstunden' FELIRAT melletti kis cella (amit üresre állítunk)
+      - stunden_total:  ugyanazon a soron a 'Anzahl Stunden' oszlop alatti cella (ebbe írjuk az összeget)
+    """
+    total_row = None
+    right_of_label = None
     for row in ws.iter_rows(min_row=1, max_row=200):
         for cell in row:
-            v = cell.value
-            if isinstance(v, str) and "Gesamtstunden" in v:
-                r, c = cell.row, cell.column
-                # jobb oldali szomszéd blokk bal felső cellája
-                # (ha merge-ölt a mező, akkor is a helyes "top-left"-be írunk)
-                rr, cc = top_left_of_block(ws, r, c+1)
-                return (rr, cc)
-    return None
+            if isinstance(cell.value, str) and "Gesamtstunden" in cell.value:
+                total_row = cell.row
+                # felirat melletti kis cella
+                r_neighbor, c_neighbor = total_row, cell.column + 1
+                rr, cc = top_left_of_block(ws, r_neighbor, c_neighbor)
+                right_of_label = (rr, cc)
+                break
+        if total_row:
+            break
+
+    stunden_total = None
+    if total_row:
+        rr, cc = top_left_of_block(ws, total_row, stunden_col)
+        stunden_total = (rr, cc)
+
+    return right_of_label, stunden_total
 
 def find_big_description_block(ws):
     best = None
@@ -200,11 +215,14 @@ async def generate_excel(
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
 
-    # --- Összóraszám beírása a "Gesamtstunden" melletti cellába ---
-    tot = find_total_cell(ws)
-    if tot:
-        tr, tc = tot
+    # --- Összóraszám: jobb oldali nagy dobozban; a kis mezőt ürítjük ---
+    right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
+    if stunden_total:
+        tr, tc = stunden_total
         set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
+    if right_of_label:
+        rr, rc = right_of_label
+        set_text(ws, rr, rc, "", wrap=False, align_left=True)  # üresre állítjuk
 
     bio = BytesIO()
     wb.save(bio)
