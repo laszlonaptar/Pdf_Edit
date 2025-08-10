@@ -1,91 +1,143 @@
-/* ==== Alap színek === */
-:root {
-  --form-text: #555555;     /* Szürke szöveg */
-  --form-placeholder: #888888; /* Halvány placeholder */
-  --btn-bg: #0a84ff;        /* Kék gomb háttér */
-  --btn-text: #ffffff;      /* Fehér gomb szöveg */
+/* ==== Base tokens ======================================================= */
+:root{
+  --bg:        #f6f7fb;
+  --card:      #ffffff;
+  --border:    #e5e7eb;
+  --shadow1:   0 1px 2px rgba(16,24,40,.06), 0 8px 20px rgba(16,24,40,.04);
+  --text:      #111827;   /* normál szöveg */
+  --muted:     #6b7280;   /* halványabb szöveg */
+  --heading:   #111827;   /* címsorok */
+  --brand:     #2563eb;   /* kék gomb/szegély */
+  --brand-600: #1d4ed8;
+  --brand-100: #e0e7ff;
+  --focus:     rgba(37,99,235,.25);
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
 }
 
-/* Alap beállítások */
-html, body {
-  margin: 0;
-  padding: 0;
-  font-family: Arial, sans-serif;
-  color: var(--form-text);
-  background: #f9f9f9;
+/* ==== Page ============================================================= */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font: 400 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI",
+        Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
 }
 
-/* Form minden szöveg szürke */
-form, form * {
-  color: var(--form-text) !important;
+/* ==== Layout =========================================================== */
+.container{
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 24px 16px 80px;
 }
 
-/* Input, select, textarea – Safari / iOS fix */
-input, select, textarea {
-  color: var(--form-text) !important;
-  -webkit-text-fill-color: var(--form-text) !important;
+h1{
+  margin: 0 0 20px;
+  font-size: clamp(24px, 3.6vw, 32px);
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--heading);
 }
-::placeholder {
-  color: var(--form-placeholder);
-  opacity: 1;
-}
-
-/* Label-ek */
-label, legend {
-  font-weight: bold;
-  color: var(--form-text) !important;
+h2{
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--heading);
 }
 
-/* Gombok */
-button, .btn {
-  background-color: var(--btn-bg) !important;
-  color: var(--btn-text) !important;
-  border: none;
-  padding: 10px 20px;
-  font-size: 16px;
-  border-radius: 5px;
-  cursor: pointer;
-}
-button:hover, .btn:hover {
-  opacity: 0.9;
+.card{
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 16px;
+  box-shadow: var(--shadow1);
+  margin: 16px 0;
 }
 
-/* Kifejezetten az Excel generáló gomb */
-button#generateExcel, #generateExcel.btn {
-  background-color: var(--btn-bg) !important;
-  color: var(--btn-text) !important;
+/* ==== Grid ============================================================= */
+.grid{display:grid; gap:16px}
+.grid-2{grid-template-columns: repeat(2,1fr)}
+.grid-3{grid-template-columns: repeat(3,1fr)}
+@media (max-width: 860px){
+  .grid-2, .grid-3{grid-template-columns: 1fr}
 }
-/* --- Szűk, óvatos felülírások --- */
-main.container {
-  color: #4a4a4a; /* alap szövegszín */
+.stack > * + *{margin-top:16px}
+
+/* ==== Fields =========================================================== */
+.field label, fieldset legend{
+  display:block;
+  margin:0 0 6px;
+  font-weight: 600;
+  color:#374151;
+}
+fieldset{border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 12px 6px}
+legend{padding:0 6px; color:#4b5563}
+
+input, textarea{
+  width:100%;
+  padding:12px 14px;
+  border:1px solid var(--border);
+  border-radius: var(--radius-md);
+  background:#fff;
+  color:var(--text);
+  outline:none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+  -webkit-appearance:none; appearance:none;
+}
+textarea{min-height:120px; resize: vertical}
+
+input:focus, textarea:focus{
+  border-color: var(--brand);
+  box-shadow: 0 0 0 4px var(--focus);
 }
 
-/* Címkék, címek, segédszövegek */
-main.container h1,
-main.container h2,
-main.container label,
-main.container legend,
-main.container .muted,
-main.container .small {
-  color: #4a4a4a;
+input[readonly], .stunden-display{
+  background:#f9fafb;
+  color:#374151;
 }
 
-/* Beviteli mezők szövegszíne (iOS/Safari fix-szel) */
-main.container input,
-main.container textarea,
-main.container select {
-  color: #4a4a4a;
-  -webkit-text-fill-color: #4a4a4a; /* iOS Safari */
-}
+.muted{color:var(--muted)}
+.small{font-size:.9rem}
 
-/* Placeholder halványabb szürkére */
-main.container ::placeholder {
-  color: #8a8a8a;
-  opacity: 1;
+/* ==== Buttons ========================================================== */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  gap:.5rem; white-space:nowrap; cursor:pointer;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  background:#fff; color:var(--text);
+  transition: background .15s ease, border-color .15s ease, transform .02s ease;
+  user-select:none;
 }
+.btn:active{transform:translateY(1px)}
 
-/* „Excel generieren” gomb – fehér felirat, kék háttér */
-main.container .actions .btn.primary {
-  background: #0a84ff;
-  color: #ffffff;
+/* Primary – kék, fehér felirat */
+.btn.primary{
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
 }
+.btn.primary:hover{background:var(--brand-600); border-color:var(--brand-600)}
+
+/* Secondary – kék kontúr, fehér háttér */
+.btn.secondary{
+  background:#fff;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+}
+.btn.secondary:hover{background: var(--brand-100)}
+
+/* Gomb-sor alul */
+.actions{margin: 20px 0 0; text-align:center}
+.actions .btn{min-width: 220px}
+
+/* ==== Helpers ========================================================== */
+#besch-count{margin-top:6px}
+
+/* biztos ami biztos: ne öröklődjön semmilyen korábbi “mindent szürkére” override */
+button, input, textarea, label, legend, p, h1, h2, h3, h4, h5, h6{color:inherit}
