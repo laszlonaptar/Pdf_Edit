@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment
 from datetime import datetime, time, timedelta
-import io, uuid, os
+import io, uuid
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -15,109 +15,100 @@ templates = Jinja2Templates(directory="templates")
 
 TEMPLATE_PATH = "GP-t.xlsx"
 
-# -------------------- helper: merged / write-safe --------------------
+# -------------------- helper: coords / merged handling --------------------
+
+def coord(r: int, c: int) -> str:
+    return f"{get_column_letter(c)}{r}"
 
 def top_left_of_merge(ws, r, c):
-    """Ha (r,c) egy merge-en belül van, visszaadja a merge bal-felső celláját (r0,c0).
-       Ha nincs merge-ben, az eredeti (r,c)-t adja vissza."""
+    """Ha (r,c) merge-ben van, visszaadja a merge bal-felső celláját, különben (r,c)."""
+    here = coord(r, c)
     for rng in ws.merged_cells.ranges:
-        if (r, c) in rng:
+        if here in rng:
             return rng.min_row, rng.min_col
     return r, c
 
 def next_merged_block_right(ws, r, c):
-    """Megkeresi ugyanazon a soron a (r,c)-t tartalmazó merge blokkot (vagy egyedülálló cellát),
-       és visszaadja a KÖVETKEZŐ összevont blokk bal-felső celláját jobbra. Ha nincs, None."""
-    # 1) melyik blokkban ül a (r,c)?
+    """Ugyanazon soron megkeresi a (r,c) blokkot és a KÖVETKEZŐ blokk bal-felső sarkát adja vissza (r0,c0,r1,c1)."""
+    # 1) aktuális blokk
     this_min_c = c
+    this_max_c = c
+    here = coord(r, c)
     for rng in ws.merged_cells.ranges:
-        if (r, c) in rng:
+        if here in rng:
             this_min_c = rng.min_col
             this_max_c = rng.max_col
             break
-    else:
-        # nincs merge-ben -> a "blokk" önmaga, max_c = c
-        this_max_c = c
 
-    # 2) soron lévő blokkok felderítése (min_col szerinti sorrend)
+    # 2) sor blokkjai (merge-ek + magányos oszlopok)
     blocks = []
-    occupied = set()
+    occupied_cols = set()
     for rng in ws.merged_cells.ranges:
         if rng.min_row <= r <= rng.max_row:
             blocks.append((rng.min_col, rng.min_row, rng.max_col, rng.max_row))
             for cc in range(rng.min_col, rng.max_col + 1):
-                occupied.add(cc)
-    # olyan oszlopokat is tekintsünk külön "blokknak", ahol NINCS merge
-    max_col = ws.max_column
-    col = 1
-    while col <= max_col:
-        if col not in occupied:
-            # önálló cella-blokk
-            blocks.append((col, r, col, r))
-        col += 1
+                occupied_cols.add(cc)
 
-    # 3) a blokkokat rendezzük a min_col alapján és válasszuk ki a "következőt"
+    max_col = ws.max_column
+    for col in range(1, max_col + 1):
+        if col not in occupied_cols:
+            blocks.append((col, r, col, r))
+
     blocks.sort(key=lambda x: x[0])
-    # jelenlegi blokk min_col-ját nézzük (this_min_c), és keressük az utána következőt
+
+    # 3) következő jobbra
     for min_c, min_r, max_c, max_r in blocks:
         if min_c > this_max_c:
             return (min_r, min_c, max_r, max_c)
     return None
 
 def write_in_block(ws, r, c, value, wrap=False, align_left=True):
-    """A (r,c) cella BLOKKJÁNAK bal-felső cellájába ír (ha merge-ben van),
-       különben közvetlenül a cellába. Beállítja az igazítást/tördelést."""
+    """A (r,c) blokk bal-felső cellájába ír, helyes igazítással."""
     r0, c0 = top_left_of_merge(ws, r, c)
     cell = ws.cell(r0, c0)
     cell.value = value
     cell.alignment = Alignment(
         wrap_text=wrap,
         horizontal="left" if align_left else "center",
-        vertical="top" if wrap else "center"
+        vertical="top" if wrap else "center",
     )
 
-# -------------------- domain segédek --------------------
+# -------------------- time utils --------------------
 
-def hhmm_to_dt(hhmm: str) -> time:
-    hhmm = hhmm.strip()
+def hhmm_to_dt(hhmm: str) -> time | None:
+    hhmm = (hhmm or "").strip()
     if not hhmm:
         return None
-    parts = hhmm.replace(".", ":").split(":")
-    h = int(parts[0])
-    m = int(parts[1]) if len(parts) > 1 else 0
-    return time(hour=h, minute=m)
+    p = hhmm.replace(".", ":").split(":")
+    h = int(p[0])
+    m = int(p[1]) if len(p) > 1 else 0
+    return time(h, m)
 
 def hours_between(beg: time, end: time) -> float:
-    dt0 = datetime.combine(datetime.today(), beg)
-    dt1 = datetime.combine(datetime.today(), end)
-    if dt1 < dt0:
-        dt1 += timedelta(days=1)
-    delta = dt1 - dt0
-    return round(delta.total_seconds() / 3600.0, 2)
+    d0 = datetime.combine(datetime.today(), beg)
+    d1 = datetime.combine(datetime.today(), end)
+    if d1 < d0:
+        d1 += timedelta(days=1)
+    return round((d1 - d0).total_seconds() / 3600.0, 2)
 
 def subtract_breaks(total: float, beg: time, end: time) -> float:
-    """Fix szünetek: 09:00–09:15 (0.25h) és 12:00–12:45 (0.75h) ha belelóg a munkaidőbe."""
-    def overlap(b1: time, e1: time, b2: time, e2: time) -> float:
-        dt = datetime.today()
-        s1 = datetime.combine(dt, b1); e1d = datetime.combine(dt, e1)
-        s2 = datetime.combine(dt, b2); e2d = datetime.combine(dt, e2)
+    def ov(b1, e1, b2, e2):
+        t = datetime.today()
+        s1, e1d = datetime.combine(t, b1), datetime.combine(t, e1)
+        s2, e2d = datetime.combine(t, b2), datetime.combine(t, e2)
         if e1d < s1: e1d += timedelta(days=1)
         if e2d < s2: e2d += timedelta(days=1)
-        start = max(s1, s2); end = min(e1d, e2d)
-        secs = (end - start).total_seconds()
-        return max(0.0, secs/3600.0)
-
-    b1 = overlap(beg, end, time(9,0), time(9,15))
-    b2 = overlap(beg, end, time(12,0), time(12,45))
+        sec = (min(e1d, e2d) - max(s1, s2)).total_seconds()
+        return max(0.0, sec/3600.0)
+    b1 = ov(beg, end, time(9,0), time(9,15))
+    b2 = ov(beg, end, time(12,0), time(12,45))
     return round(max(0.0, total - b1 - b2), 2)
 
-# -------------------- UI --------------------
+# -------------------- routes --------------------
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
-
-# -------------------- fő logika --------------------
 
 @app.post("/generate_excel")
 async def generate_excel(
@@ -128,61 +119,30 @@ async def generate_excel(
     auftrag: str = Form(""),
     beschreibung: str = Form(""),
 
-    name1: str = Form(""),
-    vorname1: str = Form(""),
-    ausweis1: str = Form(""),
-    beginn1: str = Form(""),
-    ende1: str = Form(""),
-
-    name2: str = Form(""),
-    vorname2: str = Form(""),
-    ausweis2: str = Form(""),
-    beginn2: str = Form(""),
-    ende2: str = Form(""),
-
-    name3: str = Form(""),
-    vorname3: str = Form(""),
-    ausweis3: str = Form(""),
-    beginn3: str = Form(""),
-    ende3: str = Form(""),
-
-    name4: str = Form(""),
-    vorname4: str = Form(""),
-    ausweis4: str = Form(""),
-    beginn4: str = Form(""),
-    ende4: str = Form(""),
-
-    name5: str = Form(""),
-    vorname5: str = Form(""),
-    ausweis5: str = Form(""),
-    beginn5: str = Form(""),
-    ende5: str = Form(""),
+    name1: str = Form(""), vorname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""),
+    name2: str = Form(""), vorname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""),
+    name3: str = Form(""), vorname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""),
+    name4: str = Form(""), vorname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""),
+    name5: str = Form(""), vorname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""),
 ):
-    # minimális validáció
-    if not datum:
-        return JSONResponse({"detail":"Hiányzik a dátum."}, status_code=400)
-
     try:
         wb = load_workbook(TEMPLATE_PATH)
+        ws = wb.active
     except Exception as e:
-        return JSONResponse({"detail": f"Nem tudom megnyitni a sablont: {e}"}, status_code=500)
+        return JSONResponse({"detail": f"Sablon hiba: {e}"}, status_code=500)
 
-    ws = wb.active
-
-    # ---------- 1) Fejrészek: label -> next block right ----------
+    # -------- fejrészek: label -> következő jobb oldali blokk --------
     def put_by_label(label_text: str, value: str):
-        # megkeressük a felirat celláját
-        for row in ws.iter_rows(min_row=1, max_row=20, values_only=False):
+        for row in ws.iter_rows(min_row=1, max_row=30, values_only=False):
             for cell in row:
                 if str(cell.value).strip() == label_text:
                     r, c = cell.row, cell.column
                     nxt = next_merged_block_right(ws, r, c)
-                    if not nxt:
-                        # ha nincs következő blokk, írjunk a felirat jobb SZOMSZÉDJÁBA
+                    if nxt:
+                        r0, c0, r1, c1 = nxt
+                        write_in_block(ws, r0, c0, value, wrap=False, align_left=True)
+                    else:
                         write_in_block(ws, r, c+1, value, wrap=False, align_left=True)
-                        return True
-                    r0, c0, r1, c1 = nxt
-                    write_in_block(ws, r0, c0, value, wrap=False, align_left=True)
                     return True
         return False
 
@@ -191,50 +151,34 @@ async def generate_excel(
     put_by_label("BASF-Beauftragter, Org.-Code:", basf)
     put_by_label("Einzelauftrags-Nr. (Avisor) oder Best.-Nr. (sonstige):", auftrag)
 
-    # ---------- 2) Beschreibung: a bal oldali nagy, vonalas blokk ----------
-    # A te sablonodban ez az A6–G15 közös blokk (ezt korábban egyeztettük).
-    # Írjunk az A6 bal-felső cellába; tördeléssel és nagy sor­magassággal.
+    # -------- leírás blokk --------
     write_in_block(ws, 6, 1, beschreibung, wrap=True, align_left=True)
-    # emeljük meg a sorok magasságát, hogy ne vágja le az alsó pixelsort
     for r in range(6, 16):
-        ws.row_dimensions[r].height = 28  # láthatóbb sorok
+        ws.row_dimensions[r].height = 28
 
-    # ---------- 3) Dolgozói sorok ----------
-    # A táblázat első adat sora NÁLAD a fejléc alatt kezdődik.
-    # A képek alapján ez kb. a 21. sor körül van; állítsuk be:
-    START_ROW = 21  # ha máshol van, szólj, átírjuk 1 számmal
-    cols = {
-        "name": 2,        # Vezetéknév / “Name”
-        "vorname": 4,     # Keresztnév / “Vorname”
-        "ausweis": 6,     # “Ausweis-Nr.”
-        "beginn": 8,      # Kezdés “Beginn”
-        "ende": 9,        # Vége “Ende”
-        "stunden": 11,    # “Anzahl Stunden (ohne Pausen)”
-    }
+    # -------- dolgozók --------
+    START_ROW = 21  # ha nem itt kezdődik az első adat sor, szólj és átírjuk
+    cols = {"name": 2, "vorname": 4, "ausweis": 6, "beginn": 8, "ende": 9, "stunden": 11}
 
-    def put_worker(idx: int, nachname: str, vorname: str, ausweis: str, b: str, e: str):
+    def put_worker(i, nachname, vorname, ausweis, b, e):
         if not (nachname or vorname or ausweis or b or e):
             return 0.0
-        r = START_ROW + (idx - 1)
-        # mindig a blokk bal-felső cellájába írunk
-        write_in_block(ws, r, cols["name"], nachname, wrap=False, align_left=True)
-        write_in_block(ws, r, cols["vorname"], vorname, wrap=False, align_left=True)
-        write_in_block(ws, r, cols["ausweis"], ausweis, wrap=False, align_left=True)
+        r = START_ROW + (i - 1)
+        write_in_block(ws, r, cols["name"], nachname, False, True)
+        write_in_block(ws, r, cols["vorname"], vorname, False, True)
+        write_in_block(ws, r, cols["ausweis"], ausweis, False, True)
 
         tb = hhmm_to_dt(b) if b else None
         te = hhmm_to_dt(e) if e else None
-        if tb:
-            write_in_block(ws, r, cols["beginn"], b, wrap=False, align_left=True)
-        if te:
-            write_in_block(ws, r, cols["ende"], e, wrap=False, align_left=True)
+        if tb: write_in_block(ws, r, cols["beginn"], b, False, True)
+        if te: write_in_block(ws, r, cols["ende"], e, False, True)
 
-        hours = 0.0
+        net = 0.0
         if tb and te:
             gross = hours_between(tb, te)
             net = subtract_breaks(gross, tb, te)
-            hours = net
-            write_in_block(ws, r, cols["stunden"], f"{net:.2f}", wrap=False, align_left=True)
-        return hours
+            write_in_block(ws, r, cols["stunden"], f"{net:.2f}", False, True)
+        return net
 
     total = 0.0
     total += put_worker(1, name1, vorname1, ausweis1, beginn1, ende1)
@@ -243,10 +187,8 @@ async def generate_excel(
     total += put_worker(4, name4, vorname4, ausweis4, beginn4, ende4)
     total += put_worker(5, name5, vorname5, ausweis5, beginn5, ende5)
 
-    # összóra a táblázat alján – a képed alapján az alsó “Gesamtstunden” cellába
-    # Tegyük fel, hogy ez a táblázat alatti bal oldali blokk (pl. B??? oszlop),
-    # írd be ugyanoda, ahova eddig is került: keressük meg a “Gesamtstunden” feliratot.
-    def put_total_by_label(label_text: str, value: str):
+    # összóra a "Gesamtstunden" felirat melletti blokkba
+    def put_total(label_text: str, value: str):
         for row in ws.iter_rows(values_only=False):
             for cell in row:
                 if str(cell.value).strip() == label_text:
@@ -254,22 +196,20 @@ async def generate_excel(
                     nxt = next_merged_block_right(ws, r, c)
                     if nxt:
                         r0, c0, r1, c1 = nxt
-                        write_in_block(ws, r0, c0, value, wrap=False, align_left=True)
-                        return True
+                        write_in_block(ws, r0, c0, value, False, True)
                     else:
-                        write_in_block(ws, r, c+1, value, wrap=False, align_left=True)
-                        return True
+                        write_in_block(ws, r, c+1, value, False, True)
+                    return True
         return False
 
-    put_total_by_label("Gesamtstunden", f"{total:.2f}")
+    put_total("Gesamtstunden", f"{total:.2f}")
 
-    # mentés memóriába és visszaadás
+    # vissza
     out = io.BytesIO()
     wb.save(out)
     out.seek(0)
-
     filename = f"leistungsnachweis_{uuid.uuid4().hex}.xlsx"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"'
-    }
-    return FileResponse(out, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return FileResponse(out,
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers=headers)
