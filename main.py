@@ -16,7 +16,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ---------- merged-cell safe helpers ----------
+# ---------- helpers: merged-cell safe writing ----------
 
 def merged_ranges(ws):
     return [(r.min_row, r.min_col, r.max_row, r.max_col) for r in ws.merged_cells.ranges]
@@ -48,15 +48,14 @@ def right_neighbor_block(ws, r, c):
     _, rr, cc = candidates[0]
     return rr, cc
 
-def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False, indent=0):
+def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
     rr, cc = top_left_of_block(ws, r, c)
     cell = ws.cell(row=rr, column=cc)
     cell.value = text
     cell.alignment = Alignment(
         wrap_text=wrap,
         horizontal=("left" if align_left else "center"),
-        vertical=("top" if valign_top else "center"),
-        indent=indent
+        vertical=("top" if valign_top else cell.alignment.vertical or "center"),
     )
 
 def put_value_right_of_label(ws, label_text, value, wrap=False, align_left=False, valign_top=False):
@@ -166,7 +165,7 @@ def find_big_description_block(ws):
     if best:
         r1, c1, r2, c2, _ = best
         return (r1, c1, r2, c2)
-    return (6, 1, 15, 7)
+    return (6, 1, 20, 8)
 
 # ---------- routes ----------
 
@@ -188,9 +187,6 @@ async def generate_excel(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""),
 ):
-    # 1000 karakteres limit a leírásra (biztonsági)
-    beschreibung = (beschreibung or "")[:1000]
-
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
@@ -200,12 +196,11 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         put_value_right_of_label(ws, "BASF-Beauftragter, Org.-Code:", basf_beauftragter)
 
-    # Beschreibung: NAGYOBB sormagasság + TOP + balra + kis behúzás
+    # Beschreibung – még magasabb sormagasság a teljes blokkon
     r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = 28  # általános magasság
-    ws.row_dimensions[r1].height = 36     # extra hely az első sorban
-    set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True, indent=1)
+        ws.row_dimensions[r].height = 30  # ↑ 30pt, 3–4 sor biztosan kifér
+    set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
     # Dolgozók
     pos = find_header_positions(ws)
@@ -229,8 +224,8 @@ async def generate_excel(
         set_text(ws, row, pos["ausweis_col"], aw, wrap=False, align_left=True)
         set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
-
-        hb = parse_hhmm(bg); he = parse_hhmm(en)
+        hb = parse_hhmm(bg)
+        he = parse_hhmm(en)
         h = round(hours_with_breaks(hb, he), 2)
         total_hours += h
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
