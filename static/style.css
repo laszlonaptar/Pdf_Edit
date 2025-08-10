@@ -1,320 +1,134 @@
-/* =============== iOS / Apple-like theme =============== */
+/* =========================
+   Minimal, iOS-es stílus
+   ========================= */
+
 :root{
-  --ink-900:#1c1c1e; --ink-800:#222326; --ink-700:#2c2c2e;
-  --ink-600:#343437; --ink-500:#3a3a3c; --ink-400:#48484a;
-  --ink-300:#636366; --ink-200:#8e8e93; --ink-150:#b0b0b5;
-  --border:#e5e5ea; --bg:#f2f2f7; --card:#ffffff;
-  --brand:#007aff; --brand-d:#0056b3; --focus:#cce4ff;
-  --radius-lg:22px; --radius-md:14px; --radius-sm:10px;
+  --bg: #f5f5f7;
+  --card: #ffffff;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --line: #e5e5ea;
+  --accent: #007aff;
+  --accent-pressed: #0062d6;
+  --radius-card: 18px;
+  --radius-input: 14px;
+  --radius-pill: 9999px;
+  --shadow: 0 8px 24px rgba(0,0,0,.06);
+  --pad: 16px;
+  --gap: 16px;
 }
 
-/* Base */
-html, body {
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html,body { height: 100%; }
+body{
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+               Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text);
   background: var(--bg);
-  color: var(--ink-900);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.35;
 }
 
-h1, h2, h3 { color: var(--ink-900); margin: 0 0 10px; }
-h1 { font-size: 28px; font-weight: 700; }
-h2 { font-size: 22px; font-weight: 700; }
-h3 { font-size: 18px; font-weight: 600; }
-p, small, .hint { color: var(--ink-400); }
+/* Layout */
+.container{
+  max-width: 900px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+h1{ font-size: 28px; font-weight: 700; margin: 8px 0 20px; }
+h2{ font-size: 22px; font-weight: 700; margin: 0 0 12px; }
 
-/* Cards / szekciók */
-.section, .card {
+/* Kártyák */
+.card{
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
   padding: 18px;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+  margin: 16px 0;
+  box-shadow: var(--shadow);
 }
 
-/* Címkék */
-label { 
-  display:block; 
-  color: var(--ink-800); 
-  font-weight: 600; 
-  margin: 14px 0 8px;
+/* Rácsok */
+.grid{ display: grid; gap: var(--gap); }
+.grid-2{ grid-template-columns: repeat(2, 1fr); }
+.grid-3{ grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 760px){
+  .grid-2, .grid-3{ grid-template-columns: 1fr; }
 }
 
-/* Űrlapmezők */
-input, textarea, select {
+/* Mezők */
+.field{ display: flex; flex-direction: column; gap: 8px; }
+label, legend{
+  color: var(--text);
+  font-weight: 600;
+}
+.muted, .small{ color: var(--muted); }
+.small{ font-size: 0.9rem; }
+
+/* Input / textarea */
+input, textarea, select{
   width: 100%;
   background: #fff;
-  color: var(--ink-900);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
   padding: 12px 14px;
-  font-size: 16px;
+  font: inherit;
   outline: none;
-  transition: border-color .15s ease, box-shadow .15s ease;
-  box-sizing: border-box;
+  transition: border-color .2s, box-shadow .2s;
+}
+textarea{ resize: vertical; }
+input::placeholder, textarea::placeholder{ color: #a1a1a6; }
+input:focus, textarea:focus, select:focus{
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0,122,255,.22);
 }
 
-input::placeholder, textarea::placeholder { color: var(--ink-300); }
-
-input:focus, textarea:focus, select:focus {
-  border-color: var(--brand);
-  box-shadow: 0 0 0 3px var(--focus);
+/* Fieldset/legend szebb */
+fieldset{
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 16px;
 }
-
-/* Többsoros (Beschreibung) */
-textarea {
-  min-height: 120px;
-  resize: vertical;
+legend{
+  padding: 0 8px;
 }
-
-/* Mezők közti távolság */
-.form-row { margin-bottom: 12px; }
-fieldset { border: none; padding: 0; margin: 0; }
 
 /* Gombok */
-button, .button, .btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  gap: 8px;
-  padding: 14px 18px;
-  border-radius: 9999px;
-  font-weight: 600;
-  font-size: 16px;
-  border: 0;
-  cursor: pointer;
-  transition: transform .04s ease, background-color .15s ease, border-color .15s;
+.btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  gap:8px; font-weight:600; text-decoration:none; cursor:pointer;
+  border-radius: var(--radius-pill);
+  padding: 14px 18px; border: 0;
+  transition: transform .04s ease, background-color .2s, box-shadow .2s, color .2s, border-color .2s;
   user-select: none;
 }
+.btn:active{ transform: translateY(1px); }
 
-button:active, .btn:active { transform: scale(0.99); }
-
-/* Primary */
-button[type="submit"], .btn-primary, .primary {
-  background: var(--brand);
-  color: #fff;
+.btn.primary{
+  background: var(--accent);
+  color:#fff;
+  box-shadow: 0 6px 14px rgba(0,122,255,.25);
 }
-button[type="submit"]:hover, .btn-primary:hover, .primary:hover { background: var(--brand-d); }
+.btn.primary:hover{ background: var(--accent-pressed); }
 
-/* Outline */
-.btn-outline, .outline, #add-employee, .add-employee-btn {
+.btn.secondary{
   background: transparent;
-  color: var(--brand);
-  border: 2px solid var(--brand);
+  color: var(--accent);
+  border: 2px solid var(--accent);
 }
-.btn-outline:hover, .outline:hover, #add-employee:hover, .add-employee-btn:hover {
-  background: rgba(0,122,255,.08);
+.btn.secondary:hover{ background: rgba(0,122,255,.08); }
+
+/* Actions blokk */
+.actions{
+  display:flex; justify-content:flex-start; align-items:center;
+  margin: 20px 0 40px;
 }
+.actions .btn.primary{ padding-left:22px; padding-right:22px; }
 
-/* Kisebb segédszöveg */
-.help, .hint, .subtext { color: var(--ink-300); font-size: 14px; }
+/* Finom kártya- és szekció-távolság */
+section.card + section.card{ margin-top: 20px; }
 
-/* Csoportkártyák (Mitarbeiter blokk) */
-.employee-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 14px;
-  background: var(--card);
-}
-
-/* Grid elrendezés (mobilbarát) – opcionális, ha használtok */
-.grid { display: grid; gap: 12px; }
-.grid-2 { grid-template-columns: 1fr 1fr; }
-@media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
-
-/* “Gesamtzeit” doboz */
-.total-box { background: var(--card); border:1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; }
-
-/* Linkek */
-a { color: var(--brand); text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-/* Táblázat-jellegű dolgok helyben maradnak a sablonban */
-
-/* ==== HOTFIX: iOS-szerű alapok és gombok kényszerítése ==== */
-
-/* Rendszerbetű mindenre */
-html, body, input, textarea, select, button {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  color: #1d1d1f !important; /* sötétszürke, nem fekete */
-}
-
-/* Címek és label-ek */
-h1, h2, h3, label { color: #1d1d1f !important; }
-small, .hint, .help, .subtext { color: #6e6e73 !important; }
-
-/* Beviteli mezők */
-input, textarea, select {
-  background: #fff !important;
-  border: 1px solid #e5e5ea !important;
-  border-radius: 14px !important;
-  padding: 12px 14px !important;
-}
-input:focus, textarea:focus, select:focus {
-  border-color: #007aff !important;
-  box-shadow: 0 0 0 3px rgba(0,122,255,.25) !important;
-}
-
-/* “További dolgozó hozzáadása” – körvonalas kék */
-#add-employee, .add-employee-btn {
-  background: transparent !important;
-  color: #007aff !important;
-  border: 2px solid #007aff !important;
-  border-radius: 9999px !important;
-  padding: 12px 16px !important;
-  font-weight: 600 !important;
-}
-#add-employee:hover, .add-employee-btn:hover {
-  background: rgba(0,122,255,.08) !important;
-}
-
-/* “Excel generieren” – tömör kék */
-button[type="submit"],
-#generate-excel,
-#generateBtn,
-.btn-primary {
-  background: #007aff !important;
-  color: #fff !important;
-  border: 0 !important;
-  border-radius: 9999px !important;
-  padding: 14px 18px !important;
-  font-weight: 600 !important;
-}
-button[type="submit"]:hover,
-#generate-excel:hover,
-#generateBtn:hover,
-.btn-primary:hover {
-  background: #0056b3 !important;
-}
-/* ===== Apple-szerű színek + gombok – erős override ===== */
-
-/* Alap szín mindenkire (ne legyen fekete) */
-html, body, #app, .container, .form, form,
-h1, h2, h3, h4, h5, h6,
-label, legend, .label, .field-label, .section-title,
-p, span, div {
-  color: #1d1d1f !important;   /* sötétszürke */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-}
-
-/* Másodlagos szöveg */
-small, .muted, .hint, .help, .subtext, .description,
-.form-text, .note {
-  color: #6e6e73 !important;
-}
-
-/* Inputok */
-input, textarea, select {
-  background: #fff !important;
-  border: 1px solid #e5e5ea !important;
-  border-radius: 14px !important;
-  padding: 12px 14px !important;
-}
-input:focus, textarea:focus, select:focus {
-  border-color: #007aff !important;
-  box-shadow: 0 0 0 3px rgba(0,122,255,.25) !important;
-}
-
-/* Elsődleges gomb (Excel generálás) – több lehetséges azonosítóval */
-button[type="submit"],
-input[type="submit"],
-#generate-excel, #generateBtn, #excelBtn, #excel_button,
-.btn-primary, .button-primary, .primary-btn {
-  background: #007aff !important;
-  color: #fff !important;
-  border: 0 !important;
-  border-radius: 9999px !important;
-  padding: 14px 18px !important;
-  font-weight: 600 !important;
-}
-button[type="submit"]:hover,
-input[type="submit"]:hover,
-#generate-excel:hover, #generateBtn:hover, #excelBtn:hover, #excel_button:hover,
-.btn-primary:hover, .button-primary:hover, .primary-btn:hover {
-  background: #0056b3 !important;
-}
-
-/* Másodlagos gomb (További dolgozó hozzáadása) – kék körvonal */
-#add-employee, .add-employee-btn, .btn-outline, .button-outline,
-button[type="button"], .btn-secondary, .button-secondary {
-  background: transparent !important;
-  color: #007aff !important;
-  border: 2px solid #007aff !important;
-  border-radius: 9999px !important;
-  padding: 12px 16px !important;
-  font-weight: 600 !important;
-}
-#add-employee:hover, .add-employee-btn:hover, .btn-outline:hover, .button-outline:hover,
-button[type="button"]:hover, .btn-secondary:hover, .button-secondary:hover {
-  background: rgba(0,122,255,.08) !important;
-}
-
-/* Biztos ami biztos – a gombok felirata se legyen fekete */
-button *, .btn *, .button * { color: inherit !important; }
-
-/* ===== Apple-szerű alapok – erős override ===== */
-body, html, .container {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  color: #1d1d1f !important;
-  background: #f5f5f7 !important;
-}
-
-/* Címek, címkék */
-h1, h2, h3, legend, label {
-  color: #1d1d1f !important;
-  font-weight: 600;
-}
-
-/* Másodlagos/segédszöveg */
-.muted, .small, .muted.small {
-  color: #6e6e73 !important;
-}
-
-/* Kártyák némi finomítással */
-.card {
-  background: #fff !important;
-  border: 1px solid #e5e5ea !important;
-  border-radius: 18px !important;
-}
-
-/* Inputok */
-input, textarea, select {
-  background: #fff !important;
-  color: #1d1d1f !important;
-  border: 1px solid #e5e5ea !important;
-  border-radius: 14px !important;
-  padding: 12px 14px !important;
-}
-input:focus, textarea:focus, select:focus {
-  border-color: #007aff !important;
-  box-shadow: 0 0 0 3px rgba(0,122,255,.25) !important;
-  outline: none !important;
-}
-
-/* Gombok – közös alap */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-weight: 600 !important;
-  border-radius: 9999px !important;
-  padding: 14px 18px !important;
-  line-height: 1.2;
-}
-
-/* Primer gomb (Excel generieren) */
-.btn.primary {
-  background: #007aff !important;
-  color: #fff !important;
-  border: 0 !important;
-}
-.btn.primary:hover { background: #0062d6 !important; }
-
-/* Szekunder gomb (+ Weitere Mitarbeiter …) */
-.btn.secondary {
-  background: transparent !important;
-  color: #007aff !important;
-  border: 2px solid #007aff !important;
-}
-.btn.secondary:hover { background: rgba(0,122,255,.08) !important; }
-
-/* A gombokban lévő bármilyen elem örökölje a színt */
-.btn * { color: inherit !important; }
+/* Legkisebb részletek */
+legend + .grid, legend + .field{ margin-top: 8px; }
+#besch-count{ margin-top: 6px; }
