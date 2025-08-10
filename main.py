@@ -108,6 +108,7 @@ def hours_with_breaks(beg: time | None, end: time | None) -> float:
     if finish <= start:
         return 0.0
     total_min = int((finish - start).total_seconds() // 60)
+    # breaks: 09:00–09:15 (15m), 12:00–12:45 (45m)
     minus = overlap_minutes(beg, end, time(9,0), time(9,15)) + overlap_minutes(beg, end, time(12,0), time(12,45))
     return max(0.0, (total_min - minus) / 60.0)
 
@@ -153,7 +154,21 @@ def find_total_cell(ws):
                     return (r, c+1)
     return None
 
+def footer_hours_cell(ws, pos):
+    """Find the footer cell in the Stunden column (the one that currently shows 0)."""
+    col = pos["stunden_col"]
+    # Scan from bottom upwards for a top-left cell in that column that is empty/zero.
+    for r in range(ws.max_row, pos["data_start_row"] - 1, -1):
+        rr, cc = top_left_of_block(ws, r, col)
+        if (rr, cc) != (r, col):
+            continue  # skip non-top-left of merged regions
+        v = ws.cell(row=r, column=col).value
+        if v is None or (isinstance(v, (int, float)) and abs(v) < 1e-9) or (isinstance(v, str) and v.strip() in ("", "0", "0,00", "0.00")):
+            return (r, col)
+    return None
+
 def find_big_description_block(ws):
+    """Return (r1,c1,r2,c2) for the large description area."""
     best = None
     for (r1,c1,r2,c2) in merged_ranges(ws):
         height = r2 - r1 + 1
@@ -165,7 +180,7 @@ def find_big_description_block(ws):
     if best:
         r1, c1, r2, c2, _ = best
         return (r1, c1, r2, c2)
-    return (6, 1, 20, 8)
+    return (6, 1, 20, 8)  # fallback
 
 # ---------- routes ----------
 
@@ -196,10 +211,10 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         put_value_right_of_label(ws, "BASF-Beauftragter, Org.-Code:", basf_beauftragter)
 
-    # Beschreibung – még magasabb sormagasság a teljes blokkon
+    # Beschreibung – magasabb sormagasság
     r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = 30  # ↑ 30pt, 3–4 sor biztosan kifér
+        ws.row_dimensions[r].height = 22
     set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
     # Dolgozók
@@ -231,10 +246,15 @@ async def generate_excel(
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
 
+    # Összeg két helyre: "Gesamtstunden" melletti cella + Stunden oszlop lábléc
     tot_cell = find_total_cell(ws)
     if tot_cell:
         tr, tc = tot_cell
         set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
+    footer = footer_hours_cell(ws, pos)
+    if footer:
+        fr, fc = footer
+        set_text(ws, fr, fc, round(total_hours, 2), wrap=False, align_left=True)
 
     bio = BytesIO()
     wb.save(bio)
