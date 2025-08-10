@@ -132,3 +132,20 @@ section.card + section.card{ margin-top: 20px; }
 /* Legkisebb részletek */
 legend + .grid, legend + .field{ margin-top: 8px; }
 #besch-count{ margin-top: 6px; }
+/* --- Actions blokk fix --- */
+.actions{
+  margin: 0;                 /* ne lógjon a containerből */
+  padding: 0 16px 20px;      /* vízszintes belső margó */
+}
+.actions .btn.primary{
+  width: 100%;               /* teljes szélességű gomb */
+  border-radius: 14px;       /* kártyához illő kerekítés */
+}
+/* --- Tipó tónus finomítás --- */
+:root{
+  --text: #2c2c2e;           /* picit világosabb sötétszürke */
+  --heading: #1d1d1f;
+}
+body{ color: var(--text); }
+h1,h2,legend,label,strong,b{ color: var(--heading); font-weight: 600; }
+.muted,.small{ color:#6e6e73; }
