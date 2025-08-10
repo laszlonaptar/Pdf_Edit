@@ -58,6 +58,23 @@ def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
         vertical=("top" if valign_top else cell.alignment.vertical or "center"),
     )
 
+def put_value_right_of_any_label(ws, labels, value, *, wrap=False, align_left=True, valign_top=False):
+    """Keres bármelyik megadott feliratot, és a tőle jobbra eső értékcellába ír."""
+    if value is None:
+        value = ""
+    for row in ws.iter_rows(values_only=False):
+        for cell in row:
+            v = cell.value
+            if isinstance(v, str):
+                s = v.strip()
+                if any(lbl in s for lbl in labels):
+                    neigh = right_neighbor_block(ws, cell.row, cell.column)
+                    if neigh:
+                        r, c = neigh
+                        set_text(ws, r, c, value, wrap=wrap, align_left=align_left, valign_top=valign_top)
+                        return True
+    return False
+
 # ---------- time & hours ----------
 
 def parse_hhmm(s: str) -> time | None:
@@ -88,7 +105,6 @@ def hours_with_breaks(beg: time | None, end: time | None) -> float:
     if finish <= start:
         return 0.0
     total_min = int((finish - start).total_seconds() // 60)
-    # breaks: 09:00–09:15 (15m), 12:00–12:45 (45m) -> összesen akár 60 perc levonás
     minus = overlap_minutes(beg, end, time(9, 0), time(9, 15)) + overlap_minutes(beg, end, time(12, 0), time(12, 45))
     return max(0.0, (total_min - minus) / 60.0)
 
@@ -116,7 +132,7 @@ def find_header_positions(ws):
                     pos["ende_col"] = cell.column
                 if "Anzahl Stunden" in t:
                     pos["stunden_col"] = cell.column
-        if all(k in pos for k in ["name_col", "vorname_col", "ausweis_col", "beginn_col", "ende_col", "stunden_col", "subheader_row"]):
+        if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
             break
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
@@ -131,15 +147,14 @@ def find_total_cell(ws):
                 if neigh:
                     return neigh
                 else:
-                    return (r, c + 1)
+                    return (r, c+1)
     return None
 
 def find_big_description_block(ws):
-    """Return (r1,c1,r2,c2) for the large description area."""
     best = None
-    for (r1, c1, r2, c2) in merged_ranges(ws):
+    for (r1,c1,r2,c2) in merged_ranges(ws):
         height = r2 - r1 + 1
-        width = c2 - c1 + 1
+        width  = c2 - c1 + 1
         if r1 >= 6 and height >= 4 and width >= 4:
             area = height * width
             if not best or area > best[-1]:
@@ -147,7 +162,7 @@ def find_big_description_block(ws):
     if best:
         r1, c1, r2, c2, _ = best
         return (r1, c1, r2, c2)
-    return (6, 1, 20, 8)  # fallback
+    return (6, 1, 20, 8)
 
 # ---------- routes ----------
 
@@ -172,23 +187,21 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- Felső mezők: direkt cellacímek + balra igazítás ---
-    # Dátum -> A2 balra
-    ws["A2"] = datum
-    ws["A2"].alignment = Alignment(horizontal="left")
+    # --- Felső 3 mező: mindig a címke melletti értékcellába írunk ---
+    put_value_right_of_any_label(ws, ["Datum der Leistungsausführung:"], datum, align_left=True)
+    put_value_right_of_any_label(ws, ["Bau und Ausführungsort:"], bau, align_left=True)
+    if (basf_beauftragter or "").strip():
+        put_value_right_of_any_label(
+            ws,
+            ["BASF-Beauftragter", "BASF-Beauftragter", "BASF-Beauftragter, Org.-Code:"],
+            basf_beauftragter,
+            align_left=True
+        )
 
-    # BASF-Beauftragter -> B2 balra
-    ws["B2"] = basf_beauftragter
-    ws["B2"].alignment = Alignment(horizontal="left")
-
-    # Bau -> B3 balra
-    ws["B3"] = bau
-    ws["B3"].alignment = Alignment(horizontal="left")
-
-    # --- Beschreibung: ne vágódjon le (nagyobb sormagasság + wrap, top, left) ---
+    # --- Beschreibung: nagyobb sormagasság + wrap ---
     r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = 22  # kb. ~22pt
+        ws.row_dimensions[r].height = 22
     set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák ---
@@ -196,7 +209,7 @@ async def generate_excel(
     row = pos["data_start_row"]
 
     workers = []
-    for i in range(1, 5 + 1):
+    for i in range(1, 6):
         vn = locals().get(f"vorname{i}", "") or ""
         nn = locals().get(f"nachname{i}", "") or ""
         aw = locals().get(f"ausweis{i}", "") or ""
