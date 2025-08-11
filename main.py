@@ -16,8 +16,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ---------- helpers: merged-cell safe writing ----------
-
+# ---------- helpers for merged cells ----------
 def merged_ranges(ws):
     return [(r.min_row, r.min_col, r.max_row, r.max_col) for r in ws.merged_cells.ranges]
 
@@ -35,20 +34,7 @@ def top_left_of_block(ws, r, c):
     r1, c1, _, _ = block_of(ws, r, c)
     return r1, c1
 
-def right_neighbor_block(ws, r, c):
-    cur = block_of(ws, r, c)
-    _, _, _, cur_max_c = cur
-    candidates = []
-    for (r1, c1, r2, _) in merged_ranges(ws):
-        if r1 <= r <= r2 and c1 > cur_max_c:
-            candidates.append((c1, r1, c1))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda x: x[0])
-    _, rr, cc = candidates[0]
-    return rr, cc
-
-def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False, number_format=None):
+def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
     rr, cc = top_left_of_block(ws, r, c)
     cell = ws.cell(row=rr, column=cc)
     cell.value = text
@@ -57,31 +43,15 @@ def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False, num
         horizontal=("left" if align_left else "center"),
         vertical=("top" if valign_top else cell.alignment.vertical or "center"),
     )
-    if number_format:
-        cell.number_format = number_format
 
-def put_value_right_of_label(ws, label_text, value, wrap=False, align_left=False, valign_top=False, number_format=None):
-    found = None
-    for row in ws.iter_rows(values_only=False):
-        for cell in row:
-            v = cell.value
-            if isinstance(v, str) and v.strip() == label_text:
-                found = (cell.row, cell.column)
-                break
-        if found:
-            break
-    if not found:
-        return False
-    r, c = found
-    neigh = right_neighbor_block(ws, r, c)
-    if not neigh:
-        return False
-    nr, nc = neigh
-    set_text(ws, nr, nc, value, wrap=wrap, align_left=align_left, valign_top=valign_top, number_format=number_format)
-    return True
+def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="center"):
+    cell = ws[addr]
+    rr, cc = top_left_of_block(ws, cell.row, cell.column)
+    tgt = ws.cell(row=rr, column=cc)
+    tgt.value = text
+    tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical)
 
 # ---------- time & hours ----------
-
 def parse_hhmm(s: str) -> time | None:
     s = (s or "").strip()
     if not s:
@@ -114,7 +84,6 @@ def hours_with_breaks(beg: time | None, end: time | None) -> float:
     return max(0.0, (total_min - minus) / 60.0)
 
 # ---------- table helpers ----------
-
 def find_header_positions(ws):
     pos = {}
     header_row = None
@@ -142,18 +111,32 @@ def find_header_positions(ws):
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
 
-def find_total_cell(ws):
+def find_total_cells(ws, stunden_col):
+    """
+    Visszaad:
+      - right_of_label: a 'Gesamtstunden' FELIRAT melletti kis cella (amit Ã¼resre Ã¡llÃ­tunk)
+      - stunden_total:  ugyanazon a soron a 'Anzahl Stunden' oszlop alatti cella (ebbe Ã­rjuk az Ã¶sszeget)
+    """
+    total_row = None
+    right_of_label = None
     for row in ws.iter_rows(min_row=1, max_row=200):
         for cell in row:
-            v = cell.value
-            if isinstance(v, str) and "Gesamtstunden" in v:
-                r, c = cell.row, cell.column
-                neigh = right_neighbor_block(ws, r, c)
-                if neigh:
-                    return neigh
-                else:
-                    return (r, c+1)
-    return None
+            if isinstance(cell.value, str) and "Gesamtstunden" in cell.value:
+                total_row = cell.row
+                # felirat melletti kis cella
+                r_neighbor, c_neighbor = total_row, cell.column + 1
+                rr, cc = top_left_of_block(ws, r_neighbor, c_neighbor)
+                right_of_label = (rr, cc)
+                break
+        if total_row:
+            break
+
+    stunden_total = None
+    if total_row:
+        rr, cc = top_left_of_block(ws, total_row, stunden_col)
+        stunden_total = (rr, cc)
+
+    return right_of_label, stunden_total
 
 def find_big_description_block(ws):
     best = None
@@ -170,7 +153,6 @@ def find_big_description_block(ws):
     return (6, 1, 20, 8)
 
 # ---------- routes ----------
-
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -192,34 +174,24 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- DÁTUM: biztosan jó német formátum, SZÖVEGKÉNT írjuk be ---
-    date_text = datum
-    try:
-        dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")   # pl. 11.08.2025
-    except Exception:
-        pass
-    put_value_right_of_label(ws, "Datum der Leistungsausführung:", date_text, align_left=True)
-    # ---------------------------------------------------------------
-
-    put_value_right_of_label(ws, "Bau und Ausführungsort:", bau, align_left=True)
+    # --- FelsÅ mezÅk: fix cÃ­mek ---
+    set_text_addr(ws, "B2", datum, horizontal="left")
+    set_text_addr(ws, "B3", bau,   horizontal="left")
     if (basf_beauftragter or "").strip():
-        put_value_right_of_label(ws, "BASF-Beauftragter, Org.-Code:", basf_beauftragter, align_left=True)
-    if (geraet or "").strip():
-        put_value_right_of_label(ws, "Vorhaltung / beauftragtes Gerät / Fahrzeug:", geraet, align_left=True)
+        set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # Beschreibung – sor-magasság + tördelés
+    # --- Beschreibung: nagy sormagassÃ¡g + wrap ---
     r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
         ws.row_dimensions[r].height = 22
     set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
-    # Dolgozók
+    # --- DolgozÃ³k Ã©s Ã³rÃ¡k ---
     pos = find_header_positions(ws)
     row = pos["data_start_row"]
 
     workers = []
-    for i in range(1, 5+1):
+    for i in range(1, 6):
         vn = locals().get(f"vorname{i}", "") or ""
         nn = locals().get(f"nachname{i}", "") or ""
         aw = locals().get(f"ausweis{i}", "") or ""
@@ -243,10 +215,14 @@ async def generate_excel(
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
 
-    tot_cell = find_total_cell(ws)
-    if tot_cell:
-        tr, tc = tot_cell
+    # --- ÃsszÃ³raszÃ¡m: jobb oldali nagy dobozban; a kis mezÅt Ã¼rÃ­tjÃ¼k ---
+    right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
+    if stunden_total:
+        tr, tc = stunden_total
         set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
+    if right_of_label:
+        rr, rc = right_of_label
+        set_text(ws, rr, rc, "", wrap=False, align_left=True)  # Ã¼resre Ã¡llÃ­tjuk
 
     bio = BytesIO()
     wb.save(bio)
