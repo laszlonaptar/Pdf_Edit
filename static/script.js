@@ -149,3 +149,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
+// --- Beschreibung karakterszámláló ---
+(function () {
+  const besch = document.getElementById('beschreibung');
+  const out   = document.getElementById('besch-count');
+  if (!besch || !out) return;
+
+  const max = parseInt(besch.getAttribute('maxlength') || '1000', 10);
+
+  function updateBeschCount() {
+    const len = besch.value.length || 0;
+    out.textContent = `${len} / ${max}`;
+  }
+
+  // első frissítés betöltéskor
+  updateBeschCount();
+
+  // frissítés gépeléskor / beillesztéskor
+  besch.addEventListener('input', updateBeschCount);
+  besch.addEventListener('change', updateBeschCount);
+})();
