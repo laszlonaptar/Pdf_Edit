@@ -10,7 +10,7 @@
   <main class="container">
     <h1>Leistungsnachweis</h1>
 
-    <form id="ln-form" method="post" action="/generate_excel">
+    <form id="ln-form" method="post" action="/generate_excel" novalidate>
       <!-- Kopf -->
       <section class="card">
         <div class="grid grid-2">
@@ -20,11 +20,11 @@
           </div>
           <div class="field">
             <label for="bau">Bau und Ausführungsort</label>
-            <input id="bau" name="bau" type="text" placeholder="z. B. G725" />
+            <input id="bau" name="bau" type="text" placeholder="z. B. G725" required />
           </div>
           <div class="field">
             <label for="basf_beauftragter">BASF-Beauftragter, Org.-Code</label>
-            <input id="basf_beauftragter" name="basf_beauftragter" type="text" />
+            <input id="basf_beauftragter" name="basf_beauftragter" type="text" required />
           </div>
           <div class="field">
             <label for="geraet">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
@@ -37,7 +37,7 @@
       <section class="card">
         <div class="field">
           <label for="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
-          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6"
+          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" required
             placeholder="Max. 1000 Zeichen"></textarea>
           <div class="muted" id="besch-count">0 / 1000</div>
         </div>
@@ -53,25 +53,25 @@
             <div class="grid grid-3">
               <div class="field">
                 <label>Vorname</label>
-                <input name="vorname1" type="text" />
+                <input name="vorname1" type="text" required />
               </div>
               <div class="field">
                 <label>Nachname</label>
-                <input name="nachname1" type="text" />
+                <input name="nachname1" type="text" required />
               </div>
               <div class="field">
                 <label>Ausweis-Nr. / Kennzeichen</label>
-                <input name="ausweis1" type="text" inputmode="numeric" pattern="[0-9]*" class="ausweis-input" />
+                <input name="ausweis1" type="text" required />
               </div>
             </div>
             <div class="grid grid-3">
               <div class="field">
                 <label>Beginn</label>
-                <input name="beginn1" type="time" step="60" />
+                <input name="beginn1" type="time" step="60" required />
               </div>
               <div class="field">
                 <label>Ende</label>
-                <input name="ende1" type="time" step="60" />
+                <input name="ende1" type="time" step="60" required />
               </div>
               <div class="field">
                 <label>Stunden (auto)</label>
@@ -104,6 +104,6 @@
     </form>
   </main>
 
-  <script src="/static/script.js"></script>
+  <script src="/static/script.js?v=validate1"></script>
 </body>
 </html>
