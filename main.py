@@ -143,17 +143,16 @@ def find_header_positions(ws):
     return pos
 
 def find_total_cell(ws):
-    for row in ws.iter_rows(min_row=1, max_row=200):
+    """Return the right-hand cell of the BOTTOM-MOST 'Gesamtstunden' label."""
+    last = None
+    for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
         for cell in row:
             v = cell.value
             if isinstance(v, str) and "Gesamtstunden" in v:
                 r, c = cell.row, cell.column
                 neigh = right_neighbor_block(ws, r, c)
-                if neigh:
-                    return neigh
-                else:
-                    return (r, c+1)
-    return None
+                last = neigh if neigh else (r, c + 1)
+    return last
 
 def find_big_description_block(ws):
     best = None
@@ -192,15 +191,14 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- DÁTUM: biztosan jó német formátum, SZÖVEGKÉNT írjuk be ---
+    # --- Dátum német formátumban, szövegként ---
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")   # pl. 11.08.2025
+        date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
     put_value_right_of_label(ws, "Datum der Leistungsausführung:", date_text, align_left=True)
-    # ---------------------------------------------------------------
 
     put_value_right_of_label(ws, "Bau und Ausführungsort:", bau, align_left=True)
     if (basf_beauftragter or "").strip():
