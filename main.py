@@ -199,7 +199,7 @@ async def generate_excel(
     # Felső mezők
     # dátum: HTML input 'YYYY-MM-DD' -> Excel dátum, német formátum
     try:
-        date_obj = datetime.strptime(datum.strip(), "%Y-%m-%d").date()
+        date_obj = datetime.strptime(datum.strip(), "%Y-%m-%d")  # << csak ez változott: nincs .date()
     except Exception:
         date_obj = datum  # ha bármi gáz, essünk vissza a nyers szövegre
     put_value_right_of_label(ws, "Datum der Leistungsausführung:", date_obj, align_left=True, number_format="DD.MM.YYYY")
