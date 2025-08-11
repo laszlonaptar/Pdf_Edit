@@ -52,13 +52,11 @@ def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False, num
     rr, cc = top_left_of_block(ws, r, c)
     cell = ws.cell(row=rr, column=cc)
     cell.value = text
-    # igazítás
     cell.alignment = Alignment(
         wrap_text=wrap,
         horizontal=("left" if align_left else "center"),
         vertical=("top" if valign_top else cell.alignment.vertical or "center"),
     )
-    # számformátum (pl. dátum)
     if number_format:
         cell.number_format = number_format
 
@@ -112,7 +110,6 @@ def hours_with_breaks(beg: time | None, end: time | None) -> float:
     if finish <= start:
         return 0.0
     total_min = int((finish - start).total_seconds() // 60)
-    # breaks: 09:00–09:15 (15m), 12:00–12:45 (45m)
     minus = overlap_minutes(beg, end, time(9,0), time(9,15)) + overlap_minutes(beg, end, time(12,0), time(12,45))
     return max(0.0, (total_min - minus) / 60.0)
 
@@ -159,7 +156,6 @@ def find_total_cell(ws):
     return None
 
 def find_big_description_block(ws):
-    """Return (r1,c1,r2,c2) for the large description area."""
     best = None
     for (r1,c1,r2,c2) in merged_ranges(ws):
         height = r2 - r1 + 1
@@ -171,7 +167,7 @@ def find_big_description_block(ws):
     if best:
         r1, c1, r2, c2, _ = best
         return (r1, c1, r2, c2)
-    return (6, 1, 20, 8)  # fallback
+    return (6, 1, 20, 8)
 
 # ---------- routes ----------
 
@@ -196,13 +192,15 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # Felső mezők
-    # dátum: HTML input 'YYYY-MM-DD' -> Excel dátum, német formátum
+    # --- DÁTUM: biztosan jó német formátum, SZÖVEGKÉNT írjuk be ---
+    date_text = datum
     try:
-        date_obj = datetime.strptime(datum.strip(), "%Y-%m-%d")  # << csak ez változott: nincs .date()
+        dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
+        date_text = dt.strftime("%d.%m.%Y")   # pl. 11.08.2025
     except Exception:
-        date_obj = datum  # ha bármi gáz, essünk vissza a nyers szövegre
-    put_value_right_of_label(ws, "Datum der Leistungsausführung:", date_obj, align_left=True, number_format="DD.MM.YYYY")
+        pass
+    put_value_right_of_label(ws, "Datum der Leistungsausführung:", date_text, align_left=True)
+    # ---------------------------------------------------------------
 
     put_value_right_of_label(ws, "Bau und Ausführungsort:", bau, align_left=True)
     if (basf_beauftragter or "").strip():
@@ -210,7 +208,7 @@ async def generate_excel(
     if (geraet or "").strip():
         put_value_right_of_label(ws, "Vorhaltung / beauftragtes Gerät / Fahrzeug:", geraet, align_left=True)
 
-    # Beschreibung – nagyobb sor-magasság, tördelve, balra, felülre
+    # Beschreibung – sor-magasság + tördelés
     r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
         ws.row_dimensions[r].height = 22
