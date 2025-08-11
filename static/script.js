@@ -170,3 +170,77 @@ document.addEventListener("DOMContentLoaded", () => {
   besch.addEventListener('input', updateBeschCount);
   besch.addEventListener('change', updateBeschCount);
 })();
+
+// ==== Zusätzliche Validierung beim Absenden ====
+(function () {
+  const form = document.getElementById("ln-form");
+  if (!form) return;
+
+  function trim(v) { return (v || "").toString().trim(); }
+
+  // Egy worker fieldset összegyűjtése
+  function readWorker(fs) {
+    const idx = fs.getAttribute("data-index") || "";
+    const q = (sel) => fs.querySelector(sel);
+    return {
+      idx,
+      vorname: trim((q(`input[name="vorname${idx}"]`) || {}).value),
+      nachname: trim((q(`input[name="nachname${idx}"]`) || {}).value),
+      ausweis: trim((q(`input[name="ausweis${idx}"]`) || {}).value),
+      beginn: trim((q(`input[name="beginn${idx}"]`) || {}).value),
+      ende: trim((q(`input[name="ende${idx}"]`) || {}).value),
+    };
+  }
+
+  form.addEventListener("submit", function (e) {
+    const errors = [];
+
+    // Kötelező fej mezők
+    const datum = trim((document.getElementById("datum") || {}).value);
+    const bau   = trim((document.getElementById("bau") || {}).value);
+    const bf    = trim((document.getElementById("basf_beauftragter") || {}).value);
+    const besch = trim((document.getElementById("beschreibung") || {}).value);
+
+    if (!datum) errors.push("Bitte das Datum der Leistungsausführung angeben.");
+    if (!bau) errors.push("Bitte Bau und Ausführungsort ausfüllen.");
+    if (!bf) errors.push("Bitte den BASF-Beauftragten (Org.-Code) ausfüllen.");
+    if (!besch) errors.push("Bitte die Beschreibung der ausgeführten Arbeiten ausfüllen.");
+
+    // Dolgozók
+    const list = document.getElementById("worker-list");
+    const sets = Array.from(list.querySelectorAll(".worker"));
+    let validWorkers = 0;
+
+    sets.forEach((fs) => {
+      const w = readWorker(fs);
+
+      const anyFilled = !!(w.vorname || w.nachname || w.ausweis || w.beginn || w.ende);
+      const allCore   = !!(w.vorname && w.nachname && w.ausweis && w.beginn && w.ende);
+
+      if (allCore) {
+        validWorkers += 1;
+      } else if (anyFilled) {
+        // Részben kitöltött sor – írjuk ki, mi hiányzik
+        const missing = [];
+        if (!w.vorname) missing.push("Vorname");
+        if (!w.nachname) missing.push("Nachname");
+        if (!w.ausweis) missing.push("Ausweis-Nr.");
+        if (!w.beginn) missing.push("Beginn");
+        if (!w.ende) missing.push("Ende");
+        errors.push(`Bitte Mitarbeiter ${w.idx}: ${missing.join(", ")} ausfüllen.`);
+      }
+    });
+
+    if (validWorkers === 0) {
+      errors.push("Bitte mindestens einen Mitarbeiter vollständig angeben (Vorname, Nachname, Ausweis-Nr., Beginn, Ende).");
+    }
+
+    // Ha van hiba, ne küldjük el, jelezzünk szépen
+    if (errors.length) {
+      e.preventDefault();
+      alert(errors.join("\n"));
+      return false;
+    }
+    return true;
+  });
+})();
