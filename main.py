@@ -144,38 +144,25 @@ def find_header_positions(ws):
 
 def find_total_cell(ws):
     """
-    Keresd meg a 'Gesamtstunden' felirat sorában a JOBB SZÉLSŐ összevont blokkot
-    (vagy ha nincs összevonás, a legutolsó cellát), és annak bal-felső celláját add vissza.
-    Így a tényleges összesítő dobozba írunk.
+    Keresd meg az alsó régióban a jobbra legszélső, 0-t tartalmazó dobozt,
+    és annak összevont blokkjának bal-felső celláját add vissza.
+    Ez a nagy 'Gesamtstunden' mező.
     """
-    label_row = None
-    for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+    start_row = max(1, ws.max_row - 80)
+    candidate = None
+    max_c = -1
+
+    for row in ws.iter_rows(min_row=start_row, max_row=ws.max_row):
         for cell in row:
             v = cell.value
-            if isinstance(v, str) and "Gesamtstunden" in v:
-                label_row = cell.row
-                # nem törünk ki azonnal – ha több van, az utolsót akarjuk (alsó blokk)
-    if not label_row:
-        return None
+            if (isinstance(v, (int, float)) and v == 0) or (isinstance(v, str) and v.strip() == "0"):
+                # vegyük a cella összevont blokkjának bal-felső sarkát
+                rr, cc = top_left_of_block(ws, cell.row, cell.column)
+                if cc > max_c:
+                    max_c = cc
+                    candidate = (rr, cc)
 
-    # jobb szélső összevont blokk kiválasztása
-    rightmost = None
-    rightmost_c2 = -1
-    for rng in ws.merged_cells.ranges:
-        r1, c1, r2, c2 = rng.min_row, rng.min_col, rng.max_row, rng.max_col
-        if r1 <= label_row <= r2 and c2 > rightmost_c2:
-            rightmost_c2 = c2
-            rightmost = (r1, c1)
-
-    if rightmost:
-        return rightmost
-
-    # fallback: ha nincs merge, a sor utolsó cellája
-    last_col = 0
-    for cell in ws[label_row]:
-        if cell.column > last_col:
-            last_col = cell.column
-    return (label_row, last_col)
+    return candidate
 
 def find_big_description_block(ws):
     best = None
