@@ -143,26 +143,17 @@ def find_header_positions(ws):
     return pos
 
 def find_total_cell(ws):
-    """
-    Keresd meg az alsó régióban a jobbra legszélső, 0-t tartalmazó dobozt,
-    és annak összevont blokkjának bal-felső celláját add vissza.
-    Ez a nagy 'Gesamtstunden' mező.
-    """
-    start_row = max(1, ws.max_row - 80)
-    candidate = None
-    max_c = -1
-
-    for row in ws.iter_rows(min_row=start_row, max_row=ws.max_row):
+    for row in ws.iter_rows(min_row=1, max_row=200):
         for cell in row:
             v = cell.value
-            if (isinstance(v, (int, float)) and v == 0) or (isinstance(v, str) and v.strip() == "0"):
-                # vegyük a cella összevont blokkjának bal-felső sarkát
-                rr, cc = top_left_of_block(ws, cell.row, cell.column)
-                if cc > max_c:
-                    max_c = cc
-                    candidate = (rr, cc)
-
-    return candidate
+            if isinstance(v, str) and "Gesamtstunden" in v:
+                r, c = cell.row, cell.column
+                neigh = right_neighbor_block(ws, r, c)
+                if neigh:
+                    return neigh
+                else:
+                    return (r, c+1)
+    return None
 
 def find_big_description_block(ws):
     best = None
@@ -201,14 +192,15 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- Dátum német formátumban, szövegként ---
+    # --- DÁTUM: biztosan jó német formátum, SZÖVEGKÉNT írjuk be ---
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")
+        date_text = dt.strftime("%d.%m.%Y")   # pl. 11.08.2025
     except Exception:
         pass
     put_value_right_of_label(ws, "Datum der Leistungsausführung:", date_text, align_left=True)
+    # ---------------------------------------------------------------
 
     put_value_right_of_label(ws, "Bau und Ausführungsort:", bau, align_left=True)
     if (basf_beauftragter or "").strip():
