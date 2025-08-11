@@ -23,7 +23,7 @@ async def generate_excel(
     request: Request,
     datum: str = Form(...),
     bau: str = Form(...),
-    bf: str = Form(...),
+    basf_beauftragter: str = Form(""),
     beschreibung: str = Form(...),
     nachname1: str = Form(...),
     vorname1: str = Form(...),
@@ -74,7 +74,7 @@ async def generate_excel(
     # Adatok beírása
     ws["B3"] = datum_formatted
     ws["B4"] = bau
-    ws["G3"] = bf
+    ws["G3"] = basf_beauftragter
 
     # Munka leírása (A6–G15 sorok feltöltése balról jobbra)
     beschreibung_lines = beschreibung.split("\n")
