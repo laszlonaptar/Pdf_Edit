@@ -48,6 +48,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function enforceNumericKeyboard(input) {
+    // mobil numerikus billentyűzet
+    input.setAttribute("inputmode", "numeric");
+    input.setAttribute("pattern", "[0-9]*");
+    // csak számok
+    digitsOnly(input);
+  }
+
   function recalcWorker(workerEl) {
     const beg = workerEl.querySelector('input[name^="beginn"]')?.value || "";
     const end = workerEl.querySelector('input[name^="ende"]')?.value || "";
@@ -66,16 +74,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function wireWorker(workerEl) {
-    // Ausweis csak szám
+    // Ausweis csak szám + numerikus billentyűzet
     const ausweis = workerEl.querySelector('input[name^="ausweis"]');
-    if (ausweis) digitsOnly(ausweis);
+    if (ausweis) enforceNumericKeyboard(ausweis);
 
     // idő változásra újraszámolás
     ["beginn", "ende"].forEach(prefix => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
       if (inp) {
-        // 15 perces léptetés UX (nem kötelező, de kényelmes)
-        inp.step = 60; // percenként – a natív wheel így is 1 perces lehet, de jó így hagyni
+        // 15 perces léptetés UX (ha szeretnéd 15-re: inp.step = 900; most percenként marad 60s)
+        inp.step = 60;
         inp.addEventListener("input", recalcAll);
         inp.addEventListener("change", recalcAll);
       }
@@ -129,7 +137,7 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
     workerList.appendChild(tpl);
 
-    // ha az első dolgozónál van idő, előtöltjük (kért feature #1 előkészítés)
+    // ha az első dolgozónál van idő, előtöltjük
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
     const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
     if (firstBeg) tpl.querySelector(`input[name="beginn${idx}"]`).value = firstBeg;
