@@ -5,18 +5,29 @@ from fastapi.templating import Jinja2Templates
 from openpyxl import load_workbook
 from datetime import datetime
 import tempfile
-import os
 
 app = FastAPI()
-
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+# ---- helper: írás összevont cellákba biztonságosan ----
+def set_merged_safe(ws, addr: str, value):
+    cell = ws[addr]
+    r, c = cell.row, cell.column
+    wrote = False
+    for rng in ws.merged_cells.ranges:
+        # ha az adott cím egy merge-blokk része, a bal-felső cellába írunk
+        if (r, c) in rng:
+            tl = ws.cell(row=rng.min_row, column=rng.min_col)
+            tl.value = value
+            wrote = True
+            break
+    if not wrote:
+        cell.value = value
 
 @app.get("/", response_class=HTMLResponse)
 async def get_form(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
-
 
 @app.post("/generate_excel")
 async def generate_excel(
@@ -32,60 +43,41 @@ async def generate_excel(
     ende1: str = Form(...),
     pause1: str = Form(""),
     vorhaltung1: str = Form(""),
-    nachname2: str = Form(""),
-    vorname2: str = Form(""),
-    ausweis2: str = Form(""),
-    beginn2: str = Form(""),
-    ende2: str = Form(""),
-    pause2: str = Form(""),
-    vorhaltung2: str = Form(""),
-    nachname3: str = Form(""),
-    vorname3: str = Form(""),
-    ausweis3: str = Form(""),
-    beginn3: str = Form(""),
-    ende3: str = Form(""),
-    pause3: str = Form(""),
-    vorhaltung3: str = Form(""),
-    nachname4: str = Form(""),
-    vorname4: str = Form(""),
-    ausweis4: str = Form(""),
-    beginn4: str = Form(""),
-    ende4: str = Form(""),
-    pause4: str = Form(""),
-    vorhaltung4: str = Form(""),
-    nachname5: str = Form(""),
-    vorname5: str = Form(""),
-    ausweis5: str = Form(""),
-    beginn5: str = Form(""),
-    ende5: str = Form(""),
-    pause5: str = Form(""),
-    vorhaltung5: str = Form("")
+    nachname2: str = Form(""), vorname2: str = Form(""), ausweis2: str = Form(""),
+    beginn2: str = Form(""), ende2: str = Form(""), pause2: str = Form(""), vorhaltung2: str = Form(""),
+    nachname3: str = Form(""), vorname3: str = Form(""), ausweis3: str = Form(""),
+    beginn3: str = Form(""), ende3: str = Form(""), pause3: str = Form(""), vorhaltung3: str = Form(""),
+    nachname4: str = Form(""), vorname4: str = Form(""), ausweis4: str = Form(""),
+    beginn4: str = Form(""), ende4: str = Form(""), pause4: str = Form(""), vorhaltung4: str = Form(""),
+    nachname5: str = Form(""), vorname5: str = Form(""), ausweis5: str = Form(""),
+    beginn5: str = Form(""), ende5: str = Form(""), pause5: str = Form(""), vorhaltung5: str = Form("")
 ):
-    # Német dátum formátumra konvertálás (TT.MM.JJJJ)
+    # Német dátum formátum (TT.MM.JJJJ)
     try:
         datum_dt = datetime.strptime(datum, "%Y-%m-%d")
         datum_formatted = datum_dt.strftime("%d.%m.%Y")
     except ValueError:
-        datum_formatted = datum  # Ha nem sikerül konvertálni, marad az eredeti
+        datum_formatted = datum
 
     wb = load_workbook("GP-t.xlsx")
     ws = wb.active
 
-    # Adatok beírása
-    ws["B3"] = datum_formatted
-    ws["B4"] = bau
-    ws["G3"] = basf_beauftragter
+    # Felső mezők – merged-safe
+    set_merged_safe(ws, "B3", datum_formatted)        # Datum der Leistungsausführung
+    set_merged_safe(ws, "B4", bau)                    # Bau und Ausführungsort
+    if (basf_beauftragter or "").strip():
+        set_merged_safe(ws, "G3", basf_beauftragter)  # BASF-Beauftragter, Org.-Code
 
-    # Munka leírása (A6–G15 sorok feltöltése balról jobbra)
-    beschreibung_lines = beschreibung.split("\n")
+    # Beschreibung: A6–G15 soronként (nem merged, soronként külön cellába)
+    lines = beschreibung.split("\n")
     row = 6
-    for line in beschreibung_lines:
+    for line in lines:
         if row > 15:
             break
         ws[f"A{row}"] = line
         row += 1
 
-    # Dolgozók adatainak beírása
+    # Dolgozók
     employees = [
         (nachname1, vorname1, ausweis1, beginn1, ende1, pause1, vorhaltung1),
         (nachname2, vorname2, ausweis2, beginn2, ende2, pause2, vorhaltung2),
@@ -96,16 +88,17 @@ async def generate_excel(
 
     start_row = 17
     for i, emp in enumerate(employees):
-        if emp[0] and emp[1]:  # Ha van vezetéknév és keresztnév
-            ws[f"A{start_row+i}"] = emp[0]
-            ws[f"B{start_row+i}"] = emp[1]
-            ws[f"C{start_row+i}"] = emp[2]
-            ws[f"D{start_row+i}"] = emp[3]
-            ws[f"E{start_row+i}"] = emp[4]
-            ws[f"F{start_row+i}"] = emp[5]
-            ws[f"G{start_row+i}"] = emp[6]
+        if emp[0] and emp[1]:  # van vezetéknév és keresztnév
+            r = start_row + i
+            ws[f"A{r}"] = emp[0]   # Nachname
+            ws[f"B{r}"] = emp[1]   # Vorname
+            ws[f"C{r}"] = emp[2]   # Ausweis
+            ws[f"D{r}"] = emp[3]   # Beginn
+            ws[f"E{r}"] = emp[4]   # Ende
+            ws[f"F{r}"] = emp[5]   # Pause (ha van)
+            ws[f"G{r}"] = emp[6]   # Vorhaltung (ha van)
 
-    # Ideiglenes fájl mentése
+    # Mentés és visszaküldés
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     wb.save(tmp.name)
     tmp.close()
