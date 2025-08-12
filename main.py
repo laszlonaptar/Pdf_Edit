@@ -71,7 +71,8 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
         return 0
     return int((end - start).total_seconds() // 60)
 
-def hours_with_breaks(beg: time | None, end: time | None) -> float:
+# ---- módosítva: opcionális pause percben (60 alapértelmezés, vagy 30) ----
+def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -> float:
     if not beg or not end:
         return 0.0
     dt = datetime(2000,1,1)
@@ -79,8 +80,17 @@ def hours_with_breaks(beg: time | None, end: time | None) -> float:
     finish = dt.replace(hour=end.hour, minute=end.minute)
     if finish <= start:
         return 0.0
+
     total_min = int((finish - start).total_seconds() // 60)
-    minus = overlap_minutes(beg, end, time(9,0), time(9,15)) + overlap_minutes(beg, end, time(12,0), time(12,45))
+
+    if pause_min >= 60:
+        # Régi logika: csak a valós átfedést vonjuk le a 09:00–09:15 és 12:00–12:45 sávokból
+        minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
+              + overlap_minutes(beg, end, time(12,0), time(12,45))
+    else:
+        # Félórás opció: fix 30 percet vonunk, de legfeljebb a teljes időtartamot
+        minus = min(total_min, 30)
+
     return max(0.0, (total_min - minus) / 60.0)
 
 # ---------- table helpers ----------
@@ -164,6 +174,8 @@ async def generate_excel(
     basf_beauftragter: str = Form(""),
     geraet: str = Form(""),
     beschreibung: str = Form(""),
+    # új: a frontenden lévő hidden inputból (id/name: break_minutes), default 60
+    break_minutes: int = Form(60),
     vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""),
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""),
     vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""),
@@ -216,7 +228,8 @@ async def generate_excel(
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
         hb = parse_hhmm(bg)
         he = parse_hhmm(en)
-        h = round(hours_with_breaks(hb, he), 2)
+        # módosítva: a kiválasztott globális szünet szerint számol
+        h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
         total_hours += h
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
