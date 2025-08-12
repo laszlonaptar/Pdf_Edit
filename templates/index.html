@@ -46,6 +46,17 @@
       <!-- Mitarbeiter -->
       <section class="card">
         <h2>Mitarbeiter</h2>
+
+        <!-- Globale Pausenwahl -->
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:.5rem;">
+            <input type="checkbox" id="break_half" />
+            <span>Pause: 0,5&nbsp;h</span>
+          </label>
+          <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
+          <div class="muted small">Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.</div>
+        </div>
+
         <div id="worker-list" class="stack">
           <!-- Worker #1 -->
           <fieldset class="worker" data-index="1">
@@ -92,7 +103,7 @@
             <label>Gesamtstunden (auto)</label>
             <input id="gesamtstunden_auto" type="text" value="" readonly />
             <div class="muted small">
-              Automatisch berechnet, mit Pausenabzug: 09:00–09:15 (0,25 h) und 12:00–12:45 (0,75 h).
+              Automatischer Pausenabzug: standardmäßig 1,00&nbsp;h. Wenn „Pause: 0,5&nbsp;h” gewählt, werden 0,50&nbsp;h abgezogen.
             </div>
           </div>
         </div>
