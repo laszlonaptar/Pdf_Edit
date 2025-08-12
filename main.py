@@ -1,313 +1,169 @@
-# main.py
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.templating import Jinja2Templates
-
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
-
-from datetime import datetime, time
-from io import BytesIO
+from datetime import datetime
 import os
-import uuid
+import io
 
 app = FastAPI()
+
+# Serve static
 app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
 
-# ---------- helpers for merged cells ----------
-def merged_ranges(ws):
-    return [(r.min_row, r.min_col, r.max_row, r.max_col) for r in ws.merged_cells.ranges]
+INDEX_PATH = os.path.join("static", "index.html")
+TEMPLATE_XLSX = os.path.join("GP-t.xlsx")
 
-def in_range(rng, r, c):
-    r1, c1, r2, c2 = rng
-    return (r1 <= r <= r2) and (c1 <= c <= c2)
+def find_text_cell(ws, text: str):
+    """Find the first cell that matches text exactly (stripped). Returns (row, col) or None."""
+    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+        for cell in row:
+            v = "" if cell.value is None else str(cell.value).strip()
+            if v == text.strip():
+                return cell.row, cell.column
+    return None
 
-def block_of(ws, r, c):
-    for rng in merged_ranges(ws):
-        if in_range(rng, r, c):
-            return rng
-    return (r, c, r, c)
+def top_left_of_merge(ws, r, c):
+    """Given a cell coordinate (r,c), if it lies within a merged range, return that range's top-left.
+    Otherwise return (r,c)."""
+    for rng in ws.merged_cells.ranges:
+        if (rng.min_row <= r <= rng.max_row) and (rng.min_col <= c <= rng.max_col):
+            return rng.min_row, rng.min_col
+    return r, c
 
-def top_left_of_block(ws, r, c):
-    r1, c1, _, _ = block_of(ws, r, c)
-    return r1, c1
+def set_cell(ws, r, c, value, wrap=False, align_left=False, v_top=False):
+    """Write value safely even if (r,c) is inside a merged range."""
+    r0, c0 = top_left_of_merge(ws, r, c)
+    cell = ws.cell(row=r0, column=c0)
+    cell.value = value
+    if wrap or align_left or v_top:
+        cell.alignment = Alignment(
+            wrap_text=bool(wrap),
+            horizontal=("left" if align_left else None),
+            vertical=("top" if v_top else None)
+        )
 
-def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
-    rr, cc = top_left_of_block(ws, r, c)
-    cell = ws.cell(row=rr, column=cc)
-    cell.value = text
-    cell.alignment = Alignment(
-        wrap_text=wrap,
-        horizontal=("left" if align_left else "center"),
-        vertical=("top" if valign_top else cell.alignment.vertical or "center"),
-    )
-
-def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="center"):
-    cell = ws[addr]
-    rr, cc = top_left_of_block(ws, cell.row, cell.column)
-    tgt = ws.cell(row=rr, column=cc)
-    tgt.value = text
-    tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical)
-
-# ---------- time & hours ----------
-def parse_hhmm(s: str) -> time | None:
-    s = (s or "").strip()
-    if not s:
+def right_value_cell_of_label(ws, label_text: str, offset_cols: int = 1, offset_rows: int = 0):
+    """Find a label cell by exact text and return the coordinate to its right (with offsets)."""
+    pos = find_text_cell(ws, label_text)
+    if not pos:
         return None
-    hh, mm = s.split(":")
-    return time(int(hh), int(mm))
+    r, c = pos
+    return r + offset_rows, c + offset_cols
 
-def hours_with_breaks(beg: time | None, end: time | None, break_minutes: int) -> float:
-    if not beg or not end:
-        return 0.0
-    dt = datetime(2000,1,1)
-    start = dt.replace(hour=beg.hour, minute=beg.minute)
-    finish = dt.replace(hour=end.hour, minute=end.minute)
-    if finish <= start:
-        return 0.0
-    total_min = int((finish - start).total_seconds() // 60)
-    minus = max(0, min(int(break_minutes or 0), total_min))
-    return max(0.0, (total_min - minus) / 60.0)
-
-# ---------- table helpers ----------
-def find_header_positions(ws):
-    pos = {}
-    header_row = None
-    for row in ws.iter_rows(min_row=1, max_row=120):
-        for cell in row:
-            v = cell.value
-            if isinstance(v, str):
-                t = v.strip()
-                if t == "Name":
-                    pos["name_col"] = cell.column
-                    header_row = cell.row
-                if t == "Vorname":
-                    pos["vorname_col"] = cell.column
-                if "Ausweis" in t or "Kennzeichen" in t:
-                    pos["ausweis_col"] = cell.column
-                if t == "Beginn":
-                    pos["beginn_col"] = cell.column
-                    pos["subheader_row"] = cell.row
-                if t == "Ende":
-                    pos["ende_col"] = cell.column
-                if "Anzahl Stunden" in t:
-                    pos["stunden_col"] = cell.column
-        if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
-            break
-    pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
-    return pos
-
-def find_total_cells(ws, stunden_col):
-    total_row = None
-    right_of_label = None
-    for row in ws.iter_rows(min_row=1, max_row=200):
-        for cell in row:
-            if isinstance(cell.value, str) and "Gesamtstunden" in cell.value:
-                total_row = cell.row
-                r_neighbor, c_neighbor = total_row, cell.column + 1
-                rr, cc = top_left_of_block(ws, r_neighbor, c_neighbor)
-                right_of_label = (rr, cc)
-                break
-        if total_row:
-            break
-
-    stunden_total = None
-    if total_row:
-        rr, cc = top_left_of_block(ws, total_row, stunden_col)
-        stunden_total = (rr, cc)
-
-    return right_of_label, stunden_total
-
-def find_big_description_block(ws):
-    best = None
-    for (r1,c1,r2,c2) in ws.merged_cells.ranges:
-        height = r2 - r1 + 1
-        width  = c2 - c1 + 1
-        if r1 >= 6 and height >= 4 and width >= 4:
-            area = height * width
-            if not best or area > best[-1]:
-                best = (r1, c1, r2, c2, area)
-    if best:
-        r1, c1, r2, c2, _ = best
-        return (r1, c1, r2, c2)
-    return (6, 1, 20, 8)
-
-# ---------- routes ----------
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def root():
+    with open(INDEX_PATH, "r", encoding="utf-8") as f:
+        return f.read()
 
 @app.post("/generate_excel")
 async def generate_excel(
-    request: Request,
     datum: str = Form(...),
-    bau: str = Form(...),
-    basf_beauftragter: str = Form(""),
-    geraet: str = Form(""),
-    beschreibung: str = Form(""),
-    break_minutes: int = Form(60),   # ÚJ: globális szünet (perc)
-    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""),
-    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""),
-    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""),
-    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""),
+    bau: str | None = Form(None),
+    projekt: str | None = Form(None),
+    basf: str | None = Form(None),
+    beschreibung: str = Form(...),
+    total_hours: str | None = Form(None),
+    break_minutes: str | None = Form(None),   # új: elfogadjuk, de nem nyúlunk az Excelhez
+    # up to 5 workers (optional); empty ones are ignored
+    vorname1: str | None = Form(None),
+    nachname1: str | None = Form(None),
+    ausweis1: str | None = Form(None),
+    vorname2: str | None = Form(None),
+    nachname2: str | None = Form(None),
+    ausweis2: str | None = Form(None),
+    vorname3: str | None = Form(None),
+    nachname3: str | None = Form(None),
+    ausweis3: str | None = Form(None),
+    vorname4: str | None = Form(None),
+    nachname4: str | None = Form(None),
+    ausweis4: str | None = Form(None),
+    vorname5: str | None = Form(None),
+    nachname5: str | None = Form(None),
+    ausweis5: str | None = Form(None),
 ):
-    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
-    ws = wb.active
+    # Basic validation for required fields
+    if not bau and not projekt:
+        return JSONResponse({"detail": 'Hiányzó mező: "bau" vagy "projekt".'}, status_code=400)
 
-    # --- Felső mezők: dátum német formátumba ---
-    date_text = datum
+    if not os.path.exists(TEMPLATE_XLSX):
+        return JSONResponse({"detail": "Hiányzik a GP-t.xlsx sablon a gyökérben."}, status_code=500)
+
     try:
-        dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")
-    except Exception:
-        pass
+        wb = load_workbook(TEMPLATE_XLSX)
+        ws = wb.active
 
-    set_text_addr(ws, "B2", date_text, horizontal="left")
-    set_text_addr(ws, "B3", bau,        horizontal="left")
-    if (basf_beauftragter or "").strip():
-        set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
+        # 1) Dátum (label: "Datum der Leistungsausführung:")
+        target = right_value_cell_of_label(ws, "Datum der Leistungsausführung:", offset_cols=1)
+        if target:
+            set_cell(ws, target[0], target[1], datum)
 
-    # --- Beschreibung: nagy sormagasság + wrap ---
-    # (megtartjuk a meglévő logikát)
-    def merged_ranges(ws):
-        return [(r.min_row, r.min_col, r.max_row, r.max_col) for r in ws.merged_cells.ranges]
-    def block_of(ws, r, c):
-        for rng in merged_ranges(ws):
-            r1,c1,r2,c2 = rng
-            if r1 <= r <= r2 and c1 <= c <= c2:
-                return rng
-        return (r, c, r, c)
-    def top_left_of_block(ws, r, c):
-        r1, c1, _, _ = block_of(ws, r, c)
-        return r1, c1
+        # 2) Bau/Projekt (label próbák)
+        target_bp = (right_value_cell_of_label(ws, "Bau:", 1) or
+                     right_value_cell_of_label(ws, "Projekt:", 1) or
+                     right_value_cell_of_label(ws, "Projekt / Bau:", 1))
+        if target_bp:
+            set_cell(ws, target_bp[0], target_bp[1], bau or projekt or "")
 
-    r1, c1, r2, c2 = (6,1,20,8)
-    # (inkább használjuk a korábbi helperedet, ha be van importálva – a fenti fallback működik akkor is)
-    from openpyxl.utils.cell import get_column_letter
-    # megpróbáljuk a nagy blokkot az előző segédfv-vel:
-    try:
-        def _find_big(ws):
-            best = None
-            for (R) in ws.merged_cells.ranges:
-                r1,c1,r2,c2 = R.min_row, R.min_col, R.max_row, R.max_col
-                height = r2 - r1 + 1
-                width  = c2 - c1 + 1
-                if r1 >= 6 and height >= 4 and width >= 4:
-                    area = height * width
-                    if not best or area > best[-1]:
-                        best = (r1, c1, r2, c2, area)
-            return (best[0],best[1],best[2],best[3]) if best else (6,1,20,8)
-        r1, c1, r2, c2 = _find_big(ws)
-    except Exception:
-        pass
+        # 3) BASF-Beauftragter (label: "BASF-Beauftragter:")
+        if basf:
+            target_basf = right_value_cell_of_label(ws, "BASF-Beauftragter:", 1)
+            if target_basf:
+                set_cell(ws, target_basf[0], target_basf[1], basf)
 
-    for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = 22
-    # használjuk a korábbi set_text-et, ami a blokk bal felső cellájába ír
-    def _set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
-        rr, cc = top_left_of_block(ws, r, c)
-        cell = ws.cell(row=rr, column=cc)
-        cell.value = text
-        cell.alignment = Alignment(
-            wrap_text=wrap,
-            horizontal=("left" if align_left else "center"),
-            vertical=("top" if valign_top else cell.alignment.vertical or "center"),
+        # 4) Tevékenység szöveg az A6:G15 blokkba (bal-felső A6)
+        set_cell(ws, 6, 1, beschreibung, wrap=True, align_left=True, v_top=True)
+
+        # 5) Össz óraszám (ha jön a front-endtől)
+        if total_hours:
+            pos_total = (right_value_cell_of_label(ws, "Összesen:", 1) or
+                         right_value_cell_of_label(ws, "Gesamtstunden:", 1))
+            if pos_total:
+                set_cell(ws, pos_total[0], pos_total[1], total_hours)
+
+        # 6) Dolgozók – ha nincs fix címke, fallback
+        workers = []
+        for i in range(1, 6):
+            vn = locals().get(f"vorname{i}")
+            nn = locals().get(f"nachname{i}")
+            au = locals().get(f"ausweis{i}")
+            if (vn and vn.strip()) or (nn and nn.strip()) or (au and au.strip()):
+                workers.append({"vor": vn or "", "nach": nn or "", "ausweis": au or ""})
+
+        name_header = find_text_cell(ws, "Name:")
+        ausweis_header = find_text_cell(ws, "Ausweis-Nr.:")
+        if name_header and ausweis_header:
+            start_row = max(name_header[0], ausweis_header[0]) + 1
+            col_name = name_header[1]
+            col_ausw = ausweis_header[1]
+        else:
+            start_row = 19
+            col_name = 2
+            col_ausw = 6
+
+        r = start_row
+        for w in workers:
+            full = (w["nach"] + " " + w["vor"]).strip()
+            if full:
+                set_cell(ws, r, col_name, full)
+            if w["ausweis"]:
+                set_cell(ws, r, col_ausw, w["ausweis"])
+            r += 1
+
+        # Kész fájl memória-pufferbe
+        bio = io.BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+
+        # Fájlnév
+        safe_date = datum.replace("/", "-").replace(".", "-")
+        filename = f"GP-t_filled_{safe_date or 'heute'}.xlsx"
+
+        return FileResponse(
+            bio,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=filename
         )
-    _set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
-
-    # --- Dolgozók és órák ---
-    pos = {}
-    # (újrahívjuk a keresőt a minimális függésekhez)
-    def _find_header_positions(ws):
-        pos = {}
-        header_row = None
-        for row in ws.iter_rows(min_row=1, max_row=120):
-            for cell in row:
-                v = cell.value
-                if isinstance(v, str):
-                    t = v.strip()
-                    if t == "Name":
-                        pos["name_col"] = cell.column; header_row = cell.row
-                    if t == "Vorname":
-                        pos["vorname_col"] = cell.column
-                    if "Ausweis" in t or "Kennzeichen" in t:
-                        pos["ausweis_col"] = cell.column
-                    if t == "Beginn":
-                        pos["beginn_col"] = cell.column; pos["subheader_row"] = cell.row
-                    if t == "Ende":
-                        pos["ende_col"] = cell.column
-                    if "Anzahl Stunden" in t:
-                        pos["stunden_col"] = cell.column
-            if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
-                break
-        pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
-        return pos
-    pos = _find_header_positions(ws)
-    row = pos["data_start_row"]
-
-    workers = []
-    for i in range(1, 6):
-        vn = locals().get(f"vorname{i}", "") or ""
-        nn = locals().get(f"nachname{i}", "") or ""
-        aw = locals().get(f"ausweis{i}", "") or ""
-        bg = locals().get(f"beginn{i}", "") or ""
-        en = locals().get(f"ende{i}", "") or ""
-        if not (vn or nn or aw or bg or en):
-            continue
-        workers.append((vn, nn, aw, bg, en))
-
-    total_hours = 0.0
-    for (vn, nn, aw, bg, en) in workers:
-        ws.cell(row=row, column=pos["name_col"]).value = nn
-        ws.cell(row=row, column=pos["vorname_col"]).value = vn
-        ws.cell(row=row, column=pos["ausweis_col"]).value = aw
-        ws.cell(row=row, column=pos["beginn_col"]).value = bg
-        ws.cell(row=row, column=pos["ende_col"]).value = en
-
-        hb = parse_hhmm(bg)
-        he = parse_hhmm(en)
-        h = round(hours_with_breaks(hb, he, break_minutes), 2)
-        total_hours += h
-        ws.cell(row=row, column=pos["stunden_col"]).value = h
-        row += 1
-
-    # --- Összóraszám ---
-    def _find_total_cells(ws, stunden_col):
-        total_row = None
-        right_of_label = None
-        for row in ws.iter_rows(min_row=1, max_row=200):
-            for cell in row:
-                if isinstance(cell.value, str) and "Gesamtstunden" in cell.value:
-                    total_row = cell.row
-                    r_neighbor, c_neighbor = total_row, cell.column + 1
-                    rr, cc = r_neighbor, c_neighbor
-                    right_of_label = (rr, cc)
-                    break
-            if total_row:
-                break
-        stunden_total = None
-        if total_row:
-            stunden_total = (total_row, stunden_col)
-        return right_of_label, stunden_total
-
-    right_of_label, stunden_total = _find_total_cells(ws, pos["stunden_col"])
-    if stunden_total:
-        tr, tc = stunden_total
-        ws.cell(row=tr, column=tc).value = round(total_hours, 2)
-    if right_of_label:
-        rr, rc = right_of_label
-        ws.cell(row=rr, column=rc).value = ""
-
-    bio = BytesIO()
-    wb.save(bio)
-    bio.seek(0)
-    fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
-    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
-    return StreamingResponse(
-        bio,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers,
-    )
+    except Exception as e:
+        return JSONResponse({"detail": f"Hiba a generálásnál: {e}"}, status_code=500)
