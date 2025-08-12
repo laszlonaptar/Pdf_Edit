@@ -44,7 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const header = splitCSV(linesRaw[0]).map(h => h.toLowerCase().trim());
-    const idxNach = header.findIndex(h => h === "nachname" || h === "name"); // „Name” is ok
+    const idxNach = header.findIndex(h => h === "nachname" || h === "name");
     const idxVor  = header.findIndex(h => h === "vorname");
     const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
     if (idxNach < 0 || idxVor < 0 || idxAus < 0) return;
@@ -135,7 +135,6 @@ document.addEventListener("DOMContentLoaded", () => {
     input.addEventListener("focus", () => { position(); filterOptions(); });
     input.addEventListener("blur",  () => setTimeout(hide, 120));
 
-    // görgetés/átméretezés esetén maradjon az input alatt
     window.addEventListener("scroll", position, true);
     window.addEventListener("resize", position);
   }
@@ -151,13 +150,25 @@ document.addEventListener("DOMContentLoaded", () => {
     const inpAus  = fs.querySelector(`input[name="ausweis${idx}"]`);
     if (!inpNach || !inpVor || !inpAus) return;
 
-    // Vorname
+    // Vorname — teljes rekordból válasszunk (egyértelmű kitöltés)
     makeAutocomplete(
       inpVor,
-      () => [...new Set(WORKERS.map(w => w.vorname).filter(Boolean))],
-      (value) => {
-        const w = byFullName.get(keyName(inpNach.value, value));
-        if (w) inpAus.value = w.ausweis;
+      () => WORKERS.map(w => ({
+        value: w.vorname,
+        label: `${w.vorname} — ${w.nachname} [${w.ausweis}]`,
+        payload: w
+      })),
+      (value, item) => {
+        if (item && item.payload) {
+          const w = item.payload;
+          inpVor.value  = w.vorname;
+          inpNach.value = w.nachname;
+          inpAus.value  = w.ausweis;
+          return;
+        }
+        // Fallback: ha csak keresztnevet írt be és már van vezetéknév
+        const w2 = byFullName.get(keyName(inpNach.value, value));
+        if (w2) inpAus.value = w2.ausweis;
       }
     );
 
@@ -174,7 +185,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Ausweis
     makeAutocomplete(
       inpAus,
-      () => WORKERS.map(w => ({ value: w.ausweis, label: `${w.ausweis} – ${w.nachname} ${w.vorname}` })),
+      () => WORKERS.map(w => ({ value: w.ausweis, label: `${w.ausweis} — ${w.nachname} ${w.vorname}` })),
       (value) => {
         const w = byAusweis.get(value);
         if (w) { inpNach.value = w.nachname; inpVor.value = w.vorname; }
@@ -265,7 +276,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function syncFromFirst() {
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
-       const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
+    const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
     if (!firstBeg && !firstEnd) return;
     const workers = Array.from(workerList.querySelectorAll(".worker"));
     for (let i = 1; i < workers.length; i++) {
