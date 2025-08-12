@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Leistungsnachweis</title>
   <link rel="stylesheet" href="/static/style.css?v=12" />
+  <style>
+    /* Checkbox ne nézzen ki szövegmezőnek a globális input-stílus miatt */
+    input[type="checkbox"]{
+      width:auto; height:auto; padding:0; margin:0;
+      border:none; background:transparent; box-shadow:none;
+      appearance:auto; -webkit-appearance:auto;
+    }
+    .ck-row{ display:flex; align-items:center; gap:.5rem; font-weight:600; }
+  </style>
 </head>
 <body>
   <main class="container">
@@ -47,16 +56,6 @@
       <section class="card">
         <h2>Mitarbeiter</h2>
 
-        <!-- Globale Pausenwahl -->
-        <div class="field">
-          <label style="display:flex; align-items:center; gap:.5rem;">
-            <input type="checkbox" id="break_half" />
-            <span>Pause: 0,5&nbsp;h</span>
-          </label>
-          <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
-          <div class="muted small">Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.</div>
-        </div>
-
         <div id="worker-list" class="stack">
           <!-- Worker #1 -->
           <fieldset class="worker" data-index="1">
@@ -75,6 +74,20 @@
                 <input name="ausweis1" type="text" required />
               </div>
             </div>
+
+            <!-- ÚJ: globális szünet-választó a kezdő idő fölött -->
+            <div class="field">
+              <label class="ck-row">
+                <input type="checkbox" id="break_half" />
+                <span>Pause nur 0,5&nbsp;h</span>
+              </label>
+              <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
+              <div class="muted small">
+                Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
+              </div>
+            </div>
+            <!-- /ÚJ -->
+
             <div class="grid grid-3">
               <div class="field">
                 <label>Beginn</label>
@@ -103,7 +116,7 @@
             <label>Gesamtstunden (auto)</label>
             <input id="gesamtstunden_auto" type="text" value="" readonly />
             <div class="muted small">
-              Automatischer Pausenabzug: standardmäßig 1,00&nbsp;h. Wenn „Pause: 0,5&nbsp;h” gewählt, werden 0,50&nbsp;h abgezogen.
+              Automatischer Pausenabzug: standardmäßig 1,00&nbsp;h. Wenn „Pause nur 0,5&nbsp;h” gewählt, werden 0,50&nbsp;h abgezogen.
             </div>
           </div>
         </div>
