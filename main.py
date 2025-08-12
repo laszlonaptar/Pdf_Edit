@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
@@ -162,10 +162,13 @@ async def generate_excel(
         safe_date = datum.replace("/", "-").replace(".", "-")
         filename = f"GP-t_filled_{safe_date or 'heute'}.xlsx"
 
-        # Ugyanúgy FileResponse-szal küldjük vissza, mint a korábbi működő verzióban
-        return FileResponse(bio,
-                            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            filename=filename)
+        # StreamingResponse — BytesIO-hoz ez a helyes
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return StreamingResponse(
+            bio,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers,
+        )
 
     except Exception as e:
         return JSONResponse({"detail": f"Hiba a generálásnál: {e}"}, status_code=500)
