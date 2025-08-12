@@ -44,9 +44,10 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const header = splitCSV(linesRaw[0]).map(h => h.toLowerCase());
-    const idxNach = header.findIndex(h => /nachname/.test(h));
-    const idxVor  = header.findIndex(h => /vorname/.test(h));
-    const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
+    const header = splitCSV(linesRaw[0]).map(h => h.toLowerCase().trim());
+const idxNach = header.findIndex(h => h === "nachname" || h === "name"); // <-- „Name” is ok
+const idxVor  = header.findIndex(h => h === "vorname");
+const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
     if (idxNach < 0 || idxVor < 0 || idxAus < 0) return;
 
     WORKERS = [];
