@@ -49,10 +49,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function enforceNumericKeyboard(input) {
-    // mobil numerikus billentyűzet
+    // mobil numerikus billentyűzet + csak számok
     input.setAttribute("inputmode", "numeric");
     input.setAttribute("pattern", "[0-9]*");
-    // csak számok
     digitsOnly(input);
   }
 
@@ -73,6 +72,57 @@ document.addEventListener("DOMContentLoaded", () => {
     if (totalOut) totalOut.value = sum ? formatHours(sum) : "";
   }
 
+  // ---- SYNC LOGIKA: első dolgozó idejének másolása ----
+  // elv: minden dolgozó beginn/ende input kap egy "synced" jelzőt (dataset.syncedBeg / dataset.syncedEnd).
+  // Ha user kézzel módosítja, a jelző törlődik, és többé nem írjuk felül automatikusan.
+
+  function markSynced(inp, isSynced) {
+    if (!inp) return;
+    if (isSynced) {
+      inp.dataset.synced = "1";
+    } else {
+      delete inp.dataset.synced;
+    }
+  }
+
+  function isSynced(inp) {
+    return !!(inp && inp.dataset.synced === "1");
+  }
+
+  function setupManualEditUnsync(inp) {
+    if (!inp) return;
+    // Ha felhasználó gépel (valódi input/change), kiveszünk a szinkronból
+    const unsync = () => markSynced(inp, false);
+    inp.addEventListener("input", (e) => { if (e.isTrusted) unsync(); });
+    inp.addEventListener("change", (e) => { if (e.isTrusted) unsync(); });
+  }
+
+  function syncFromFirst() {
+    const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
+    const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
+    if (!firstBeg && !firstEnd) return;
+
+    const workers = Array.from(workerList.querySelectorAll(".worker"));
+    // skip az elsőt
+    for (let i = 1; i < workers.length; i++) {
+      const fs = workers[i];
+      const beg = fs.querySelector('input[name^="beginn"]');
+      const end = fs.querySelector('input[name^="ende"]');
+
+      // csak akkor írjuk felül, ha még szinkronban van VAGY üres a mező
+      if (beg && (isSynced(beg) || !beg.value)) {
+        beg.value = firstBeg;
+        markSynced(beg, true);
+      }
+      if (end && (isSynced(end) || !end.value)) {
+        end.value = firstEnd;
+        markSynced(end, true);
+      }
+    }
+    recalcAll();
+  }
+  // ------------------------------------------------------
+
   function wireWorker(workerEl) {
     // Ausweis csak szám + numerikus billentyűzet
     const ausweis = workerEl.querySelector('input[name^="ausweis"]');
@@ -82,12 +132,34 @@ document.addEventListener("DOMContentLoaded", () => {
     ["beginn", "ende"].forEach(prefix => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
       if (inp) {
-        // 15 perces léptetés UX (ha szeretnéd 15-re: inp.step = 900; most percenként marad 60s)
+        // 15 perces léptetés UX (jelenleg 60s = 1 perc)
         inp.step = 60;
         inp.addEventListener("input", recalcAll);
         inp.addEventListener("change", recalcAll);
       }
     });
+
+    // sync-jelzők beállítása (első felvételekor):
+    const idx = workerEl.getAttribute("data-index");
+    const b = workerEl.querySelector(`input[name="beginn${idx}"]`);
+    const e = workerEl.querySelector(`input[name="ende${idx}"]`);
+
+    if (idx === "1") {
+      // az első dolgozó a forrás – nem "synced"
+      if (b) markSynced(b, false);
+      if (e) markSynced(e, false);
+      // ha az első dolgozó ideje változik -> push minden "synced" mezőre
+      b?.addEventListener("input", syncFromFirst);
+      e?.addEventListener("input", syncFromFirst);
+      b?.addEventListener("change", syncFromFirst);
+      e?.addEventListener("change", syncFromFirst);
+    } else {
+      // a többieknél: ha üresen jönnek létre és előtöltjük őket az elsőből,
+      // akkor "synced"-ként indulnak (beállítjuk ott, ahol előtöltjük).
+      // Ha user kézzel módosítja -> unsync
+      setupManualEditUnsync(b);
+      setupManualEditUnsync(e);
+    }
   }
 
   // már meglévő első dolgozó bekötése
@@ -137,11 +209,19 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
     workerList.appendChild(tpl);
 
-    // ha az első dolgozónál van idő, előtöltjük
+    // ha az első dolgozónál van idő, előtöltjük + "synced" státusz
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
     const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
-    if (firstBeg) tpl.querySelector(`input[name="beginn${idx}"]`).value = firstBeg;
-    if (firstEnd) tpl.querySelector(`input[name="ende${idx}"]`).value = firstEnd;
+    const begNew = tpl.querySelector(`input[name="beginn${idx}"]`);
+    const endNew = tpl.querySelector(`input[name="ende${idx}"]`);
+    if (firstBeg && begNew) {
+      begNew.value = firstBeg;
+      markSynced(begNew, true);
+    }
+    if (firstEnd && endNew) {
+      endNew.value = firstEnd;
+      markSynced(endNew, true);
+    }
 
     wireWorker(tpl);
     recalcAll();
