@@ -13,14 +13,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function minutes(t) { return t.hh * 60 + t.mm; }
 
-  // overlap of [a1,a2) with [b1,b2) in minutes
   function overlap(a1, a2, b1, b2) {
     const s = Math.max(a1, b1);
     const e = Math.min(a2, b2);
     return Math.max(0, e - s);
   }
 
-  // 09:00–09:15 (15’) és 12:00–12:45 (45’)
   const BREAKS = [
     { start: 9 * 60 + 0,  end: 9 * 60 + 15 },
     { start: 12 * 60 + 0, end: 12 * 60 + 45 },
@@ -38,7 +36,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function formatHours(h) {
-    // két tizedesre kerekítve, ponttal (backenddel konzisztens)
     return (Math.round(h * 100) / 100).toFixed(2);
   }
 
@@ -49,20 +46,38 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function enforceNumericKeyboard(input) {
-    // mobil numerikus billentyűzet + csak számok
     input.setAttribute("inputmode", "numeric");
     input.setAttribute("pattern", "[0-9]*");
     digitsOnly(input);
   }
 
-  // --- ÚJ: 15 perces "snap" time inputokra ---
+  // --- 15 perces "snap" + datalist ---
   function snapToQuarter(inp) {
     const v = inp.value;
     if (!/^\d{2}:\d{2}$/.test(v)) return;
     let [h, m] = v.split(":").map(Number);
     let q = Math.round(m / 15) * 15;
     if (q === 60) { h = (h + 1) % 24; q = 0; }
-    inp.value = String(h).padStart(2, "0") + ":" + String(q).padStart(2, "0");
+    const newVal = String(h).padStart(2, "0") + ":" + String(q).padStart(2, "0");
+    if (newVal !== v) inp.value = newVal;
+  }
+
+  function buildQuarterDatalistFor(inp) {
+    if (inp.hasAttribute("list")) return; // már van
+    const id = `times_${inp.name}`;
+    const dl = document.createElement("datalist");
+    dl.id = id;
+    // 00:00..23:45 15 perces lépésekkel (96 opció)
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 15) {
+        const val = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+        const opt = document.createElement("option");
+        opt.value = val;
+        dl.appendChild(opt);
+      }
+    }
+    document.body.appendChild(dl);
+    inp.setAttribute("list", id);
   }
 
   function recalcWorker(workerEl) {
@@ -82,103 +97,81 @@ document.addEventListener("DOMContentLoaded", () => {
     if (totalOut) totalOut.value = sum ? formatHours(sum) : "";
   }
 
-  // ---- SYNC LOGIKA: első dolgozó idejének másolása ----
+  // ---- SYNC LOGIKA ----
   function markSynced(inp, isSynced) {
     if (!inp) return;
-    if (isSynced) {
-      inp.dataset.synced = "1";
-    } else {
-      delete inp.dataset.synced;
-    }
+    if (isSynced) inp.dataset.synced = "1";
+    else delete inp.dataset.synced;
   }
-
   function isSynced(inp) {
     return !!(inp && inp.dataset.synced === "1");
   }
-
   function setupManualEditUnsync(inp) {
     if (!inp) return;
-    // Ha felhasználó gépel (valódi input/change), kiveszünk a szinkronból
     const unsync = () => markSynced(inp, false);
     inp.addEventListener("input", (e) => { if (e.isTrusted) unsync(); });
     inp.addEventListener("change", (e) => { if (e.isTrusted) unsync(); });
   }
-
   function syncFromFirst() {
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
     const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
     if (!firstBeg && !firstEnd) return;
-
     const workers = Array.from(workerList.querySelectorAll(".worker"));
-    // skip az elsőt
     for (let i = 1; i < workers.length; i++) {
       const fs = workers[i];
       const beg = fs.querySelector('input[name^="beginn"]');
       const end = fs.querySelector('input[name^="ende"]');
-
-      // csak akkor írjuk felül, ha még szinkronban van VAGY üres a mező
-      if (beg && (isSynced(beg) || !beg.value)) {
-        beg.value = firstBeg;
-        markSynced(beg, true);
-      }
-      if (end && (isSynced(end) || !end.value)) {
-        end.value = firstEnd;
-        markSynced(end, true);
-      }
+      if (beg && (isSynced(beg) || !beg.value)) { beg.value = firstBeg; markSynced(beg, true); snapToQuarter(beg); }
+      if (end && (isSynced(end) || !end.value)) { end.value = firstEnd; markSynced(end, true); snapToQuarter(end); }
     }
     recalcAll();
   }
-  // ------------------------------------------------------
 
   function wireWorker(workerEl) {
-    // Ausweis csak szám + numerikus billentyűzet
+    // Ausweis csak szám
     const ausweis = workerEl.querySelector('input[name^="ausweis"]');
     if (ausweis) enforceNumericKeyboard(ausweis);
 
-    // idő változásra újraszámolás + 15 perces léptetés és snap
+    // időmezők beállítása: 15 perc + snap + datalist
     ["beginn", "ende"].forEach(prefix => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
       if (inp) {
-        // 15 perces léptetés
-        inp.step = 900; // 15 * 60
-        // gépelés közben csak számolunk
-        inp.addEventListener("input", recalcAll);
-        // befejezéskor kerekítünk 15 percre és számolunk
+        inp.step = 900;            // 15 * 60
+        inp.min = "00:00";
+        inp.max = "23:45";
+        buildQuarterDatalistFor(inp);
+
+        // élőben is igyekszünk 15-re kerekíteni
         const snapAndRecalc = () => { snapToQuarter(inp); recalcAll(); };
+        inp.addEventListener("input", snapAndRecalc);
         inp.addEventListener("change", snapAndRecalc);
         inp.addEventListener("blur",   snapAndRecalc);
       }
     });
 
-    // sync-jelzők beállítása (első felvételekor):
+    // sync státusz
     const idx = workerEl.getAttribute("data-index");
     const b = workerEl.querySelector(`input[name="beginn${idx}"]`);
     const e = workerEl.querySelector(`input[name="ende${idx}"]`);
 
     if (idx === "1") {
-      // az első dolgozó a forrás – nem "synced"
       if (b) markSynced(b, false);
       if (e) markSynced(e, false);
-      // ha az első dolgozó ideje változik -> push minden "synced" mezőre
       b?.addEventListener("input", syncFromFirst);
       e?.addEventListener("input", syncFromFirst);
       b?.addEventListener("change", syncFromFirst);
       e?.addEventListener("change", syncFromFirst);
     } else {
-      // a többieknél: ha üresen jönnek létre és előtöltjük őket az elsőből,
-      // akkor "synced"-ként indulnak (beállítjuk ott, ahol előtöltjük).
-      // Ha user kézzel módosítja -> unsync
       setupManualEditUnsync(b);
       setupManualEditUnsync(e);
     }
   }
 
-  // már meglévő első dolgozó bekötése
+  // első dolgozó bekötése + számítás
   wireWorker(workerList.querySelector(".worker"));
-  // és első összámítás
   recalcAll();
 
-  // új dolgozó hozzáadása
+  // új dolgozó
   addBtn?.addEventListener("click", () => {
     const current = workerList.querySelectorAll(".worker").length;
     if (current >= MAX_WORKERS) return;
@@ -206,11 +199,11 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="grid grid-3">
         <div class="field">
           <label>Beginn</label>
-          <input name="beginn${idx}" type="time" step="900" />
+          <input name="beginn${idx}" type="time" />
         </div>
         <div class="field">
           <label>Ende</label>
-          <input name="ende${idx}" type="time" step="900" />
+          <input name="ende${idx}" type="time" />
         </div>
         <div class="field">
           <label>Stunden (auto)</label>
@@ -220,27 +213,22 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
     workerList.appendChild(tpl);
 
-    // ha az első dolgozónál van idő, előtöltjük + "synced" státusz
+    // előtöltés az elsőből + synced státusz
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
     const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
     const begNew = tpl.querySelector(`input[name="beginn${idx}"]`);
     const endNew = tpl.querySelector(`input[name="ende${idx}"]`);
-    if (firstBeg && begNew) {
-      begNew.value = firstBeg;
-      markSynced(begNew, true);
-      snapToQuarter(begNew);
-    }
-    if (firstEnd && endNew) {
-      endNew.value = firstEnd;
-      markSynced(endNew, true);
-      snapToQuarter(endNew);
-    }
+    if (firstBeg && begNew) { begNew.value = firstBeg; markSynced(begNew, true); }
+    if (firstEnd && endNew) { endNew.value = firstEnd; markSynced(endNew, true); }
 
     wireWorker(tpl);
+    // biztos, ami biztos: snap az új mezőkre is
+    begNew && snapToQuarter(begNew);
+    endNew && snapToQuarter(endNew);
     recalcAll();
   });
 
-  // ha az első dolgozó ideje változik, frissítjük az összórát
+  // első dolgozó ideje változik -> összeg frissítése
   const b1 = document.querySelector('input[name="beginn1"]');
   const e1 = document.querySelector('input[name="ende1"]');
   [b1, e1].forEach(inp => {
@@ -264,10 +252,7 @@ document.addEventListener("DOMContentLoaded", () => {
     out.textContent = `${len} / ${max}`;
   }
 
-  // első frissítés betöltéskor
   updateBeschCount();
-
-  // frissítés gépeléskor / beillesztéskor
   besch.addEventListener('input', updateBeschCount);
   besch.addEventListener('change', updateBeschCount);
 })();
@@ -279,7 +264,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function trim(v) { return (v || "").toString().trim(); }
 
-  // Egy worker fieldset összegyűjtése
   function readWorker(fs) {
     const idx = fs.getAttribute("data-index") || "";
     const q = (sel) => fs.querySelector(sel);
@@ -295,8 +279,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   form.addEventListener("submit", function (e) {
     const errors = [];
-
-    // Kötelező fej mezők
     const datum = trim((document.getElementById("datum") || {}).value);
     const bau   = trim((document.getElementById("bau") || {}).value);
     const bf    = trim((document.getElementById("basf_beauftragter") || {}).value);
@@ -307,21 +289,16 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!bf) errors.push("Bitte den BASF-Beauftragten (Org.-Code) ausfüllen.");
     if (!besch) errors.push("Bitte die Beschreibung der ausgeführten Arbeiten ausfüllen.");
 
-    // Dolgozók
     const list = document.getElementById("worker-list");
     const sets = Array.from(list.querySelectorAll(".worker"));
     let validWorkers = 0;
 
     sets.forEach((fs) => {
       const w = readWorker(fs);
-
       const anyFilled = !!(w.vorname || w.nachname || w.ausweis || w.beginn || w.ende);
       const allCore   = !!(w.vorname && w.nachname && w.ausweis && w.beginn && w.ende);
-
-      if (allCore) {
-        validWorkers += 1;
-      } else if (anyFilled) {
-        // Részben kitöltött sor – írjuk ki, mi hiányzik
+      if (allCore) validWorkers += 1;
+      else if (anyFilled) {
         const missing = [];
         if (!w.vorname) missing.push("Vorname");
         if (!w.nachname) missing.push("Nachname");
@@ -336,7 +313,6 @@ document.addEventListener("DOMContentLoaded", () => {
       errors.push("Bitte mindestens einen Mitarbeiter vollständig angeben (Vorname, Nachname, Ausweis-Nr., Beginn, Ende).");
     }
 
-    // Ha van hiba, ne küldjük el, jelezzünk szépen
     if (errors.length) {
       e.preventDefault();
       alert(errors.join("\n"));
