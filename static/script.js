@@ -16,35 +16,50 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const resp = await fetch("/static/workers.csv", { cache: "no-store" });
       if (!resp.ok) return;
-      const text = await resp.text();
+      let text = await resp.text();
       parseCSV(text);
     } catch (_) {}
   }
 
-  // ÚJ: miután a WORKERS frissült, újratöltjük az összes datalistát
-  function refreshAllAutocompletes() {
-    document.querySelectorAll("#worker-list .worker").forEach(fs => setupAutocomplete(fs));
-  }
-
+  // --- CSV parser: automatikus ; / , felismerés + idézőjelek kezelése
   function parseCSV(text) {
-    // egyszerű CSV parser (vessző; idézőjelek nélküliekre optim.)
-    const lines = text.split(/\r?\n/).filter(l => l.trim().length);
-    if (!lines.length) return;
+    // BOM eltávolítás
+    if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
 
-    // fejléc
-    const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+    const linesRaw = text.split(/\r?\n/).filter(l => l.trim().length);
+    if (!linesRaw.length) return;
+
+    // határoló detektálás: ha több a ; mint a , akkor ;, különben ,
+    const detectDelim = (s) => {
+      const sc = (s.match(/;/g) || []).length;
+      const cc = (s.match(/,/g) || []).length;
+      return sc > cc ? ";" : ",";
+    };
+    const delim = detectDelim(linesRaw[0]);
+
+    // sor feldarabolása úgy, hogy az idézőjeles részekben lévő határolót ne vágjuk el
+    const splitCSV = (line) => {
+      const re = new RegExp(`${delim}(?=(?:[^"]*"[^"]*")*[^"]*$)`, "g");
+      return line.split(re).map(x => {
+        x = x.trim();
+        if (x.startsWith('"') && x.endsWith('"')) x = x.slice(1, -1);
+        return x.replace(/""/g, '"');
+      });
+    };
+
+    const header = splitCSV(linesRaw[0]).map(h => h.toLowerCase());
     const idxNach = header.findIndex(h => /nachname/.test(h));
     const idxVor  = header.findIndex(h => /vorname/.test(h));
-    const idxAus  = header.findIndex(h => /ausweis/.test(h));
+    const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
     if (idxNach < 0 || idxVor < 0 || idxAus < 0) return;
 
     WORKERS = [];
     byAusweis.clear();
     byFullName.clear();
 
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(","); // ha van vessző a névben: célszerű idézőjelezve exportálni
-      if (cols.length < 3) continue;
+    for (let i = 1; i < linesRaw.length; i++) {
+      const cols = splitCSV(linesRaw[i]);
+      if (cols.length <= Math.max(idxNach, idxVor, idxAus)) continue;
       const w = {
         nachname: norm(cols[idxNach]),
         vorname:  norm(cols[idxVor]),
@@ -56,20 +71,19 @@ document.addEventListener("DOMContentLoaded", () => {
       byFullName.set(keyName(w.nachname, w.vorname), w);
     }
 
-    // ÚJ: datalistek újratöltése a már renderelt mezőkre
+    // már kirakott inputok datalistáinak frissítése
     refreshAllAutocompletes();
   }
 
   function attachDatalist(input, opts, idSuffix) {
-    // egyedi datalist az inputhoz
     const id = `dl_${idSuffix}_${input.name}`;
-    if (!document.getElementById(id)) {
-      const dl = document.createElement("datalist");
+    let dl = document.getElementById(id);
+    if (!dl) {
+      dl = document.createElement("datalist");
       dl.id = id;
       document.body.appendChild(dl);
+      input.setAttribute("list", id);
     }
-    input.setAttribute("list", id);
-    const dl = document.getElementById(id);
     dl.innerHTML = "";
     opts.forEach(v => {
       const o = document.createElement("option");
@@ -83,15 +97,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const inpNach = fs.querySelector(`input[name="nachname${idx}"]`);
     const inpVor  = fs.querySelector(`input[name="vorname${idx}"]`);
     const inpAus  = fs.querySelector(`input[name="ausweis${idx}"]`);
-
     if (!inpNach || !inpVor || !inpAus) return;
 
-    // datalistek
+    // egyedi datalistek
     attachDatalist(inpNach, [...new Set(WORKERS.map(w => w.nachname).filter(Boolean))], "nach");
     attachDatalist(inpVor,  [...new Set(WORKERS.map(w => w.vorname).filter(Boolean))],  "vor");
     attachDatalist(inpAus,  [...new Set(WORKERS.map(w => w.ausweis).filter(Boolean))],  "aus");
 
-    // ha bármelyik mezőn egy egyértelmű találat van -> a másik kettő kitöltése
+    // auto-kitöltés: ha egyértelmű találat van
     function tryResolveFromAusweis() {
       const w = byAusweis.get(norm(inpAus.value));
       if (w) { inpNach.value = w.nachname; inpVor.value = w.vorname; }
@@ -103,12 +116,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     inpAus.addEventListener("change", tryResolveFromAusweis);
     inpAus.addEventListener("blur",   tryResolveFromAusweis);
-
-    function onNameChange() { tryResolveFromNames(); }
+    const onNameChange = () => tryResolveFromNames();
     inpNach.addEventListener("change", onNameChange);
     inpVor.addEventListener("change",  onNameChange);
     inpNach.addEventListener("blur",   onNameChange);
     inpVor.addEventListener("blur",    onNameChange);
+  }
+
+  function refreshAllAutocompletes() {
+    document.querySelectorAll("#worker-list .worker").forEach(setupAutocomplete);
   }
   // ===========================================================
 
@@ -147,7 +163,7 @@ document.addEventListener("DOMContentLoaded", () => {
     digitsOnly(input);
   }
 
-  // 15 perces “snap” (ha marad a natív iOS picker, blur/change után kerekítünk)
+  // 15 perces “snap” (iOS natív picker miatt blur/change után kerekítünk)
   function snapToQuarter(inp) {
     const v = inp.value;
     if (!/^\d{2}:\d{2}$/.test(v)) return;
@@ -301,7 +317,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // dolgozói CSV betöltés a végén (miután minden event él)
+  // dolgozói CSV betöltés a végén
   loadWorkers();
 });
 
@@ -343,6 +359,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const bau   = trim((document.getElementById("bau") || {}).value);
     const bf    = trim((document.getElementById("basf_beauftragter") || {}).value);
     const besch = trim((document.getElementById("beschreibung") || {}).value);
+
     if (!datum) errors.push("Bitte das Datum der Leistungsausführung angeben.");
     if (!bau) errors.push("Bitte Bau und Ausführungsort ausfüllen.");
     if (!bf) errors.push("Bitte den BASF-Beauftragten (Org.-Code) ausfüllen.");
@@ -351,6 +368,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const list = document.getElementById("worker-list");
     const sets = Array.from(list.querySelectorAll(".worker"));
     let validWorkers = 0;
+
     sets.forEach((fs) => {
       const w = readWorker(fs);
       const anyFilled = !!(w.vorname || w.nachname || w.ausweis || w.beginn || w.ende);
@@ -366,9 +384,11 @@ document.addEventListener("DOMContentLoaded", () => {
         errors.push(`Bitte Mitarbeiter ${w.idx}: ${missing.join(", ")} ausfüllen.`);
       }
     });
+
     if (validWorkers === 0) {
       errors.push("Bitte mindestens einen Mitarbeiter vollständig angeben (Vorname, Nachname, Ausweis-Nr., Beginn, Ende).");
     }
+
     if (errors.length) {
       e.preventDefault();
       alert(errors.join("\n"));
