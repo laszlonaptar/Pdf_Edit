@@ -293,18 +293,35 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function minutes(t) { return t.hh * 60 + t.mm; }
 
+  // ÚJ: átfedés-számítás percekben két [start,end) intervallum között
+  function overlap(a1, a2, b1, b2) {
+    const s = Math.max(a1, b1);
+    const e = Math.min(a2, b2);
+    return Math.max(0, e - s);
+  }
+
   function hoursWithBreaks(begStr, endStr) {
     const bt = toTime(begStr);
     const et = toTime(endStr);
     if (!bt || !et) return 0;
     const b = minutes(bt), e = minutes(et);
     if (e <= b) return 0;
+
     let total = e - b;
 
-    // ÚJ: egységes, globális szünetlevonás (30 vagy 60 perc)
+    // „fél óra szünet” pipa → fix 30 perc levonás
     const bm = parseInt((breakHidden?.value || "60"), 10);
-    const breakMin = isNaN(bm) ? 60 : bm;
-    total = Math.max(0, total - breakMin);
+    const isHalfHour = !isNaN(bm) && bm === 30;
+
+    if (isHalfHour) {
+      total = Math.max(0, total - 30);
+    } else {
+      // Alapértelmezés: CSAK a tényleges átfedés a két fix szüneti sávval
+      const br1s = 9 * 60 + 0,  br1e = 9 * 60 + 15;  // 09:00–09:15
+      const br2s = 12 * 60 + 0, br2e = 12 * 60 + 45; // 12:00–12:45
+      const minus = overlap(b, e, br1s, br1e) + overlap(b, e, br2s, br2e);
+      total = Math.max(0, total - minus);
+    }
 
     return Math.max(0, total) / 60;
   }
