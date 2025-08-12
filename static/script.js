@@ -173,14 +173,26 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
     // Nachname
-    makeAutocomplete(
-      inpNach,
-      () => [...new Set(WORKERS.map(w => w.nachname).filter(Boolean))],
-      (value) => {
-        const w = byFullName.get(keyName(value, inpVor.value));
-        if (w) inpAus.value = w.ausweis;
-      }
-    );
+makeAutocomplete(
+  inpNach,
+  () => WORKERS.map(w => ({
+    value: w.nachname,
+    label: `${w.nachname} — ${w.vorname} [${w.ausweis}]`,
+    payload: w
+  })),
+  (value, item) => {
+    if (item && item.payload) {
+      const w = item.payload;
+      inpNach.value = w.nachname;
+      inpVor.value  = w.vorname;
+      inpAus.value  = w.ausweis;
+      return;
+    }
+    // Fallback: ha csak vezetéknevet írt be és már van keresztnév
+    const w2 = byFullName.get(keyName(value, inpVor.value));
+    if (w2) inpAus.value = w2.ausweis;
+  }
+);
 
     // Ausweis
     makeAutocomplete(
