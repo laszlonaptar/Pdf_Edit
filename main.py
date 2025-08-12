@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.templating import Jinja2Templates
+
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 from datetime import datetime
@@ -9,10 +11,10 @@ import io
 
 app = FastAPI()
 
-# Serve static
+# Static és sablonok
 app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
-INDEX_PATH = os.path.join("static", "index.html")
 TEMPLATE_XLSX = os.path.join("GP-t.xlsx")
 
 def find_text_cell(ws, text: str):
@@ -25,8 +27,7 @@ def find_text_cell(ws, text: str):
     return None
 
 def top_left_of_merge(ws, r, c):
-    """Given a cell coordinate (r,c), if it lies within a merged range, return that range's top-left.
-    Otherwise return (r,c)."""
+    """If (r,c) is inside a merged range, return that range's top-left; else (r,c)."""
     for rng in ws.merged_cells.ranges:
         if (rng.min_row <= r <= rng.max_row) and (rng.min_col <= c <= rng.max_col):
             return rng.min_row, rng.min_col
@@ -41,7 +42,7 @@ def set_cell(ws, r, c, value, wrap=False, align_left=False, v_top=False):
         cell.alignment = Alignment(
             wrap_text=bool(wrap),
             horizontal=("left" if align_left else None),
-            vertical=("top" if v_top else None)
+            vertical=("top" if v_top else None),
         )
 
 def right_value_cell_of_label(ws, label_text: str, offset_cols: int = 1, offset_rows: int = 0):
@@ -52,10 +53,12 @@ def right_value_cell_of_label(ws, label_text: str, offset_cols: int = 1, offset_
     r, c = pos
     return r + offset_rows, c + offset_cols
 
+# --- Routes --------------------------------------------------------------
+
 @app.get("/", response_class=HTMLResponse)
-async def root():
-    with open(INDEX_PATH, "r", encoding="utf-8") as f:
-        return f.read()
+async def root(request: Request):
+    # A templates/index.html kerül kiszolgálásra (ez az aktuális, bővített űrlapod)
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/generate_excel")
 async def generate_excel(
@@ -65,7 +68,6 @@ async def generate_excel(
     basf: str | None = Form(None),
     beschreibung: str = Form(...),
     total_hours: str | None = Form(None),
-    break_minutes: str | None = Form(None),   # új: elfogadjuk, de nem nyúlunk az Excelhez
     # up to 5 workers (optional); empty ones are ignored
     vorname1: str | None = Form(None),
     nachname1: str | None = Form(None),
@@ -83,7 +85,7 @@ async def generate_excel(
     nachname5: str | None = Form(None),
     ausweis5: str | None = Form(None),
 ):
-    # Basic validation for required fields
+    # Basic validation
     if not bau and not projekt:
         return JSONResponse({"detail": 'Hiányzó mező: "bau" vagy "projekt".'}, status_code=400)
 
@@ -112,19 +114,19 @@ async def generate_excel(
             if target_basf:
                 set_cell(ws, target_basf[0], target_basf[1], basf)
 
-        # 4) Tevékenység szöveg az A6:G15 blokkba (bal-felső A6)
+        # 4) Beschreibung szöveg a nagy blokk bal-felső cellájába (pl. A6)
         set_cell(ws, 6, 1, beschreibung, wrap=True, align_left=True, v_top=True)
 
-        # 5) Össz óraszám (ha jön a front-endtől)
+        # 5) Gesamtstunden (ha jön a front-endtől)
         if total_hours:
             pos_total = (right_value_cell_of_label(ws, "Összesen:", 1) or
                          right_value_cell_of_label(ws, "Gesamtstunden:", 1))
             if pos_total:
                 set_cell(ws, pos_total[0], pos_total[1], total_hours)
 
-        # 6) Dolgozók – ha nincs fix címke, fallback
+        # 6) Dolgozók (név és Ausweis)
         workers = []
-        for i in range(1, 6):
+        for i in range(1, 5 + 1):
             vn = locals().get(f"vorname{i}")
             nn = locals().get(f"nachname{i}")
             au = locals().get(f"ausweis{i}")
@@ -138,6 +140,7 @@ async def generate_excel(
             col_name = name_header[1]
             col_ausw = ausweis_header[1]
         else:
+            # Fallback helyek – ezek a te sablonodra voltak hangolva
             start_row = 19
             col_name = 2
             col_ausw = 6
@@ -151,19 +154,18 @@ async def generate_excel(
                 set_cell(ws, r, col_ausw, w["ausweis"])
             r += 1
 
-        # Kész fájl memória-pufferbe
+        # Mentés memóriába
         bio = io.BytesIO()
         wb.save(bio)
         bio.seek(0)
 
-        # Fájlnév
         safe_date = datum.replace("/", "-").replace(".", "-")
         filename = f"GP-t_filled_{safe_date or 'heute'}.xlsx"
 
-        return FileResponse(
-            bio,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename=filename
-        )
+        # Ugyanúgy FileResponse-szal küldjük vissza, mint a korábbi működő verzióban
+        return FileResponse(bio,
+                            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            filename=filename)
+
     except Exception as e:
         return JSONResponse({"detail": f"Hiba a generálásnál: {e}"}, status_code=500)
