@@ -150,7 +150,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const inpAus  = fs.querySelector(`input[name="ausweis${idx}"]`);
     if (!inpNach || !inpVor || !inpAus) return;
 
-    // Vorname — teljes rekordból válasszunk (egyértelmű kitöltés)
+    // Vorname — teljes rekordból válasszunk
     makeAutocomplete(
       inpVor,
       () => WORKERS.map(w => ({
@@ -166,33 +166,31 @@ document.addEventListener("DOMContentLoaded", () => {
           inpAus.value  = w.ausweis;
           return;
         }
-        // Fallback: ha csak keresztnevet írt be és már van vezetéknév
         const w2 = byFullName.get(keyName(inpNach.value, value));
         if (w2) inpAus.value = w2.ausweis;
       }
     );
 
     // Nachname
-makeAutocomplete(
-  inpNach,
-  () => WORKERS.map(w => ({
-    value: w.nachname,
-    label: `${w.nachname} — ${w.vorname} [${w.ausweis}]`,
-    payload: w
-  })),
-  (value, item) => {
-    if (item && item.payload) {
-      const w = item.payload;
-      inpNach.value = w.nachname;
-      inpVor.value  = w.vorname;
-      inpAus.value  = w.ausweis;
-      return;
-    }
-    // Fallback: ha csak vezetéknevet írt be és már van keresztnév
-    const w2 = byFullName.get(keyName(value, inpVor.value));
-    if (w2) inpAus.value = w2.ausweis;
-  }
-);
+    makeAutocomplete(
+      inpNach,
+      () => WORKERS.map(w => ({
+        value: w.nachname,
+        label: `${w.nachname} — ${w.vorname} [${w.ausweis}]`,
+        payload: w
+      })),
+      (value, item) => {
+        if (item && item.payload) {
+          const w = item.payload;
+          inpNach.value = w.nachname;
+          inpVor.value  = w.vorname;
+          inpAus.value  = w.ausweis;
+          return;
+        }
+        const w2 = byFullName.get(keyName(value, inpVor.value));
+        if (w2) inpAus.value = w2.ausweis;
+      }
+    );
 
     // Ausweis
     makeAutocomplete(
@@ -253,6 +251,7 @@ makeAutocomplete(
     digitsOnly(input);
   }
 
+  // ---- 15 perces kezelés ----
   function snapToQuarter(inp) {
     const v = inp.value;
     if (!/^\d{2}:\d{2}$/.test(v)) return;
@@ -262,6 +261,40 @@ makeAutocomplete(
     const nv = String(h).padStart(2, "0") + ":" + String(q).padStart(2, "0");
     if (nv !== v) inp.value = nv;
   }
+
+  function setMinuteKeepingHour(inp, mm) {
+    const v = inp.value && /^\d{2}:\d{2}$/.test(inp.value) ? inp.value : "08:00";
+    let [h] = v.split(":").map(Number);
+    const nv = String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+    inp.value = nv;
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    inp.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function addQuarterHelper(inp) {
+    // kis gombsor 00/15/30/45
+    const wrap = inp.closest(".field") || inp.parentElement;
+    if (!wrap) return;
+    const bar = document.createElement("div");
+    bar.className = "quarter-bar";
+    bar.style.marginTop = ".25rem";
+    bar.style.display = "flex";
+    bar.style.gap = ".25rem";
+    ["00","15","30","45"].forEach(min => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = min;
+      b.style.padding = ".25rem .5rem";
+      b.style.border = "1px solid #ddd";
+      b.style.borderRadius = ".375rem";
+      b.style.background = "#f9f9f9";
+      b.style.cursor = "pointer";
+      b.addEventListener("click", () => setMinuteKeepingHour(inp, Number(min)));
+      bar.appendChild(b);
+    });
+    wrap.appendChild(bar);
+  }
+  // ----------------------------------------
 
   function recalcWorker(workerEl) {
     const beg = workerEl.querySelector('input[name^="beginn"]')?.value || "";
@@ -311,13 +344,20 @@ makeAutocomplete(
     const ausweis = workerEl.querySelector(`input[name="ausweis${idx}"]`);
     if (ausweis) enforceNumericKeyboard(ausweis);
 
-    // idő mezők: snap + recalculations
+    // idő mezők: 15 perces UX + snap + recalculations
     ["beginn", "ende"].forEach(prefix => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
       if (inp) {
-        inp.addEventListener("change", () => { snapToQuarter(inp); recalcAll(); });
-        inp.addEventListener("blur",   () => { snapToQuarter(inp); recalcAll(); });
-        inp.addEventListener("input",  recalcAll);
+        // 15 perces lépés javaslat (iOS ettől még saját kereket mutathat, ezért jön a snap + gombsor)
+        inp.step = 900; // 15 * 60
+        // élő kerekítés minden eseményen
+        const snapAndRecalc = () => { snapToQuarter(inp); recalcAll(); };
+        inp.addEventListener("input",  snapAndRecalc);
+        inp.addEventListener("change", snapAndRecalc);
+        inp.addEventListener("blur",   snapAndRecalc);
+
+        // gyorsválasztó 00/15/30/45
+        addQuarterHelper(inp);
       }
     });
 
