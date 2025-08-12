@@ -55,6 +55,16 @@ document.addEventListener("DOMContentLoaded", () => {
     digitsOnly(input);
   }
 
+  // --- ÚJ: 15 perces "snap" time inputokra ---
+  function snapToQuarter(inp) {
+    const v = inp.value;
+    if (!/^\d{2}:\d{2}$/.test(v)) return;
+    let [h, m] = v.split(":").map(Number);
+    let q = Math.round(m / 15) * 15;
+    if (q === 60) { h = (h + 1) % 24; q = 0; }
+    inp.value = String(h).padStart(2, "0") + ":" + String(q).padStart(2, "0");
+  }
+
   function recalcWorker(workerEl) {
     const beg = workerEl.querySelector('input[name^="beginn"]')?.value || "";
     const end = workerEl.querySelector('input[name^="ende"]')?.value || "";
@@ -73,9 +83,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ---- SYNC LOGIKA: első dolgozó idejének másolása ----
-  // elv: minden dolgozó beginn/ende input kap egy "synced" jelzőt (dataset.syncedBeg / dataset.syncedEnd).
-  // Ha user kézzel módosítja, a jelző törlődik, és többé nem írjuk felül automatikusan.
-
   function markSynced(inp, isSynced) {
     if (!inp) return;
     if (isSynced) {
@@ -128,14 +135,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const ausweis = workerEl.querySelector('input[name^="ausweis"]');
     if (ausweis) enforceNumericKeyboard(ausweis);
 
-    // idő változásra újraszámolás
+    // idő változásra újraszámolás + 15 perces léptetés és snap
     ["beginn", "ende"].forEach(prefix => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
       if (inp) {
-        // 15 perces léptetés UX (jelenleg 60s = 1 perc)
-        inp.step = 60;
+        // 15 perces léptetés
+        inp.step = 900; // 15 * 60
+        // gépelés közben csak számolunk
         inp.addEventListener("input", recalcAll);
-        inp.addEventListener("change", recalcAll);
+        // befejezéskor kerekítünk 15 percre és számolunk
+        const snapAndRecalc = () => { snapToQuarter(inp); recalcAll(); };
+        inp.addEventListener("change", snapAndRecalc);
+        inp.addEventListener("blur",   snapAndRecalc);
       }
     });
 
@@ -195,11 +206,11 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="grid grid-3">
         <div class="field">
           <label>Beginn</label>
-          <input name="beginn${idx}" type="time" step="60" />
+          <input name="beginn${idx}" type="time" step="900" />
         </div>
         <div class="field">
           <label>Ende</label>
-          <input name="ende${idx}" type="time" step="60" />
+          <input name="ende${idx}" type="time" step="900" />
         </div>
         <div class="field">
           <label>Stunden (auto)</label>
@@ -217,10 +228,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (firstBeg && begNew) {
       begNew.value = firstBeg;
       markSynced(begNew, true);
+      snapToQuarter(begNew);
     }
     if (firstEnd && endNew) {
       endNew.value = firstEnd;
       markSynced(endNew, true);
+      snapToQuarter(endNew);
     }
 
     wireWorker(tpl);
