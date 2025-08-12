@@ -67,7 +67,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const id = `times_${inp.name}`;
     const dl = document.createElement("datalist");
     dl.id = id;
-    // 00:00..23:45 15 perces lépésekkel (96 opció)
     for (let h = 0; h < 24; h++) {
       for (let m = 0; m < 60; m += 15) {
         const val = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
@@ -78,6 +77,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     document.body.appendChild(dl);
     inp.setAttribute("list", id);
+  }
+
+  // iOS-biztos kényszerített snap: amíg a time‑picker fókuszban van, periodikusan 15-re kerekít
+  function startQuarterSnapLoop(inp, recalc) {
+    let t = null;
+    function stop() { if (t) { clearInterval(t); t = null; } }
+    inp.addEventListener("focus", () => {
+      snapToQuarter(inp);
+      t = setInterval(() => snapToQuarter(inp), 150);
+    });
+    ["change", "blur"].forEach(ev => {
+      inp.addEventListener(ev, () => {
+        stop();
+        snapToQuarter(inp);
+        if (typeof recalc === "function") recalc();
+      });
+    });
   }
 
   function recalcWorker(workerEl) {
@@ -132,7 +148,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const ausweis = workerEl.querySelector('input[name^="ausweis"]');
     if (ausweis) enforceNumericKeyboard(ausweis);
 
-    // időmezők beállítása: 15 perc + snap + datalist
+    // időmezők beállítása: 15 perc + snap + datalist + iOS loop
     ["beginn", "ende"].forEach(prefix => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
       if (inp) {
@@ -141,11 +157,13 @@ document.addEventListener("DOMContentLoaded", () => {
         inp.max = "23:45";
         buildQuarterDatalistFor(inp);
 
-        // élőben is igyekszünk 15-re kerekíteni
         const snapAndRecalc = () => { snapToQuarter(inp); recalcAll(); };
         inp.addEventListener("input", snapAndRecalc);
         inp.addEventListener("change", snapAndRecalc);
         inp.addEventListener("blur",   snapAndRecalc);
+
+        // ⬇️ iOS-en a kerék közben is 15-re kényszerítjük
+        startQuarterSnapLoop(inp, recalcAll);
       }
     });
 
@@ -222,7 +240,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (firstEnd && endNew) { endNew.value = firstEnd; markSynced(endNew, true); }
 
     wireWorker(tpl);
-    // biztos, ami biztos: snap az új mezőkre is
     begNew && snapToQuarter(begNew);
     endNew && snapToQuarter(endNew);
     recalcAll();
