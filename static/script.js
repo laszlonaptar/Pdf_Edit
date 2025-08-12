@@ -464,3 +464,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return true;
   });
 })();
+
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True}
