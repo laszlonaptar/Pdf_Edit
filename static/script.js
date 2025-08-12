@@ -23,13 +23,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- CSV parser: automatikus ; / , felismerés + idézőjelek kezelése
   function parseCSV(text) {
-    // BOM eltávolítás
     if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-
     const linesRaw = text.split(/\r?\n/).filter(l => l.trim().length);
     if (!linesRaw.length) return;
 
-    // határoló detektálás: ha több a ; mint a , akkor ;, különben ,
     const detectDelim = (s) => {
       const sc = (s.match(/;/g) || []).length;
       const cc = (s.match(/,/g) || []).length;
@@ -37,7 +34,6 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     const delim = detectDelim(linesRaw[0]);
 
-    // sor feldarabolása úgy, hogy az idézőjeles részekben lévő határolót ne vágjuk el
     const splitCSV = (line) => {
       const re = new RegExp(`${delim}(?=(?:[^"]*"[^"]*")*[^"]*$)`, "g");
       return line.split(re).map(x => {
@@ -71,25 +67,81 @@ document.addEventListener("DOMContentLoaded", () => {
       byFullName.set(keyName(w.nachname, w.vorname), w);
     }
 
-    // már kirakott inputok datalistáinak frissítése
+    // már kirakott inputok automatikus frissítése
     refreshAllAutocompletes();
   }
 
-  function attachDatalist(input, opts, idSuffix) {
-    const id = `dl_${idSuffix}_${input.name}`;
-    let dl = document.getElementById(id);
-    if (!dl) {
-      dl = document.createElement("datalist");
-      dl.id = id;
-      document.body.appendChild(dl);
-      input.setAttribute("list", id);
+  // ===== Egyedi lenyíló autocomplete (iOS/Android/desktop barát) =====
+  function makeAutocomplete(input, getOptions, onPick) {
+    // konténer: a szülő .field-et relatívvá tesszük
+    const wrapper = input.closest(".field") || input.parentElement;
+    if (wrapper && getComputedStyle(wrapper).position === "static") {
+      wrapper.style.position = "relative";
     }
-    dl.innerHTML = "";
-    opts.forEach(v => {
-      const o = document.createElement("option");
-      o.value = v;
-      dl.appendChild(o);
-    });
+
+    // dropdown elem
+    const dd = document.createElement("div");
+    dd.style.position = "absolute";
+    dd.style.left = "0";
+    dd.style.right = "0";
+    dd.style.top = "100%";
+    dd.style.zIndex = "9999";
+    dd.style.background = "white";
+    dd.style.border = "1px solid #ddd";
+    dd.style.borderTop = "none";
+    dd.style.maxHeight = "220px";
+    dd.style.overflowY = "auto";
+    dd.style.display = "none";
+    dd.style.boxShadow = "0 6px 14px rgba(0,0,0,0.08)";
+    dd.style.borderRadius = "0 0 .5rem .5rem";
+    dd.style.fontSize = "14px";
+    dd.setAttribute("role", "listbox");
+    wrapper.appendChild(dd);
+
+    function hide() { dd.style.display = "none"; }
+    function show() { dd.style.display = dd.children.length ? "block" : "none"; }
+
+    function render(list) {
+      dd.innerHTML = "";
+      list.slice(0, 12).forEach(item => {
+        const opt = document.createElement("div");
+        opt.textContent = item.label ?? item.value;
+        opt.dataset.value = item.value ?? item.label ?? "";
+        opt.style.padding = ".5rem .75rem";
+        opt.style.cursor = "pointer";
+        opt.addEventListener("mousedown", (e) => {
+          e.preventDefault(); // hogy ne veszítsük el a fókuszt iOS-en
+          input.value = opt.dataset.value;
+          hide();
+          onPick?.(opt.dataset.value, item);
+          // triggeljük a change-t, hogy a meglévő logika fusson
+          const ev = new Event("change", { bubbles: true });
+          input.dispatchEvent(ev);
+        });
+        opt.addEventListener("mouseover", () => { opt.style.background = "#f5f5f5"; });
+        opt.addEventListener("mouseout",  () => { opt.style.background = "white"; });
+        dd.appendChild(opt);
+      });
+      show();
+    }
+
+    function filterOptions() {
+      const q = input.value.toLowerCase().trim();
+      const raw = getOptions();
+      if (!q) { hide(); return; }
+      const list = raw
+        .filter(v => (v.label ?? v).toLowerCase().includes(q))
+        .map(v => (typeof v === "string" ? { value: v } : v));
+      render(list);
+    }
+
+    input.addEventListener("input", filterOptions);
+    input.addEventListener("focus", filterOptions);
+    input.addEventListener("blur", () => setTimeout(hide, 120)); // várunk, hogy lehessen tappolni
+  }
+
+  function refreshAllAutocompletes() {
+    document.querySelectorAll("#worker-list .worker").forEach(setupAutocomplete);
   }
 
   function setupAutocomplete(fs) {
@@ -99,32 +151,48 @@ document.addEventListener("DOMContentLoaded", () => {
     const inpAus  = fs.querySelector(`input[name="ausweis${idx}"]`);
     if (!inpNach || !inpVor || !inpAus) return;
 
-    // egyedi datalistek
-    attachDatalist(inpNach, [...new Set(WORKERS.map(w => w.nachname).filter(Boolean))], "nach");
-    attachDatalist(inpVor,  [...new Set(WORKERS.map(w => w.vorname).filter(Boolean))],  "vor");
-    attachDatalist(inpAus,  [...new Set(WORKERS.map(w => w.ausweis).filter(Boolean))],  "aus");
+    // Vorname
+    makeAutocomplete(
+      inpVor,
+      () => [...new Set(WORKERS.map(w => w.vorname).filter(Boolean))],
+      (value) => {
+        // ha vezetéknév is megvan -> kitöltjük Ausweist
+        const w = byFullName.get(keyName(inpNach.value, value));
+        if (w) inpAus.value = w.ausweis;
+      }
+    );
 
-    // auto-kitöltés: ha egyértelmű találat van
-    function tryResolveFromAusweis() {
+    // Nachname
+    makeAutocomplete(
+      inpNach,
+      () => [...new Set(WORKERS.map(w => w.nachname).filter(Boolean))],
+      (value) => {
+        const w = byFullName.get(keyName(value, inpVor.value));
+        if (w) inpAus.value = w.ausweis;
+      }
+    );
+
+    // Ausweis
+    makeAutocomplete(
+      inpAus,
+      () => WORKERS.map(w => ({ value: w.ausweis, label: `${w.ausweis} – ${w.nachname} ${w.vorname}` })),
+      (value) => {
+        const w = byAusweis.get(value);
+        if (w) { inpNach.value = w.nachname; inpVor.value = w.vorname; }
+      }
+    );
+
+    // plusz: ha kézzel változtat
+    inpAus.addEventListener("change", () => {
       const w = byAusweis.get(norm(inpAus.value));
       if (w) { inpNach.value = w.nachname; inpVor.value = w.vorname; }
-    }
-    function tryResolveFromNames() {
+    });
+    const tryNames = () => {
       const w = byFullName.get(keyName(inpNach.value, inpVor.value));
-      if (w) { inpAus.value = w.ausweis; }
-    }
-
-    inpAus.addEventListener("change", tryResolveFromAusweis);
-    inpAus.addEventListener("blur",   tryResolveFromAusweis);
-    const onNameChange = () => tryResolveFromNames();
-    inpNach.addEventListener("change", onNameChange);
-    inpVor.addEventListener("change",  onNameChange);
-    inpNach.addEventListener("blur",   onNameChange);
-    inpVor.addEventListener("blur",    onNameChange);
-  }
-
-  function refreshAllAutocompletes() {
-    document.querySelectorAll("#worker-list .worker").forEach(setupAutocomplete);
+      if (w) inpAus.value = w.ausweis;
+    };
+    inpNach.addEventListener("change", tryNames);
+    inpVor.addEventListener("change",  tryNames);
   }
   // ===========================================================
 
@@ -163,7 +231,6 @@ document.addEventListener("DOMContentLoaded", () => {
     digitsOnly(input);
   }
 
-  // 15 perces “snap” (iOS natív picker miatt blur/change után kerekítünk)
   function snapToQuarter(inp) {
     const v = inp.value;
     if (!/^\d{2}:\d{2}$/.test(v)) return;
@@ -176,7 +243,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function recalcWorker(workerEl) {
     const beg = workerEl.querySelector('input[name^="beginn"]')?.value || "";
-    const end = workerEl.querySelector('input[name^="ende"]')?.value || "";
+       const end = workerEl.querySelector('input[name^="ende"]')?.value || "";
     const out = workerEl.querySelector(".stunden-display");
     const h = hoursWithBreaks(beg, end);
     if (out) out.value = h ? formatHours(h) : "";
