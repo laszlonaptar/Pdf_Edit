@@ -2,6 +2,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const addBtn = document.getElementById("add-worker");
   const workerList = document.getElementById("worker-list");
   const totalOut = document.getElementById("gesamtstunden_auto");
+  const breakHalf = document.getElementById("break_half");
+  const breakHidden = document.getElementById("break_minutes");
   const MAX_WORKERS = 5;
 
   // ===== AUTOCOMPLETE: dolgozói lista betöltése CSV-ből =====
@@ -150,7 +152,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const inpAus  = fs.querySelector(`input[name="ausweis${idx}"]`);
     if (!inpNach || !inpVor || !inpAus) return;
 
-    // Vorname — teljes rekordból válasszunk (egyértelmű kitöltés)
+    // Vorname — teljes rekordból
     makeAutocomplete(
       inpVor,
       () => WORKERS.map(w => ({
@@ -269,11 +271,9 @@ document.addEventListener("DOMContentLoaded", () => {
     inp._setFromValue = (v) => {
       const mm = /^\d{2}:\d{2}$/.test(v) ? v.split(":") : ["",""];
       selH.value = mm[0] || "";
-      // 15 percesre kényszerítjük, ha nem negyedre esik
       const m = mm[1] || "";
       const allowed = ["00","15","30","45"];
-      selM.value = allowed.includes(m) ? m : (m ? (String(Math.round(parseInt(m,10)/15)*15).padStart(2,"0") % "60") : "");
-      // ha mindkettő megvan, akkor állítsuk vissza az inp-et is
+      selM.value = allowed.includes(m) ? m : (m ? String(Math.round(parseInt(m,10)/15)*15).padStart(2,"0") : "");
       composeFromSelects();
     };
 
@@ -292,15 +292,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return { hh, mm };
   }
   function minutes(t) { return t.hh * 60 + t.mm; }
-  function overlap(a1, a2, b1, b2) {
-    const s = Math.max(a1, b1);
-    const e = Math.min(a2, b2);
-    return Math.max(0, e - s);
-  }
-  const BREAKS = [
-    { start: 9 * 60 + 0,  end: 9 * 60 + 15 },
-    { start: 12 * 60 + 0, end: 12 * 60 + 45 },
-  ];
+
   function hoursWithBreaks(begStr, endStr) {
     const bt = toTime(begStr);
     const et = toTime(endStr);
@@ -308,28 +300,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const b = minutes(bt), e = minutes(et);
     if (e <= b) return 0;
     let total = e - b;
-    for (const br of BREAKS) total -= overlap(b, e, br.start, br.end);
+
+    // ÚJ: egységes, globális szünetlevonás (30 vagy 60 perc)
+    const bm = parseInt((breakHidden?.value || "60"), 10);
+    const breakMin = isNaN(bm) ? 60 : bm;
+    total = Math.max(0, total - breakMin);
+
     return Math.max(0, total) / 60;
   }
+
   function formatHours(h) { return (Math.round(h * 100) / 100).toFixed(2); }
   function digitsOnly(input) { input.addEventListener("input", () => { input.value = input.value.replace(/\D/g, ""); }); }
   function enforceNumericKeyboard(input) {
     input.setAttribute("inputmode", "numeric");
     input.setAttribute("pattern", "[0-9]*");
     digitsOnly(input);
-  }
-
-  function snapToQuarter(inp) {
-    const v = inp.value;
-    if (!/^\d{2}:\d{2}$/.test(v)) return;
-    let [h, m] = v.split(":").map(Number);
-    let q = Math.round(m / 15) * 15;
-    if (q === 60) { h = (h + 1) % 24; q = 0; }
-    const nv = String(h).padStart(2, "0") + ":" + String(q).padStart(2, "0");
-    if (nv !== v) {
-      inp.value = nv;
-      if (inp._setFromValue) inp._setFromValue(nv); // frissítjük a selecteket is
-    }
   }
 
   function recalcWorker(workerEl) {
@@ -345,6 +330,16 @@ document.addEventListener("DOMContentLoaded", () => {
     workerList.querySelectorAll(".worker").forEach(w => { sum += recalcWorker(w); });
     if (totalOut) totalOut.value = sum ? formatHours(sum) : "";
   }
+
+  // Globális szünet checkbox kezelése
+  function updateBreakAndRecalc() {
+    if (!breakHidden) return;
+    breakHidden.value = breakHalf?.checked ? "30" : "60";
+    recalcAll();
+  }
+  breakHalf?.addEventListener("change", updateBreakAndRecalc);
+  // induláskor legyen 60 perc (pipa nélkül)
+  updateBreakAndRecalc();
 
   // ---- SYNC: első dolgozó ideje többiekhez (amíg nem írják át) ----
   function markSynced(inp, isSynced) { if (!inp) return; isSynced ? inp.dataset.synced = "1" : delete inp.dataset.synced; }
@@ -368,13 +363,11 @@ document.addEventListener("DOMContentLoaded", () => {
         beg.value = firstBeg;
         if (beg._setFromValue) beg._setFromValue(firstBeg);
         markSynced(beg, true);
-        snapToQuarter(beg);
       }
       if (end && (isSynced(end) || !end.value)) {
         end.value = firstEnd;
         if (end._setFromValue) end._setFromValue(firstEnd);
         markSynced(end, true);
-        snapToQuarter(end);
       }
     }
     recalcAll();
@@ -395,9 +388,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
       if (inp) {
         enhanceTimePicker(inp);
-        // a rejtett input eseményei továbbra is recalculáljanak
-        inp.addEventListener("change", () => { snapToQuarter(inp); recalcAll(); });
-        inp.addEventListener("input",  () => { /* snapToQuarter már change-kor elég */ recalcAll(); });
+        inp.addEventListener("change", recalcAll);
+        inp.addEventListener("input",  recalcAll);
       }
     });
 
@@ -479,16 +471,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (endNew && endNew.value) markSynced(endNew, true);
 
     recalcAll();
-  });
-
-  // első dolgozó ideje változik -> összeg frissítése
-  const b1 = document.querySelector('input[name="beginn1"]');
-  const e1 = document.querySelector('input[name="ende1"]');
-  [b1, e1].forEach(inp => {
-    if (inp) {
-      inp.addEventListener("input", recalcAll);
-      inp.addEventListener("change", recalcAll);
-    }
   });
 
   // dolgozói CSV betöltés a végén
