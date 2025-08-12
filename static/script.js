@@ -7,10 +7,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // ===== AUTOCOMPLETE: dolgozói lista betöltése CSV-ből =====
   let WORKERS = [];
   let byAusweis = new Map();
-  let byFullName = new Map(); // "nachname|vorname"
+  let byFullName = new Map(); // "nachname|vorname" (lowercase, trimmed)
 
-  const norm = (s) => (s || "").toString().trim();
-  const keyName = (nach, vor) => `${norm(nach).toLowerCase()}|${norm(vor).toLowerCase()}`;
+  function norm(s) { return (s || "").toString().trim(); }
+  function keyName(nach, vor) { return `${norm(nach).toLowerCase()}|${norm(vor).toLowerCase()}`; }
 
   async function loadWorkers() {
     try {
@@ -21,6 +21,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (_) {}
   }
 
+  // --- CSV parser: automatikus ; / , felismerés + idézőjelek kezelése
   function parseCSV(text) {
     if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     const linesRaw = text.split(/\r?\n/).filter(l => l.trim().length);
@@ -55,38 +56,47 @@ document.addEventListener("DOMContentLoaded", () => {
     for (let i = 1; i < linesRaw.length; i++) {
       const cols = splitCSV(linesRaw[i]);
       if (cols.length <= Math.max(idxNach, idxVor, idxAus)) continue;
-      const w = { nachname: norm(cols[idxNach]), vorname: norm(cols[idxVor]), ausweis: norm(cols[idxAus]) };
+      const w = {
+        nachname: norm(cols[idxNach]),
+        vorname:  norm(cols[idxVor]),
+        ausweis:  norm(cols[idxAus]),
+      };
       if (!w.nachname && !w.vorname && !w.ausweis) continue;
       WORKERS.push(w);
       if (w.ausweis) byAusweis.set(w.ausweis, w);
       byFullName.set(keyName(w.nachname, w.vorname), w);
     }
+
+    // már kirakott inputok automatikus frissítése
+    refreshAllAutocompletes();
   }
 
-  // ===== Egyedi lenyíló autocomplete (a BODY-hoz csatolva) =====
+  // ===== Egyedi lenyíló autocomplete (iOS/Android/desktop barát) =====
   function makeAutocomplete(input, getOptions, onPick) {
-    // saját dropdown a body-n
-    const dd = document.createElement("div");
-    Object.assign(dd.style, {
-      position: "absolute",
-      zIndex: "99999",
-      background: "white",
-      border: "1px solid #ddd",
-      borderRadius: "0 0 .5rem .5rem",
-      maxHeight: "220px",
-      overflowY: "auto",
-      boxShadow: "0 6px 14px rgba(0,0,0,0.08)",
-      display: "none",
-      fontSize: "14px",
-    });
-    document.body.appendChild(dd);
-
-    function place() {
-      const r = input.getBoundingClientRect();
-      dd.style.left = `${Math.round(r.left + window.scrollX)}px`;
-      dd.style.top  = `${Math.round(r.bottom + window.scrollY)}px`;
-      dd.style.width = `${Math.round(r.width)}px`;
+    // konténer: a szülő .field-et relatívvá tesszük
+    const wrapper = input.closest(".field") || input.parentElement;
+    if (wrapper && getComputedStyle(wrapper).position === "static") {
+      wrapper.style.position = "relative";
     }
+
+    // dropdown elem
+    const dd = document.createElement("div");
+    dd.style.position = "absolute";
+    dd.style.left = "0";
+    dd.style.right = "0";
+    dd.style.top = "100%";
+    dd.style.zIndex = "9999";
+    dd.style.background = "white";
+    dd.style.border = "1px solid #ddd";
+    dd.style.borderTop = "none";
+    dd.style.maxHeight = "220px";
+    dd.style.overflowY = "auto";
+    dd.style.display = "none";
+    dd.style.boxShadow = "0 6px 14px rgba(0,0,0,0.08)";
+    dd.style.borderRadius = "0 0 .5rem .5rem";
+    dd.style.fontSize = "14px";
+    dd.setAttribute("role", "listbox");
+    wrapper.appendChild(dd);
 
     function hide() { dd.style.display = "none"; }
     function show() { dd.style.display = dd.children.length ? "block" : "none"; }
@@ -94,40 +104,44 @@ document.addEventListener("DOMContentLoaded", () => {
     function render(list) {
       dd.innerHTML = "";
       list.slice(0, 12).forEach(item => {
-        const label = item.label ?? item.value ?? item;
-        const value = item.value ?? item.label ?? item;
         const opt = document.createElement("div");
-        opt.textContent = label;
-        opt.dataset.value = value;
-        Object.assign(opt.style, { padding: ".5rem .75rem", cursor: "pointer" });
+        opt.textContent = item.label ?? item.value;
+        opt.dataset.value = item.value ?? item.label ?? "";
+        opt.style.padding = ".5rem .75rem";
+        opt.style.cursor = "pointer";
         opt.addEventListener("mousedown", (e) => {
-          e.preventDefault();
-          input.value = value;
+          e.preventDefault(); // hogy ne veszítsük el a fókuszt iOS-en
+          input.value = opt.dataset.value;
           hide();
-          onPick?.(value, item);
-          input.dispatchEvent(new Event("change", { bubbles: true }));
+          onPick?.(opt.dataset.value, item);
+          // triggeljük a change-t, hogy a meglévő logika fusson
+          const ev = new Event("change", { bubbles: true });
+          input.dispatchEvent(ev);
         });
-        opt.addEventListener("mouseover", () => (opt.style.background = "#f5f5f5"));
-        opt.addEventListener("mouseout",  () => (opt.style.background = "white"));
+        opt.addEventListener("mouseover", () => { opt.style.background = "#f5f5f5"; });
+        opt.addEventListener("mouseout",  () => { opt.style.background = "white"; });
         dd.appendChild(opt);
       });
-      place();
       show();
     }
 
     function filterOptions() {
       const q = input.value.toLowerCase().trim();
       const raw = getOptions();
-      const list = (!q ? raw : raw.filter(v => (v.label ?? v).toLowerCase().includes(q)))
+      if (!q) { hide(); return; }
+      const list = raw
+        .filter(v => (v.label ?? v).toLowerCase().includes(q))
         .map(v => (typeof v === "string" ? { value: v } : v));
       render(list);
     }
 
-    input.addEventListener("focus", filterOptions);   // fókuszkor is mutat
-    input.addEventListener("input", filterOptions);   // gépelésre szűr
-    window.addEventListener("scroll", () => dd.style.display === "block" && place(), true);
-    window.addEventListener("resize", () => dd.style.display === "block" && place(), true);
-    input.addEventListener("blur", () => setTimeout(hide, 120));
+    input.addEventListener("input", filterOptions);
+    input.addEventListener("focus", filterOptions);
+    input.addEventListener("blur", () => setTimeout(hide, 120)); // várunk, hogy lehessen tappolni
+  }
+
+  function refreshAllAutocompletes() {
+    document.querySelectorAll("#worker-list .worker").forEach(setupAutocomplete);
   }
 
   function setupAutocomplete(fs) {
@@ -137,31 +151,38 @@ document.addEventListener("DOMContentLoaded", () => {
     const inpAus  = fs.querySelector(`input[name="ausweis${idx}"]`);
     if (!inpNach || !inpVor || !inpAus) return;
 
+    // Vorname
     makeAutocomplete(
       inpVor,
-      () => [...new Set(WORKERS.map(w => w.vorname).filter(Boolean))]
-    ,  (value) => {
+      () => [...new Set(WORKERS.map(w => w.vorname).filter(Boolean))],
+      (value) => {
+        // ha vezetéknév is megvan -> kitöltjük Ausweist
         const w = byFullName.get(keyName(inpNach.value, value));
         if (w) inpAus.value = w.ausweis;
-      });
+      }
+    );
 
+    // Nachname
     makeAutocomplete(
       inpNach,
-      () => [...new Set(WORKERS.map(w => w.nachname).filter(Boolean))]
-    ,  (value) => {
+      () => [...new Set(WORKERS.map(w => w.nachname).filter(Boolean))],
+      (value) => {
         const w = byFullName.get(keyName(value, inpVor.value));
         if (w) inpAus.value = w.ausweis;
-      });
+      }
+    );
 
+    // Ausweis
     makeAutocomplete(
       inpAus,
-      () => WORKERS.map(w => ({ value: w.ausweis, label: `${w.ausweis} – ${w.nachname} ${w.vorname}` }))
-    ,  (value) => {
+      () => WORKERS.map(w => ({ value: w.ausweis, label: `${w.ausweis} – ${w.nachname} ${w.vorname}` })),
+      (value) => {
         const w = byAusweis.get(value);
         if (w) { inpNach.value = w.nachname; inpVor.value = w.vorname; }
-      });
+      }
+    );
 
-    // kézi egyeztetés
+    // plusz: ha kézzel változtat
     inpAus.addEventListener("change", () => {
       const w = byAusweis.get(norm(inpAus.value));
       if (w) { inpNach.value = w.nachname; inpVor.value = w.vorname; }
@@ -173,60 +194,129 @@ document.addEventListener("DOMContentLoaded", () => {
     inpNach.addEventListener("change", tryNames);
     inpVor.addEventListener("change",  tryNames);
   }
+  // ===========================================================
 
-  // ====== Óraszámítás és társai (változatlan) ======
-  function toTime(s) { if (!s || !/^\d{2}:\d{2}$/.test(s)) return null; const [hh, mm] = s.split(":").map(Number); if (hh<0||hh>23||mm<0||mm>59) return null; return {hh,mm}; }
-  function minutes(t){ return t.hh*60+t.mm; }
-  function overlap(a1,a2,b1,b2){ const s=Math.max(a1,b1), e=Math.min(a2,b2); return Math.max(0,e-s); }
-  const BREAKS=[{start:540,end:555},{start:720,end:765}];
-  function hoursWithBreaks(begStr,endStr){ const bt=toTime(begStr), et=toTime(endStr); if(!bt||!et) return 0; const b=minutes(bt), e=minutes(et); if(e<=b) return 0; let total=e-b; for(const br of BREAKS) total-=overlap(b,e,br.start,br.end); return Math.max(0,total)/60; }
-  function formatHours(h){ return (Math.round(h*100)/100).toFixed(2); }
-  function digitsOnly(input){ input.addEventListener("input",()=>{ input.value=input.value.replace(/\D/g,"");});}
-  function enforceNumericKeyboard(input){ input.setAttribute("inputmode","numeric"); input.setAttribute("pattern","[0-9]*"); digitsOnly(input); }
-  function snapToQuarter(inp){ const v=inp.value; if(!/^\d{2}:\d{2}$/.test(v)) return; let [h,m]=v.split(":").map(Number); let q=Math.round(m/15)*15; if(q===60){ h=(h+1)%24; q=0;} const nv=String(h).padStart(2,"0")+":"+String(q).padStart(2,"0"); if(nv!==v) inp.value=nv; }
-  function recalcWorker(workerEl){ const beg=workerEl.querySelector('input[name^="beginn"]')?.value||""; const end=workerEl.querySelector('input[name^="ende"]')?.value||""; const out=workerEl.querySelector(".stunden-display"); const h=hoursWithBreaks(beg,end); if(out) out.value=h?formatHours(h):""; return h; }
-  function recalcAll(){ let sum=0; workerList.querySelectorAll(".worker").forEach(w=>{ sum+=recalcWorker(w);}); if(totalOut) totalOut.value=sum?formatHours(sum):""; }
-  function markSynced(inp,isSynced){ if(!inp) return; isSynced? inp.dataset.synced="1": delete inp.dataset.synced; }
-  function isSynced(inp){ return !!(inp && inp.dataset.synced==="1"); }
-  function setupManualEditUnsync(inp){ if(!inp) return; const unsync=()=>markSynced(inp,false); inp.addEventListener("input",(e)=>{ if(e.isTrusted) unsync();}); inp.addEventListener("change",(e)=>{ if(e.isTrusted) unsync();}); }
-  function syncFromFirst(){ const firstBeg=document.querySelector('input[name="beginn1"]')?.value||""; const firstEnd=document.querySelector('input[name="ende1"]')?.value||""; if(!firstBeg && !firstEnd) return; const workers=Array.from(workerList.querySelectorAll(".worker")); for(let i=1;i<workers.length;i++){ const fs=workers[i]; const beg=fs.querySelector('input[name^="beginn"]'); const end=fs.querySelector('input[name^="ende"]'); if(beg&&(isSynced(beg)||!beg.value)){ beg.value=firstBeg; markSynced(beg,true); snapToQuarter(beg);} if(end&&(isSynced(end)||!end.value)){ end.value=firstEnd; markSynced(end,true); snapToQuarter(end);} } recalcAll(); }
+  // --- helpers (óra-számítás, stb.) ---
+  function toTime(s) {
+    if (!s || !/^\d{2}:\d{2}$/.test(s)) return null;
+    const [hh, mm] = s.split(":").map(Number);
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+    return { hh, mm };
+  }
+  function minutes(t) { return t.hh * 60 + t.mm; }
+  function overlap(a1, a2, b1, b2) {
+    const s = Math.max(a1, b1);
+    const e = Math.min(a2, b2);
+    return Math.max(0, e - s);
+  }
+  const BREAKS = [
+    { start: 9 * 60 + 0,  end: 9 * 60 + 15 },
+    { start: 12 * 60 + 0, end: 12 * 60 + 45 },
+  ];
+  function hoursWithBreaks(begStr, endStr) {
+    const bt = toTime(begStr);
+    const et = toTime(endStr);
+    if (!bt || !et) return 0;
+    const b = minutes(bt), e = minutes(et);
+    if (e <= b) return 0;
+    let total = e - b;
+    for (const br of BREAKS) total -= overlap(b, e, br.start, br.end);
+    return Math.max(0, total) / 60;
+  }
+  function formatHours(h) { return (Math.round(h * 100) / 100).toFixed(2); }
+  function digitsOnly(input) { input.addEventListener("input", () => { input.value = input.value.replace(/\D/g, ""); }); }
+  function enforceNumericKeyboard(input) {
+    input.setAttribute("inputmode", "numeric");
+    input.setAttribute("pattern", "[0-9]*");
+    digitsOnly(input);
+  }
 
-  function wireWorker(workerEl){
-    const idx=workerEl.getAttribute("data-index");
+  function snapToQuarter(inp) {
+    const v = inp.value;
+    if (!/^\d{2}:\d{2}$/.test(v)) return;
+    let [h, m] = v.split(":").map(Number);
+    let q = Math.round(m / 15) * 15;
+    if (q === 60) { h = (h + 1) % 24; q = 0; }
+    const nv = String(h).padStart(2, "0") + ":" + String(q).padStart(2, "0");
+    if (nv !== v) inp.value = nv;
+  }
+
+  function recalcWorker(workerEl) {
+    const beg = workerEl.querySelector('input[name^="beginn"]')?.value || "";
+       const end = workerEl.querySelector('input[name^="ende"]')?.value || "";
+    const out = workerEl.querySelector(".stunden-display");
+    const h = hoursWithBreaks(beg, end);
+    if (out) out.value = h ? formatHours(h) : "";
+    return h;
+  }
+  function recalcAll() {
+    let sum = 0;
+    workerList.querySelectorAll(".worker").forEach(w => { sum += recalcWorker(w); });
+    if (totalOut) totalOut.value = sum ? formatHours(sum) : "";
+  }
+
+  // ---- SYNC: első dolgozó ideje többiekhez (amíg nem írják át) ----
+  function markSynced(inp, isSynced) { if (!inp) return; isSynced ? inp.dataset.synced = "1" : delete inp.dataset.synced; }
+  function isSynced(inp) { return !!(inp && inp.dataset.synced === "1"); }
+  function setupManualEditUnsync(inp) {
+    if (!inp) return;
+    const unsync = () => markSynced(inp, false);
+    inp.addEventListener("input", (e) => { if (e.isTrusted) unsync(); });
+    inp.addEventListener("change", (e) => { if (e.isTrusted) unsync(); });
+  }
+  function syncFromFirst() {
+    const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
+    const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
+    if (!firstBeg && !firstEnd) return;
+    const workers = Array.from(workerList.querySelectorAll(".worker"));
+    for (let i = 1; i < workers.length; i++) {
+      const fs = workers[i];
+      const beg = fs.querySelector('input[name^="beginn"]');
+      const end = fs.querySelector('input[name^="ende"]');
+      if (beg && (isSynced(beg) || !beg.value)) { beg.value = firstBeg; markSynced(beg, true); snapToQuarter(beg); }
+      if (end && (isSynced(end) || !end.value)) { end.value = firstEnd; markSynced(end, true); snapToQuarter(end); }
+    }
+    recalcAll();
+  }
+
+  function wireWorker(workerEl) {
+    const idx = workerEl.getAttribute("data-index");
+
+    // autocomplete a 3 mezőre
     setupAutocomplete(workerEl);
 
-    const ausweis=workerEl.querySelector(`input[name="ausweis${idx}"]`);
-    if(ausweis) enforceNumericKeyboard(ausweis);
+    // Ausweis csak szám + numerikus billentyűzet
+    const ausweis = workerEl.querySelector(`input[name="ausweis${idx}"]`);
+    if (ausweis) enforceNumericKeyboard(ausweis);
 
-    ["beginn","ende"].forEach(prefix=>{
-      const inp=workerEl.querySelector(`input[name^="${prefix}"]`);
-      if(inp){
-        inp.addEventListener("change",()=>{ snapToQuarter(inp); recalcAll();});
-        inp.addEventListener("blur",  ()=>{ snapToQuarter(inp); recalcAll();});
-        inp.addEventListener("input", recalcAll);
+    // idő mezők: snap + recalculations
+    ["beginn", "ende"].forEach(prefix => {
+      const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
+      if (inp) {
+        inp.addEventListener("change", () => { snapToQuarter(inp); recalcAll(); });
+        inp.addEventListener("blur",   () => { snapToQuarter(inp); recalcAll(); });
+        inp.addEventListener("input",  recalcAll);
       }
     });
 
-    const b=workerEl.querySelector(`input[name="beginn${idx}"]`);
-    const e=workerEl.querySelector(`input[name="ende${idx}"]`);
-    if(idx==="1"){
-      markSynced(b,false); markSynced(e,false);
-      b?.addEventListener("input",syncFromFirst);
-      e?.addEventListener("input",syncFromFirst);
-      b?.addEventListener("change",syncFromFirst);
-      e?.addEventListener("change",syncFromFirst);
+    const b = workerEl.querySelector(`input[name="beginn${idx}"]`);
+    const e = workerEl.querySelector(`input[name="ende${idx}"]`);
+
+    if (idx === "1") {
+      markSynced(b, false); markSynced(e, false);
+      b?.addEventListener("input",  syncFromFirst);
+      e?.addEventListener("input",  syncFromFirst);
+      b?.addEventListener("change", syncFromFirst);
+      e?.addEventListener("change", syncFromFirst);
     } else {
       setupManualEditUnsync(b);
       setupManualEditUnsync(e);
     }
   }
 
-  // ===== Init: VÁRJUK meg a CSV-t, aztán kötünk mindent =====
-  (async function init(){
-    await loadWorkers();            // << fontos
-    wireWorker(workerList.querySelector(".worker"));
-    recalcAll();
-  })();
+  // első dolgozó bekötése + számítás
+  wireWorker(workerList.querySelector(".worker"));
+  recalcAll();
 
   // új dolgozó
   addBtn?.addEventListener("click", () => {
@@ -240,24 +330,43 @@ document.addEventListener("DOMContentLoaded", () => {
     tpl.innerHTML = `
       <legend>Mitarbeiter ${idx}</legend>
       <div class="grid grid-3">
-        <div class="field"><label>Vorname</label><input name="vorname${idx}" type="text" /></div>
-        <div class="field"><label>Nachname</label><input name="nachname${idx}" type="text" /></div>
-        <div class="field"><label>Ausweis-Nr. / Kennzeichen</label><input name="ausweis${idx}" type="text" /></div>
+        <div class="field">
+          <label>Vorname</label>
+          <input name="vorname${idx}" type="text" />
+        </div>
+        <div class="field">
+          <label>Nachname</label>
+          <input name="nachname${idx}" type="text" />
+        </div>
+        <div class="field">
+          <label>Ausweis-Nr. / Kennzeichen</label>
+          <input name="ausweis${idx}" type="text" />
+        </div>
       </div>
       <div class="grid grid-3">
-        <div class="field"><label>Beginn</label><input name="beginn${idx}" type="time" /></div>
-        <div class="field"><label>Ende</label><input name="ende${idx}" type="time" /></div>
-        <div class="field"><label>Stunden (auto)</label><input class="stunden-display" type="text" value="" readonly /></div>
+        <div class="field">
+          <label>Beginn</label>
+          <input name="beginn${idx}" type="time" />
+        </div>
+        <div class="field">
+          <label>Ende</label>
+          <input name="ende${idx}" type="time" />
+        </div>
+        <div class="field">
+          <label>Stunden (auto)</label>
+          <input class="stunden-display" type="text" value="" readonly />
+        </div>
       </div>
     `;
     workerList.appendChild(tpl);
 
-    const firstBeg=document.querySelector('input[name="beginn1"]')?.value||"";
-    const firstEnd=document.querySelector('input[name="ende1"]')?.value||"";
-    const begNew=tpl.querySelector(`input[name="beginn${idx}"]`);
-    const endNew=tpl.querySelector(`input[name="ende${idx}"]`);
-    if(firstBeg && begNew){ begNew.value=firstBeg; markSynced(begNew,true); }
-    if(firstEnd && endNew){ endNew.value=firstEnd; markSynced(endNew,true); }
+    // elsőből előtöltés + synced státusz
+    const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
+    const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
+    const begNew = tpl.querySelector(`input[name="beginn${idx}"]`);
+    const endNew = tpl.querySelector(`input[name="ende${idx}"]`);
+    if (firstBeg && begNew) { begNew.value = firstBeg; markSynced(begNew, true); }
+    if (firstEnd && endNew) { endNew.value = firstEnd; markSynced(endNew, true); }
 
     wireWorker(tpl);
     begNew && snapToQuarter(begNew);
@@ -266,29 +375,40 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // első dolgozó ideje változik -> összeg frissítése
-  const b1=document.querySelector('input[name="beginn1"]');
-  const e1=document.querySelector('input[name="ende1"]');
-  [b1,e1].forEach(inp=>{ if(inp){ inp.addEventListener("input",recalcAll); inp.addEventListener("change",recalcAll); }});
+  const b1 = document.querySelector('input[name="beginn1"]');
+  const e1 = document.querySelector('input[name="ende1"]');
+  [b1, e1].forEach(inp => {
+    if (inp) {
+      inp.addEventListener("input", recalcAll);
+      inp.addEventListener("change", recalcAll);
+    }
+  });
+
+  // dolgozói CSV betöltés a végén
+  loadWorkers();
 });
 
-// --- Beschreibungszámláló (változatlan) ---
+// --- Beschreibung karakterszámláló ---
 (function () {
   const besch = document.getElementById('beschreibung');
   const out   = document.getElementById('besch-count');
   if (!besch || !out) return;
   const max = parseInt(besch.getAttribute('maxlength') || '1000', 10);
-  function updateBeschCount() { const len = besch.value.length || 0; out.textContent = `${len} / ${max}`; }
+  function updateBeschCount() {
+    const len = besch.value.length || 0;
+    out.textContent = `${len} / ${max}`;
+  }
   updateBeschCount();
   besch.addEventListener('input', updateBeschCount);
   besch.addEventListener('change', updateBeschCount);
 })();
 
-// ==== Validáció (változatlan) ====
+// ==== Zusätzliche Validierung beim Absenden ====
 (function () {
   const form = document.getElementById("ln-form");
   if (!form) return;
-  const trim = (v) => (v || "").toString().trim();
-  function readWorker(fs){
+  function trim(v) { return (v || "").toString().trim(); }
+  function readWorker(fs) {
     const idx = fs.getAttribute("data-index") || "";
     const q = (sel) => fs.querySelector(sel);
     return {
@@ -306,13 +426,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const bau   = trim((document.getElementById("bau") || {}).value);
     const bf    = trim((document.getElementById("basf_beauftragter") || {}).value);
     const besch = trim((document.getElementById("beschreibung") || {}).value);
+
     if (!datum) errors.push("Bitte das Datum der Leistungsausführung angeben.");
     if (!bau) errors.push("Bitte Bau und Ausführungsort ausfüllen.");
     if (!bf) errors.push("Bitte den BASF-Beauftragten (Org.-Code) ausfüllen.");
     if (!besch) errors.push("Bitte die Beschreibung der ausgeführten Arbeiten ausfüllen.");
 
-    const sets = Array.from((document.getElementById("worker-list")||document).querySelectorAll(".worker"));
+    const list = document.getElementById("worker-list");
+    const sets = Array.from(list.querySelectorAll(".worker"));
     let validWorkers = 0;
+
     sets.forEach((fs) => {
       const w = readWorker(fs);
       const anyFilled = !!(w.vorname || w.nachname || w.ausweis || w.beginn || w.ende);
@@ -328,8 +451,16 @@ document.addEventListener("DOMContentLoaded", () => {
         errors.push(`Bitte Mitarbeiter ${w.idx}: ${missing.join(", ")} ausfüllen.`);
       }
     });
-    if (validWorkers === 0) errors.push("Bitte mindestens einen Mitarbeiter vollständig angeben (Vorname, Nachname, Ausweis-Nr., Beginn, Ende).");
-    if (errors.length) { e.preventDefault(); alert(errors.join("\n")); return false; }
+
+    if (validWorkers === 0) {
+      errors.push("Bitte mindestens einen Mitarbeiter vollständig angeben (Vorname, Nachname, Ausweis-Nr., Beginn, Ende).");
+    }
+
+    if (errors.length) {
+      e.preventDefault();
+      alert(errors.join("\n"));
+      return false;
+    }
     return true;
   });
 })();
