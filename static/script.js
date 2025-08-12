@@ -43,11 +43,10 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     };
 
-    const header = splitCSV(linesRaw[0]).map(h => h.toLowerCase());
     const header = splitCSV(linesRaw[0]).map(h => h.toLowerCase().trim());
-const idxNach = header.findIndex(h => h === "nachname" || h === "name"); // <-- „Name” is ok
-const idxVor  = header.findIndex(h => h === "vorname");
-const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
+    const idxNach = header.findIndex(h => h === "nachname" || h === "name"); // „Name” is ok
+    const idxVor  = header.findIndex(h => h === "vorname");
+    const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
     if (idxNach < 0 || idxVor < 0 || idxAus < 0) return;
 
     WORKERS = [];
@@ -72,21 +71,11 @@ const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
     refreshAllAutocompletes();
   }
 
-  // ===== Egyedi lenyíló autocomplete (iOS/Android/desktop barát) =====
+  // ===== Egyedi lenyíló autocomplete (body-hoz csatolva, nem vágódik le) =====
   function makeAutocomplete(input, getOptions, onPick) {
-    // konténer: a szülő .field-et relatívvá tesszük
-    const wrapper = input.closest(".field") || input.parentElement;
-    if (wrapper && getComputedStyle(wrapper).position === "static") {
-      wrapper.style.position = "relative";
-    }
-
-    // dropdown elem
     const dd = document.createElement("div");
     dd.style.position = "absolute";
-    dd.style.left = "0";
-    dd.style.right = "0";
-    dd.style.top = "100%";
-    dd.style.zIndex = "9999";
+    dd.style.zIndex = "99999";
     dd.style.background = "white";
     dd.style.border = "1px solid #ddd";
     dd.style.borderTop = "none";
@@ -97,10 +86,17 @@ const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
     dd.style.borderRadius = "0 0 .5rem .5rem";
     dd.style.fontSize = "14px";
     dd.setAttribute("role", "listbox");
-    wrapper.appendChild(dd);
+    document.body.appendChild(dd);
 
-    function hide() { dd.style.display = "none"; }
-    function show() { dd.style.display = dd.children.length ? "block" : "none"; }
+    function hide(){ dd.style.display = "none"; }
+    function show(){ dd.style.display = dd.children.length ? "block" : "none"; }
+
+    function position() {
+      const r = input.getBoundingClientRect();
+      dd.style.left = `${window.scrollX + r.left}px`;
+      dd.style.top  = `${window.scrollY + r.bottom}px`;
+      dd.style.width = `${r.width}px`;
+    }
 
     function render(list) {
       dd.innerHTML = "";
@@ -109,20 +105,19 @@ const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
         opt.textContent = item.label ?? item.value;
         opt.dataset.value = item.value ?? item.label ?? "";
         opt.style.padding = ".5rem .75rem";
-        opt.style.cursor = "pointer";
+        opt.style.cursor  = "pointer";
         opt.addEventListener("mousedown", (e) => {
-          e.preventDefault(); // hogy ne veszítsük el a fókuszt iOS-en
+          e.preventDefault();
           input.value = opt.dataset.value;
           hide();
           onPick?.(opt.dataset.value, item);
-          // triggeljük a change-t, hogy a meglévő logika fusson
-          const ev = new Event("change", { bubbles: true });
-          input.dispatchEvent(ev);
+          input.dispatchEvent(new Event("change", { bubbles: true }));
         });
-        opt.addEventListener("mouseover", () => { opt.style.background = "#f5f5f5"; });
-        opt.addEventListener("mouseout",  () => { opt.style.background = "white"; });
+        opt.addEventListener("mouseover", () => opt.style.background = "#f5f5f5");
+        opt.addEventListener("mouseout",  () => opt.style.background = "white");
         dd.appendChild(opt);
       });
+      position();
       show();
     }
 
@@ -137,8 +132,12 @@ const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
     }
 
     input.addEventListener("input", filterOptions);
-    input.addEventListener("focus", filterOptions);
-    input.addEventListener("blur", () => setTimeout(hide, 120)); // várunk, hogy lehessen tappolni
+    input.addEventListener("focus", () => { position(); filterOptions(); });
+    input.addEventListener("blur",  () => setTimeout(hide, 120));
+
+    // görgetés/átméretezés esetén maradjon az input alatt
+    window.addEventListener("scroll", position, true);
+    window.addEventListener("resize", position);
   }
 
   function refreshAllAutocompletes() {
@@ -157,7 +156,6 @@ const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
       inpVor,
       () => [...new Set(WORKERS.map(w => w.vorname).filter(Boolean))],
       (value) => {
-        // ha vezetéknév is megvan -> kitöltjük Ausweist
         const w = byFullName.get(keyName(inpNach.value, value));
         if (w) inpAus.value = w.ausweis;
       }
@@ -183,7 +181,7 @@ const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
       }
     );
 
-    // plusz: ha kézzel változtat
+    // kézi módosításokból következtetés
     inpAus.addEventListener("change", () => {
       const w = byAusweis.get(norm(inpAus.value));
       if (w) { inpNach.value = w.nachname; inpVor.value = w.vorname; }
@@ -244,7 +242,7 @@ const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
 
   function recalcWorker(workerEl) {
     const beg = workerEl.querySelector('input[name^="beginn"]')?.value || "";
-       const end = workerEl.querySelector('input[name^="ende"]')?.value || "";
+    const end = workerEl.querySelector('input[name^="ende"]')?.value || "";
     const out = workerEl.querySelector(".stunden-display");
     const h = hoursWithBreaks(beg, end);
     if (out) out.value = h ? formatHours(h) : "";
@@ -267,7 +265,7 @@ const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
   }
   function syncFromFirst() {
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
-    const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
+       const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
     if (!firstBeg && !firstEnd) return;
     const workers = Array.from(workerList.querySelectorAll(".worker"));
     for (let i = 1; i < workers.length; i++) {
@@ -465,7 +463,3 @@ const idxAus  = header.findIndex(h => /(ausweis|kennzeichen)/.test(h));
     return true;
   });
 })();
-
-@app.get("/healthz")
-async def healthz():
-    return {"ok": True}
