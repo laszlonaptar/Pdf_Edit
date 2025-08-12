@@ -21,6 +21,11 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (_) {}
   }
 
+  // ÚJ: miután a WORKERS frissült, újratöltjük az összes datalistát
+  function refreshAllAutocompletes() {
+    document.querySelectorAll("#worker-list .worker").forEach(fs => setupAutocomplete(fs));
+  }
+
   function parseCSV(text) {
     // egyszerű CSV parser (vessző; idézőjelek nélküliekre optim.)
     const lines = text.split(/\r?\n/).filter(l => l.trim().length);
@@ -50,6 +55,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (w.ausweis) byAusweis.set(w.ausweis, w);
       byFullName.set(keyName(w.nachname, w.vorname), w);
     }
+
+    // ÚJ: datalistek újratöltése a már renderelt mezőkre
+    refreshAllAutocompletes();
   }
 
   function attachDatalist(input, opts, idSuffix) {
