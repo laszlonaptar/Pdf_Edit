@@ -141,3 +141,12 @@ input[readonly], .stunden-display{
 
 /* biztos ami biztos: ne öröklődjön semmilyen korábbi “mindent szürkére” override */
 button, input, textarea, label, legend, p, h1, h2, h3, h4, h5, h6{color:inherit}
+
+
+/* Checkbox ne legyen „szövegmező” kinézetű */
+input[type="checkbox"]{
+  width:auto; height:auto; padding:0; margin:0;
+  border:none; background:transparent; box-shadow:none;
+  appearance:auto; -webkit-appearance:auto;
+}
+.ck-row{ display:flex; align-items:center; gap:.5rem; font-weight:600; }
