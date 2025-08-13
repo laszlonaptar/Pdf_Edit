@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (_) {}
   }
 
-  // --- CSV parser: automatikus ; / , felismerés + idézőjelek kezelése
+  // --- CSV parser ---
   function parseCSV(text) {
     if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     const linesRaw = text.split(/\r?\n/).filter(l => l.trim().length);
@@ -73,7 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
     refreshAllAutocompletes();
   }
 
-  // ===== Egyedi lenyíló autocomplete (body-hoz csatolva, nem vágódik le) =====
+  // ===== Egyedi lenyíló autocomplete =====
   function makeAutocomplete(input, getOptions, onPick) {
     const dd = document.createElement("div");
     dd.style.position = "absolute";
@@ -152,7 +152,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const inpAus  = fs.querySelector(`input[name="ausweis${idx}"]`);
     if (!inpNach || !inpVor || !inpAus) return;
 
-    // Vorname — teljes rekordból
+    // Vorname
     makeAutocomplete(
       inpVor,
       () => WORKERS.map(w => ({
@@ -218,21 +218,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   // ===========================================================
 
-  // --- TIME PICKER: két lenyíló (óra + perc), rejtett time inputtal szinkronban ---
+  // --- TIME PICKER ---
   function enhanceTimePicker(inp) {
     if (!inp || inp.dataset.enhanced === "1") return;
     inp.dataset.enhanced = "1";
-
-    // a rejtett input marad a POST-hoz
     inp.type = "hidden";
 
-    // konténer
     const box = document.createElement("div");
     box.style.display = "flex";
     box.style.gap = ".5rem";
     box.style.alignItems = "center";
 
-    // óra select
     const selH = document.createElement("select");
     selH.style.minWidth = "5.2rem";
     const optH0 = new Option("--", "");
@@ -242,14 +238,12 @@ document.addEventListener("DOMContentLoaded", () => {
       selH.add(new Option(v, v));
     }
 
-    // perc select (00/15/30/45)
     const selM = document.createElement("select");
     selM.style.minWidth = "5.2rem";
     const optM0 = new Option("--", "");
     selM.add(optM0);
     ["00","15","30","45"].forEach(m => selM.add(new Option(m, m)));
 
-    // beszúrjuk az input mögé
     inp.insertAdjacentElement("afterend", box);
     box.appendChild(selH);
     box.appendChild(selM);
@@ -267,7 +261,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (inp.value !== prev) dispatchBoth();
     }
 
-    // ha kívülről állítjuk (syncFromFirst, előtöltés), frissítsük a selecteket is
     inp._setFromValue = (v) => {
       const mm = /^\d{2}:\d{2}$/.test(v) ? v.split(":") : ["",""];
       selH.value = mm[0] || "";
@@ -277,9 +270,7 @@ document.addEventListener("DOMContentLoaded", () => {
       composeFromSelects();
     };
 
-    // inicializálás a meglévő értékből
     inp._setFromValue(inp.value || "");
-
     selH.addEventListener("change", composeFromSelects);
     selM.addEventListener("change", composeFromSelects);
   }
@@ -293,12 +284,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function minutes(t) { return t.hh * 60 + t.mm; }
 
-  // ÚJ: átfedés-számítás percekben két [start,end) intervallum között
+  // átfedés percekben
   function overlap(a1, a2, b1, b2) {
     const s = Math.max(a1, b1);
     const e = Math.min(a2, b2);
     return Math.max(0, e - s);
-  }
+    }
 
   function hoursWithBreaks(begStr, endStr) {
     const bt = toTime(begStr);
@@ -336,7 +327,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function recalcWorker(workerEl) {
     const beg = workerEl.querySelector('input[name^="beginn"]')?.value || "";
-    const end = workerEl.querySelector('input[name^="ende"]')?.value || "";
+       const end = workerEl.querySelector('input[name^="ende"]')?.value || "";
     const out = workerEl.querySelector(".stunden-display");
     const h = hoursWithBreaks(beg, end);
     if (out) out.value = h ? formatHours(h) : "";
@@ -355,10 +346,9 @@ document.addEventListener("DOMContentLoaded", () => {
     recalcAll();
   }
   breakHalf?.addEventListener("change", updateBreakAndRecalc);
-  // induláskor legyen 60 perc (pipa nélkül)
   updateBreakAndRecalc();
 
-  // ---- SYNC: első dolgozó ideje többiekhez (amíg nem írják át) ----
+  // ---- SYNC: első dolgozó ideje többiekhez ----
   function markSynced(inp, isSynced) { if (!inp) return; isSynced ? inp.dataset.synced = "1" : delete inp.dataset.synced; }
   function isSynced(inp) { return !!(inp && inp.dataset.synced === "1"); }
   function setupManualEditUnsync(inp) {
@@ -393,14 +383,14 @@ document.addEventListener("DOMContentLoaded", () => {
   function wireWorker(workerEl) {
     const idx = workerEl.getAttribute("data-index");
 
-    // autocomplete a 3 mezőre
+    // autocomplete
     setupAutocomplete(workerEl);
 
-    // Ausweis csak szám + numerikus billentyűzet
+    // Ausweis numerikus
     const ausweis = workerEl.querySelector(`input[name="ausweis${idx}"]`);
     if (ausweis) enforceNumericKeyboard(ausweis);
 
-    // idő mezők: két lenyíló (óra/perc) + rejtett input
+    // idő mezők
     ["beginn", "ende"].forEach(prefix => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
       if (inp) {
@@ -429,7 +419,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireWorker(workerList.querySelector(".worker"));
   recalcAll();
 
-  // új dolgozó
+  // új dolgozó (Vorhaltung mezővel)
   addBtn?.addEventListener("click", () => {
     const current = workerList.querySelectorAll(".worker").length;
     if (current >= MAX_WORKERS) return;
@@ -454,6 +444,12 @@ document.addEventListener("DOMContentLoaded", () => {
           <input name="ausweis${idx}" type="text" />
         </div>
       </div>
+      <div class="grid">
+        <div class="field">
+          <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+          <input name="vorhaltung${idx}" type="text" />
+        </div>
+      </div>
       <div class="grid grid-3">
         <div class="field">
           <label>Beginn</label>
@@ -471,7 +467,6 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
     workerList.appendChild(tpl);
 
-    // elsőből előtöltés + synced státusz
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
     const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
     const begNew = tpl.querySelector(`input[name="beginn${idx}"]`);
@@ -479,18 +474,16 @@ document.addEventListener("DOMContentLoaded", () => {
     if (firstBeg && begNew) { begNew.value = firstBeg; }
     if (firstEnd && endNew) { endNew.value = firstEnd; }
 
-    wireWorker(tpl); // itt alakulnak át selectté + frissülnek is
+    wireWorker(tpl);
     if (begNew && begNew._setFromValue) begNew._setFromValue(begNew.value || "");
     if (endNew && endNew._setFromValue) endNew._setFromValue(endNew.value || "");
 
-    // új sor induljon "synced"-ként, ha előtöltöttünk
     if (begNew && begNew.value) markSynced(begNew, true);
     if (endNew && endNew.value) markSynced(endNew, true);
 
     recalcAll();
   });
 
-  // dolgozói CSV betöltés a végén
   loadWorkers();
 });
 
