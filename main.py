@@ -1,19 +1,16 @@
 # main.py
-from fastapi import FastAPI, Request, Form, Response
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
-from openpyxl.utils import get_column_letter  # <--- ÚJ
 
 from datetime import datetime, time
 from io import BytesIO
 import os
 import uuid
-import math
-import textwrap
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -45,7 +42,6 @@ def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
         wrap_text=wrap,
         horizontal=("left" if align_left else "center"),
         vertical=("top" if valign_top else cell.alignment.vertical or "center"),
-        shrink_to_fit=False,
     )
 
 def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="center"):
@@ -53,7 +49,7 @@ def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="ce
     rr, cc = top_left_of_block(ws, cell.row, cell.column)
     tgt = ws.cell(row=rr, column=cc)
     tgt.value = text
-    tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical, shrink_to_fit=False)
+    tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical)
 
 # ---------- time & hours ----------
 def parse_hhmm(s: str) -> time | None:
@@ -75,7 +71,7 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
         return 0
     return int((end - start).total_seconds() // 60)
 
-# ---- opcionális pause percben (60 alapértelmezés, vagy 30) ----
+# ---- módosítva: opcionális pause percben (60 alapértelmezés, vagy 30) ----
 def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -> float:
     if not beg or not end:
         return 0.0
@@ -88,9 +84,11 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
     total_min = int((finish - start).total_seconds() // 60)
 
     if pause_min >= 60:
+        # csak a valós átfedést vonjuk le a 09:00–09:15 és 12:00–12:45 sávokból
         minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
               + overlap_minutes(beg, end, time(12,0), time(12,45))
     else:
+        # félórás opció: fix 30 percet vonunk (de legfeljebb a teljes tartamot)
         minus = min(total_min, 30)
 
     return max(0.0, (total_min - minus) / 60.0)
@@ -109,7 +107,7 @@ def find_header_positions(ws):
                     header_row = cell.row
                 if t == "Vorname":
                     pos["vorname_col"] = cell.column
-                if "Ausweis" in t vagy "Kennzeichen" in t:
+                if "Ausweis" in t or "Kennzeichen" in t:
                     pos["ausweis_col"] = cell.column
                 if t == "Beginn":
                     pos["beginn_col"] = cell.column
@@ -118,14 +116,21 @@ def find_header_positions(ws):
                     pos["ende_col"] = cell.column
                 if "Anzahl Stunden" in t:
                     pos["stunden_col"] = cell.column
+                # ÚJ: Vorhaltung oszlop felismerése
                 if t.lower().startswith("vorhaltung") or "beauftragtes gerät" in t.lower():
                     pos["vorhaltung_col"] = cell.column
         if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
+            # nem feltétlen várjuk meg a vorhaltung_col-t, ha nincs, nem kötelező
             break
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
 
 def find_total_cells(ws, stunden_col):
+    """
+    Visszaad:
+      - right_of_label: a 'Gesamtstunden' felirat melletti kis cella (amit ürítünk)
+      - stunden_total:  ugyanazon a soron a 'Anzahl Stunden' oszlop alatti cella (ebbe írjuk az összeget)
+    """
     total_row = None
     right_of_label = None
     for row in ws.iter_rows(min_row=1, max_row=200):
@@ -146,19 +151,9 @@ def find_total_cells(ws, stunden_col):
 
     return right_of_label, stunden_total
 
-def find_description_block(ws):
-    for (r1, c1, r2, c2) in merged_ranges(ws):
-        if r1 <= 6 <= r2 and c1 <= 1 <= c2:
-            return (r1, c1, r2, c2)
-    for row in ws.iter_rows(min_row=1, max_row=40, min_col=1, max_col=12):
-        for cell in row:
-            if isinstance(cell.value, str) and cell.value.strip().lower().startswith("beschreibung"):
-                r = cell.row
-                c = cell.column + 1
-                r1, c1, r2, c2 = block_of(ws, r, c)
-                return (r1, c1, r2, c2)
+def find_big_description_block(ws):
     best = None
-    for (r1, c1, r2, c2) in merged_ranges(ws):
+    for (r1,c1,r2,c2) in merged_ranges(ws):
         height = r2 - r1 + 1
         width  = c2 - c1 + 1
         if r1 >= 6 and height >= 4 and width >= 4:
@@ -181,9 +176,11 @@ async def generate_excel(
     datum: str = Form(...),
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
+    # a régi „geraet” mezőt már nem használjuk a fejléchez, helyette soronkénti Vorhaltung van
     geraet: str = Form(""),
     beschreibung: str = Form(""),
     break_minutes: int = Form(60),
+    # dolgozók + ÚJ: vorhaltung1..5
     vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
     vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
@@ -193,11 +190,11 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- Felső mezők ---
+    # --- Felső mezők: CSAK a dátum formázása változik (német, szövegként) ---
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")
+        date_text = dt.strftime("%d.%m.%Y")   # pl. 11.08.2025
     except Exception:
         pass
 
@@ -206,32 +203,11 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung: a teljes blokk egyben, wrap + automatikus sormagasság ---
-    r1, c1, r2, c2 = find_description_block(ws)
-
-    block_width_cols = max(1, (c2 - c1 + 1))
-    approx_chars_per_line = max(20, block_width_cols * 9)
-
-    lines = textwrap.wrap(
-        (beschreibung or "").replace("\r\n", "\n").replace("\r", "\n"),
-        width=approx_chars_per_line,
-        break_long_words=False,
-        replace_whitespace=False
-    )
-    if not lines:
-        lines = [""]
-
-    needed_lines = len(lines)
-    rows_available = (r2 - r1 + 1)
-    per_row_lines = math.ceil(needed_lines / max(1, rows_available))
-
-    base_h = 22
-    target_h = min(180, base_h * per_row_lines)
+    # --- Beschreibung: nagy sormagasság + wrap ---
+    r1, c1, r2, c2 = find_big_description_block(ws)
     for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = target_h
-
-    wrapped_text = "\n".join(lines)
-    set_text(ws, r1, c1, wrapped_text, wrap=True, align_left=True, valign_top=True)
+        ws.row_dimensions[r].height = 22
+    set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
     pos = find_header_positions(ws)
@@ -258,16 +234,18 @@ async def generate_excel(
         set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
 
+        # ÚJ: Vorhaltung az adott sorban, ha van ilyen oszlop a sablonban
         if vorhaltung_col and (vh or "").strip():
             set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
 
-        hb = parse_hhmm(bg); he = parse_hhmm(en)
+        hb = parse_hhmm(bg)
+        he = parse_hhmm(en)
         h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
         total_hours += h
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
 
-    # --- Összóraszám ---
+    # --- Összóraszám: jobb oldali nagy dobozban; a kis mezőt ürítjük ---
     right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
     if stunden_total:
         tr, tc = stunden_total
@@ -276,18 +254,13 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---- Fix méretű válasz (nem streaming) Safari/Numbers kompatibilitás miatt ----
     bio = BytesIO()
     wb.save(bio)
-    data = bio.getvalue()
+    bio.seek(0)
     fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
-        "Content-Length": str(len(data)),
-        "Cache-Control": "no-store",
-    }
-    return Response(
-        content=data,
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+    return StreamingResponse(
+        bio,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
