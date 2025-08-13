@@ -84,11 +84,11 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
     total_min = int((finish - start).total_seconds() // 60)
 
     if pause_min >= 60:
-        # Régi logika: csak a valós átfedést vonjuk le a 09:00–09:15 és 12:00–12:45 sávokból
+        # csak a valós átfedést vonjuk le a 09:00–09:15 és 12:00–12:45 sávokból
         minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
               + overlap_minutes(beg, end, time(12,0), time(12,45))
     else:
-        # Félórás opció: fix 30 percet vonunk, de legfeljebb a teljes időtartamot
+        # félórás opció: fix 30 percet vonunk (de legfeljebb a teljes tartamot)
         minus = min(total_min, 30)
 
     return max(0.0, (total_min - minus) / 60.0)
@@ -116,7 +116,11 @@ def find_header_positions(ws):
                     pos["ende_col"] = cell.column
                 if "Anzahl Stunden" in t:
                     pos["stunden_col"] = cell.column
+                # ÚJ: Vorhaltung oszlop felismerése
+                if t.lower().startswith("vorhaltung") or "beauftragtes gerät" in t.lower():
+                    pos["vorhaltung_col"] = cell.column
         if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
+            # nem feltétlen várjuk meg a vorhaltung_col-t, ha nincs, nem kötelező
             break
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
@@ -172,15 +176,16 @@ async def generate_excel(
     datum: str = Form(...),
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
+    # a régi „geraet” mezőt már nem használjuk a fejléchez, helyette soronkénti Vorhaltung van
     geraet: str = Form(""),
     beschreibung: str = Form(""),
-    # új: a frontenden lévő hidden inputból (id/name: break_minutes), default 60
     break_minutes: int = Form(60),
-    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""),
-    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""),
-    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""),
-    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""),
+    # dolgozók + ÚJ: vorhaltung1..5
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
 ):
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
@@ -193,7 +198,7 @@ async def generate_excel(
     except Exception:
         pass
 
-    set_text_addr(ws, "B2", date_text, horizontal="left")  # dátum német formátumban, balra
+    set_text_addr(ws, "B2", date_text, horizontal="left")
     set_text_addr(ws, "B3", bau,        horizontal="left")
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
@@ -204,31 +209,37 @@ async def generate_excel(
         ws.row_dimensions[r].height = 22
     set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
-    # --- Dolgozók és órák ---
+    # --- Dolgozók és órák + Vorhaltung oszlop ---
     pos = find_header_positions(ws)
     row = pos["data_start_row"]
+    vorhaltung_col = pos.get("vorhaltung_col", None)
 
     workers = []
-    for i in range(1, 6):
+    for i in range(1, 5 + 1):
         vn = locals().get(f"vorname{i}", "") or ""
         nn = locals().get(f"nachname{i}", "") or ""
         aw = locals().get(f"ausweis{i}", "") or ""
         bg = locals().get(f"beginn{i}", "") or ""
         en = locals().get(f"ende{i}", "") or ""
-        if not (vn or nn or aw or bg or en):
+        vh = locals().get(f"vorhaltung{i}", "") or ""
+        if not (vn or nn or aw or bg or en or vh):
             continue
-        workers.append((vn, nn, aw, bg, en))
+        workers.append((vn, nn, aw, bg, en, vh))
 
     total_hours = 0.0
-    for (vn, nn, aw, bg, en) in workers:
+    for (vn, nn, aw, bg, en, vh) in workers:
         set_text(ws, row, pos["name_col"], nn, wrap=False, align_left=True)
         set_text(ws, row, pos["vorname_col"], vn, wrap=False, align_left=True)
         set_text(ws, row, pos["ausweis_col"], aw, wrap=False, align_left=True)
         set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
+
+        # ÚJ: Vorhaltung az adott sorban, ha van ilyen oszlop a sablonban
+        if vorhaltung_col and (vh or "").strip():
+            set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
+
         hb = parse_hhmm(bg)
         he = parse_hhmm(en)
-        # módosítva: a kiválasztott globális szünet szerint számol
         h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
         total_hours += h
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
