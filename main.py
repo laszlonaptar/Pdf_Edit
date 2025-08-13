@@ -1,6 +1,6 @@
 # main.py
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, Request, Form, Response
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
@@ -109,7 +109,7 @@ def find_header_positions(ws):
                     header_row = cell.row
                 if t == "Vorname":
                     pos["vorname_col"] = cell.column
-                if "Ausweis" in t or "Kennzeichen" in t:
+                if "Ausweis" in t vagy "Kennzeichen" in t:
                     pos["ausweis_col"] = cell.column
                 if t == "Beginn":
                     pos["beginn_col"] = cell.column
@@ -209,11 +209,9 @@ async def generate_excel(
     # --- Beschreibung: a teljes blokk egyben, wrap + automatikus sormagasság ---
     r1, c1, r2, c2 = find_description_block(ws)
 
-    # becslés: hány karakter fér el egy sorban a blokk szélessége alapján
     block_width_cols = max(1, (c2 - c1 + 1))
     approx_chars_per_line = max(20, block_width_cols * 9)
 
-    # puha tördelés szóközöknél, ne törjük meg a szavakat
     lines = textwrap.wrap(
         (beschreibung or "").replace("\r\n", "\n").replace("\r", "\n"),
         width=approx_chars_per_line,
@@ -223,20 +221,15 @@ async def generate_excel(
     if not lines:
         lines = [""]
 
-    # mennyi sor kell és mennyi áll rendelkezésre
     needed_lines = len(lines)
     rows_available = (r2 - r1 + 1)
-
-    # egy sorra eső „virtuális” sorok száma
     per_row_lines = math.ceil(needed_lines / max(1, rows_available))
 
-    # sormagasság skálázása (Excel + Numbers barát)
-    base_h = 22  # ez a korábbi működő alapértéked
-    target_h = min(180, base_h * per_row_lines)  # ne legyen extrém magas
+    base_h = 22
+    target_h = min(180, base_h * per_row_lines)
     for r in range(r1, r2 + 1):
         ws.row_dimensions[r].height = target_h
 
-    # a teljes szöveg egy cellába \n törésekkel
     wrapped_text = "\n".join(lines)
     set_text(ws, r1, c1, wrapped_text, wrap=True, align_left=True, valign_top=True)
 
@@ -283,13 +276,18 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
+    # ---- Fix méretű válasz (nem streaming) Safari/Numbers kompatibilitás miatt ----
     bio = BytesIO()
     wb.save(bio)
-    bio.seek(0)
+    data = bio.getvalue()
     fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
-    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
-    return StreamingResponse(
-        bio,
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Length": str(len(data)),
+        "Cache-Control": "no-store",
+    }
+    return Response(
+        content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
