@@ -120,17 +120,11 @@ def find_header_positions(ws):
                 if t.lower().startswith("vorhaltung") or "beauftragtes gerät" in t.lower():
                     pos["vorhaltung_col"] = cell.column
         if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
-            # nem feltétlen várjuk meg a vorhaltung_col-t, ha nincs, nem kötelező
             break
     pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
     return pos
 
 def find_total_cells(ws, stunden_col):
-    """
-    Visszaad:
-      - right_of_label: a 'Gesamtstunden' felirat melletti kis cella (amit ürítünk)
-      - stunden_total:  ugyanazon a soron a 'Anzahl Stunden' oszlop alatti cella (ebbe írjuk az összeget)
-    """
     total_row = None
     right_of_label = None
     for row in ws.iter_rows(min_row=1, max_row=200):
@@ -151,9 +145,25 @@ def find_total_cells(ws, stunden_col):
 
     return right_of_label, stunden_total
 
-def find_big_description_block(ws):
+# ---- ÚJ: a leírás-blokk célzott keresése ----
+def find_description_block(ws):
+    # 1) Ha az A6 (r=6,c=1) benne van egy merge-elt blokkban, azt használjuk
+    for (r1, c1, r2, c2) in merged_ranges(ws):
+        if r1 <= 6 <= r2 and c1 <= 1 <= c2:
+            return (r1, c1, r2, c2)
+
+    # 2) Keressük a "Beschreibung" feliratot, és a tőle jobbra lévő blokkot használjuk
+    for row in ws.iter_rows(min_row=1, max_row=40, min_col=1, max_col=12):
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.strip().lower().startswith("beschreibung"):
+                r = cell.row
+                c = cell.column + 1
+                r1, c1, r2, c2 = block_of(ws, r, c)
+                return (r1, c1, r2, c2)
+
+    # 3) Fallback: a régi logika – a legnagyobb blokk 6. sortól lefelé
     best = None
-    for (r1,c1,r2,c2) in merged_ranges(ws):
+    for (r1, c1, r2, c2) in merged_ranges(ws):
         height = r2 - r1 + 1
         width  = c2 - c1 + 1
         if r1 >= 6 and height >= 4 and width >= 4:
@@ -163,6 +173,8 @@ def find_big_description_block(ws):
     if best:
         r1, c1, r2, c2, _ = best
         return (r1, c1, r2, c2)
+
+    # Ultima ratio: egy ésszerű fix tartomány (ha minden kötél szakad)
     return (6, 1, 20, 8)
 
 # ---------- routes ----------
@@ -190,7 +202,7 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- Felső mezők: CSAK a dátum formázása változik (német, szövegként) ---
+    # --- Felső mezők ---
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -203,10 +215,10 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung: nagy sormagasság + wrap ---
-    r1, c1, r2, c2 = find_big_description_block(ws)
+    # --- Beschreibung: célzott blokk + wrap + top + sor-magasság ---
+    r1, c1, r2, c2 = find_description_block(ws)
     for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = 22
+        ws.row_dimensions[r].height = 22  # magasabb sorok, hogy biztosan kiférjen
     set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
@@ -234,7 +246,7 @@ async def generate_excel(
         set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
 
-        # ÚJ: Vorhaltung az adott sorban, ha van ilyen oszlop a sablonban
+        # Vorhaltung az adott sorban (ha van ilyen oszlop)
         if vorhaltung_col and (vh or "").strip():
             set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
 
@@ -245,7 +257,7 @@ async def generate_excel(
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
 
-    # --- Összóraszám: jobb oldali nagy dobozban; a kis mezőt ürítjük ---
+    # --- Összóraszám ---
     right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
     if stunden_total:
         tr, tc = stunden_total
