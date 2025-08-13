@@ -563,3 +563,92 @@ document.addEventListener("DOMContentLoaded", () => {
     return true;
   });
 })();
+
+// --- Vezérelt letöltés (fetch + blob) ---
+(function () {
+  const form = document.getElementById("ln-form");
+  if (!form) return;
+
+  const submitBtn = form.querySelector('button[type="submit"]');
+
+  function setBusy(busy) {
+    if (!submitBtn) return;
+    if (busy) {
+      submitBtn.dataset._label = submitBtn.textContent || submitBtn.value || "Generieren";
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Generálás…";
+    } else {
+      submitBtn.disabled = false;
+      const lbl = submitBtn.dataset._label;
+      if (lbl) submitBtn.textContent = lbl;
+    }
+  }
+
+  function filenameFromDisposition(h) {
+    if (!h) return null;
+    // pl.: attachment; filename="leistungsnachweis_abcd1234.xlsx"
+    const m = /filename\*?=(?:UTF-8''|")?([^\";]+)"/i.exec(h) || /filename=([^;]+)/i.exec(h);
+    if (!m) return null;
+    try { return decodeURIComponent(m[1].replace(/"/g, "").trim()); }
+    catch { return m[1].replace(/"/g, "").trim(); }
+  }
+
+  async function downloadOnce(fd) {
+    const res = await fetch("/generate_excel", {
+      method: "POST",
+      body: fd,
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("spreadsheet")) {
+      // Ha nem fájl jön (pl. hiba oldal), próbáljuk szövegként kiolvasni és megjeleníteni
+      const txt = await res.text().catch(() => "");
+      throw new Error(txt || "Ismeretlen hiba (nem érkezett fájl).");
+    }
+
+    const blob = await res.blob();
+    const name =
+      filenameFromDisposition(res.headers.get("content-disposition")) ||
+      "leistungsnachweis.xlsx";
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  form.addEventListener("submit", async (e) => {
+    // Ha a korábbi validáció megállította, ne csináljunk semmit
+    if (e.defaultPrevented) return;
+
+    // Innentől átveszünk mindent: nem navigálunk el, hanem fetch + blob
+    e.preventDefault();
+
+    const fd = new FormData(form);
+    setBusy(true);
+
+    try {
+      // 1. próbálkozás
+      await downloadOnce(fd);
+    } catch (err1) {
+      // egyszeri automatikus retry kis várakozás után (pl. Render ébredés, hálózati ingadozás)
+      try {
+        await sleep(1200);
+        await downloadOnce(fd);
+      } catch (err2) {
+        console.error(err1, err2);
+        alert("A fájl generálása most nem sikerült. Kérlek próbáld újra pár másodperc múlva.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, false);
+})();
