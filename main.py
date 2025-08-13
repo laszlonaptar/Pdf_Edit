@@ -205,7 +205,7 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung: előre tördelés + sor-magasság skálázás ---
+    # --- Beschreibung: előre tördelés + sormagasság ráhagyással (Safari/Numbers fix) ---
     r1, c1, r2, c2 = find_description_block(ws)
 
     block_width_cols = max(1, (c2 - c1 + 1))
@@ -213,12 +213,16 @@ async def generate_excel(
 
     wrapped_text = "\n".join(textwrap.wrap(beschreibung or "", width=approx_chars_per_line))
 
+    # **FONTOS**: egy extra sortörés, hogy a Numbers/PDF ne vágja le az utolsó sort
+    wrapped_text = (wrapped_text + "\n") if wrapped_text else ""
+
     needed_lines = max(1, wrapped_text.count("\n") + 1)
     rows_available = (r2 - r1 + 1)
 
     base_h = 24
+    safety = 1.25  # ~25% ráhagyás Apple Numbers miatt
     scale = math.ceil(needed_lines / max(1, rows_available))
-    target_h = min(120, base_h * scale)
+    target_h = min(160, int(base_h * scale * safety))
 
     for r in range(r1, r2 + 1):
         ws.row_dimensions[r].height = target_h
