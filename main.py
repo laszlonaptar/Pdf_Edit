@@ -11,6 +11,8 @@ from datetime import datetime, time
 from io import BytesIO
 import os
 import uuid
+import math
+import textwrap
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -42,7 +44,7 @@ def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
         wrap_text=wrap,
         horizontal=("left" if align_left else "center"),
         vertical=("top" if valign_top else cell.alignment.vertical or "center"),
-        shrink_to_fit=False,  # <<< fontos: ne zsugorítsa a hosszú szöveget
+        shrink_to_fit=False,
     )
 
 def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="center"):
@@ -72,7 +74,7 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
         return 0
     return int((end - start).total_seconds() // 60)
 
-# ---- módosítva: opcionális pause percben (60 alapértelmezés, vagy 30) ----
+# ---- opcionális pause percben (60 alapértelmezés, vagy 30) ----
 def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -> float:
     if not beg or not end:
         return 0.0
@@ -85,11 +87,9 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
     total_min = int((finish - start).total_seconds() // 60)
 
     if pause_min >= 60:
-        # csak a valós átfedést vonjuk le a 09:00–09:15 és 12:00–12:45 sávokból
         minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
               + overlap_minutes(beg, end, time(12,0), time(12,45))
     else:
-        # félórás opció: fix 30 percet vonunk (de legfeljebb a teljes tartamot)
         minus = min(total_min, 30)
 
     return max(0.0, (total_min - minus) / 60.0)
@@ -117,7 +117,6 @@ def find_header_positions(ws):
                     pos["ende_col"] = cell.column
                 if "Anzahl Stunden" in t:
                     pos["stunden_col"] = cell.column
-                # ÚJ: Vorhaltung oszlop felismerése
                 if t.lower().startswith("vorhaltung") or "beauftragtes gerät" in t.lower():
                     pos["vorhaltung_col"] = cell.column
         if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
@@ -146,14 +145,10 @@ def find_total_cells(ws, stunden_col):
 
     return right_of_label, stunden_total
 
-# ---- ÚJ: a leírás-blokk célzott keresése ----
 def find_description_block(ws):
-    # 1) Ha az A6 (r=6,c=1) benne van egy merge-elt blokkban, azt használjuk
     for (r1, c1, r2, c2) in merged_ranges(ws):
         if r1 <= 6 <= r2 and c1 <= 1 <= c2:
             return (r1, c1, r2, c2)
-
-    # 2) Keressük a "Beschreibung" feliratot, és a tőle jobbra lévő blokkot használjuk
     for row in ws.iter_rows(min_row=1, max_row=40, min_col=1, max_col=12):
         for cell in row:
             if isinstance(cell.value, str) and cell.value.strip().lower().startswith("beschreibung"):
@@ -161,8 +156,6 @@ def find_description_block(ws):
                 c = cell.column + 1
                 r1, c1, r2, c2 = block_of(ws, r, c)
                 return (r1, c1, r2, c2)
-
-    # 3) Fallback: a legnagyobb blokk 6. sortól lefelé
     best = None
     for (r1, c1, r2, c2) in merged_ranges(ws):
         height = r2 - r1 + 1
@@ -174,8 +167,6 @@ def find_description_block(ws):
     if best:
         r1, c1, r2, c2, _ = best
         return (r1, c1, r2, c2)
-
-    # Ultima ratio
     return (6, 1, 20, 8)
 
 # ---------- routes ----------
@@ -189,11 +180,9 @@ async def generate_excel(
     datum: str = Form(...),
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
-    # a régi „geraet” mezőt már nem használjuk a fejléchez, helyette soronkénti Vorhaltung van
     geraet: str = Form(""),
     beschreibung: str = Form(""),
     break_minutes: int = Form(60),
-    # dolgozók + ÚJ: vorhaltung1..5
     vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
     vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
@@ -216,11 +205,29 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung: célzott blokk + wrap + top + magasabb sorok ---
+    # --- Beschreibung: előre tördelés + sor-magasság skálázás ---
     r1, c1, r2, c2 = find_description_block(ws)
+
+    # hozzávetőleges karakter/sor becslés a blokk szélessége alapján
+    block_width_cols = max(1, (c2 - c1 + 1))
+    approx_chars_per_line = max(20, block_width_cols * 9)  # 9 char/oszlop: konzervatív
+
+    # puha tördelés szóközöknél -> Numbers is szépen kezeli
+    wrapped_text = "\n".join(textwrap.wrap(beschreibung or "", width=approx_chars_per_line))
+
+    # szükséges sorok száma
+    needed_lines = max(1, wrapped_text.count("\n") + 1)
+    rows_available = (r2 - r1 + 1)
+
+    # alapsor-magasság és skálázás (Numbers-hez is)
+    base_h = 24
+    scale = math.ceil(needed_lines / max(1, rows_available))
+    target_h = min(120, base_h * scale)  # ne nőjön extrémre egyetlen sor
+
     for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = 26  # kicsit magasabb, hogy Safari/Excel ne vágja le
-    set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
+        ws.row_dimensions[r].height = target_h
+
+    set_text(ws, r1, c1, wrapped_text, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
     pos = find_header_positions(ws)
@@ -250,8 +257,7 @@ async def generate_excel(
         if vorhaltung_col and (vh or "").strip():
             set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
 
-        hb = parse_hhmm(bg)
-        he = parse_hhmm(en)
+        hb = parse_hhmm(bg); he = parse_hhmm(en)
         h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
         total_hours += h
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
