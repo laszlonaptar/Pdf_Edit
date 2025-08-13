@@ -208,21 +208,17 @@ async def generate_excel(
     # --- Beschreibung: előre tördelés + sor-magasság skálázás ---
     r1, c1, r2, c2 = find_description_block(ws)
 
-    # hozzávetőleges karakter/sor becslés a blokk szélessége alapján
     block_width_cols = max(1, (c2 - c1 + 1))
-    approx_chars_per_line = max(20, block_width_cols * 9)  # 9 char/oszlop: konzervatív
+    approx_chars_per_line = max(20, block_width_cols * 9)
 
-    # puha tördelés szóközöknél -> Numbers is szépen kezeli
     wrapped_text = "\n".join(textwrap.wrap(beschreibung or "", width=approx_chars_per_line))
 
-    # szükséges sorok száma
     needed_lines = max(1, wrapped_text.count("\n") + 1)
     rows_available = (r2 - r1 + 1)
 
-    # alapsor-magasság és skálázás (Numbers-hez is)
     base_h = 24
     scale = math.ceil(needed_lines / max(1, rows_available))
-    target_h = min(120, base_h * scale)  # ne nőjön extrémre egyetlen sor
+    target_h = min(120, base_h * scale)
 
     for r in range(r1, r2 + 1):
         ws.row_dimensions[r].height = target_h
