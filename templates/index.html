@@ -35,10 +35,7 @@
             <label for="basf_beauftragter">BASF-Beauftragter, Org.-Code</label>
             <input id="basf_beauftragter" name="basf_beauftragter" type="text" required />
           </div>
-          <div class="field">
-            <label for="geraet">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
-            <input id="geraet" name="geraet" type="text" />
-          </div>
+          <!-- A régi, fejléces Vorhaltung/​Gerät mező ELTÁVOLÍTVA -->
         </div>
       </section>
 
@@ -75,7 +72,15 @@
               </div>
             </div>
 
-            <!-- ÚJ: globális szünet-választó a kezdő idő fölött -->
+            <!-- ÚJ: Vorhaltung az Ausweis alatt, dolgozónként -->
+            <div class="grid">
+              <div class="field">
+                <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+                <input name="vorhaltung1" type="text" />
+              </div>
+            </div>
+
+            <!-- Globális szünet-választó a kezdő idő FELETT -->
             <div class="field">
               <label class="ck-row">
                 <input type="checkbox" id="break_half" />
@@ -86,7 +91,6 @@
                 Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
               </div>
             </div>
-            <!-- /ÚJ -->
 
             <div class="grid grid-3">
               <div class="field">
