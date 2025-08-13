@@ -6,6 +6,7 @@ from starlette.templating import Jinja2Templates
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
+from openpyxl.utils import get_column_letter  # <--- ÚJ
 
 from datetime import datetime, time
 from io import BytesIO
@@ -205,28 +206,38 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung: előre tördelés + sormagasság ráhagyással (Safari/Numbers fix) ---
+    # --- Beschreibung: a teljes blokk egyben, wrap + automatikus sormagasság ---
     r1, c1, r2, c2 = find_description_block(ws)
 
+    # becslés: hány karakter fér el egy sorban a blokk szélessége alapján
     block_width_cols = max(1, (c2 - c1 + 1))
     approx_chars_per_line = max(20, block_width_cols * 9)
 
-    wrapped_text = "\n".join(textwrap.wrap(beschreibung or "", width=approx_chars_per_line))
+    # puha tördelés szóközöknél, ne törjük meg a szavakat
+    lines = textwrap.wrap(
+        (beschreibung or "").replace("\r\n", "\n").replace("\r", "\n"),
+        width=approx_chars_per_line,
+        break_long_words=False,
+        replace_whitespace=False
+    )
+    if not lines:
+        lines = [""]
 
-    # **FONTOS**: egy extra sortörés, hogy a Numbers/PDF ne vágja le az utolsó sort
-    wrapped_text = (wrapped_text + "\n") if wrapped_text else ""
-
-    needed_lines = max(1, wrapped_text.count("\n") + 1)
+    # mennyi sor kell és mennyi áll rendelkezésre
+    needed_lines = len(lines)
     rows_available = (r2 - r1 + 1)
 
-    base_h = 24
-    safety = 1.25  # ~25% ráhagyás Apple Numbers miatt
-    scale = math.ceil(needed_lines / max(1, rows_available))
-    target_h = min(160, int(base_h * scale * safety))
+    # egy sorra eső „virtuális” sorok száma
+    per_row_lines = math.ceil(needed_lines / max(1, rows_available))
 
+    # sormagasság skálázása (Excel + Numbers barát)
+    base_h = 22  # ez a korábbi működő alapértéked
+    target_h = min(180, base_h * per_row_lines)  # ne legyen extrém magas
     for r in range(r1, r2 + 1):
         ws.row_dimensions[r].height = target_h
 
+    # a teljes szöveg egy cellába \n törésekkel
+    wrapped_text = "\n".join(lines)
     set_text(ws, r1, c1, wrapped_text, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
