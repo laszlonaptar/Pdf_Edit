@@ -154,63 +154,63 @@ def find_total_cells(ws, stunden_col):
 
     return right_of_label, stunden_total
 
-def find_big_description_block(ws):
+# --- Pontos Beschreibung-blokk keresés (ne fedjük le a táblázatot) ---
+def find_description_block(ws):
+    # 1) Ha az A6 (r=6,c=1) benne van egy merge-elt blokkban, azt használjuk
+    for (r1, c1, r2, c2) in merged_ranges(ws):
+        if r1 <= 6 <= r2 and c1 <= 1 <= c2:
+            return (r1, c1, r2, c2)
+    # 2) Keressük a "Beschreibung" feliratot, és a tőle jobbra lévő blokkot használjuk
+    for row in ws.iter_rows(min_row=1, max_row=40, min_col=1, max_col=12):
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.strip().lower().startswith("beschreibung"):
+                r = cell.row
+                c = cell.column + 1
+                r1, c1, r2, c2 = block_of(ws, r, c)
+                return (r1, c1, r2, c2)
+    # 3) Fallback: a legnagyobb blokk 6. sortól lefelé (ha minden kötél szakad)
     best = None
-    for (r1,c1,r2,c2) in merged_ranges(ws):
+    for (r1, c1, r2, c2) in merged_ranges(ws):
         height = r2 - r1 + 1
         width  = c2 - c1 + 1
-        if r1 >= 6 and height >= 4 and width >= 4:
+        if r1 >= 6 and height >= 3 and width >= 3:
             area = height * width
             if not best or area > best[-1]:
                 best = (r1, c1, r2, c2, area)
     if best:
         r1, c1, r2, c2, _ = best
         return (r1, c1, r2, c2)
-    return (6, 1, 20, 8)
+    # Ultima ratio: egy ésszerű fix tartomány
+    return (6, 1, 12, 8)
 
 # ---------- Bild (Beschreibung) helpers ----------
 def _excel_col_width_to_pixels(width):
-    """
-    Durva közelítés: Excel oszlopszélesség (karakter) -> pixel.
-    """
     if width is None:
         width = 8.43  # Excel default
-    return int(round(7 * width + 5))  # empirikus
+    return int(round(7 * width + 5))
 
 def _excel_row_height_to_pixels(height):
-    """
-    Excel sormagasság (pont) -> pixel. 1 pont ~ 1.333 px (96 DPI).
-    """
     if height is None:
         height = 15.0  # Excel default ~ 20px
     return int(round(height * 96 / 72))
 
 def _get_block_pixel_size(ws, r1, c1, r2, c2):
-    # szélesség
     w_px = 0
     for c in range(c1, c2 + 1):
         letter = get_column_letter(c)
         cd = ws.column_dimensions.get(letter)
         w_px += _excel_col_width_to_pixels(getattr(cd, "width", None))
-    # magasság
     h_px = 0
     for r in range(r1, r2 + 1):
         rd = ws.row_dimensions.get(r)
         h_px += _excel_row_height_to_pixels(getattr(rd, "height", None))
-    # minimális védőérték
     w_px = max(40, w_px)
     h_px = max(40, h_px)
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
-    """
-    Egyszerű, jól olvasható PNG gyártása a megadott méretre.
-    """
-    # háttér (fehér)
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
-
-    # font: próbáljunk meg egy közismert sans fontot, ha nincs, default
     font = None
     for name in ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"]:
         try:
@@ -221,36 +221,29 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # belső margó
     pad = 10
     avail_w = max(10, w_px - 2 * pad)
     avail_h = max(10, h_px - 2 * pad)
 
-    # szöveg tördelése a rendelkezésre álló szélességhez (durva becslés)
-    # mérés: átlag karakter-szélesség
     sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
     avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
     max_chars_per_line = max(10, int(avail_w / avg_w))
 
-    # meglévő sortöréseket is tartsuk meg
     paragraphs = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     lines = []
     for para in paragraphs:
         if not para:
-            lines.append("")  # üres sor
+            lines.append("")
             continue
         lines.extend(textwrap.wrap(para, width=max_chars_per_line, replace_whitespace=False, break_long_words=False))
 
-    # vonalmagasság
     ascent, descent = font.getmetrics()
-    line_h = ascent + descent + 4  # egy kis extra tér
+    line_h = ascent + descent + 4
     max_lines = max(1, int(avail_h // line_h))
 
-    # ha túl sok a sor, vágjuk (nem lóg ki)
     if len(lines) > max_lines:
-        lines = lines[:max_lines-1] + ["…"]  # utolsó sor jelölése
+        lines = lines[:max_lines-1] + ["…"]
 
-    # kirajzolás
     x = pad
     y = pad
     for ln in lines:
@@ -260,40 +253,21 @@ def _make_description_image(text, w_px, h_px):
     return img
 
 def _xlimage_from_pil(pil_img):
-    """
-    OPENPYXL kompatibilis kép: mindig BytesIO-ból adjuk át, így nincs img.fp hiba.
-    """
     buf = BytesIO()
     pil_img.save(buf, format="PNG")
     buf.seek(0)
     return XLImage(buf)
 
 def insert_description_as_image(ws, r1, c1, r2, c2, text):
-    """
-    Visszaadja: True ha képet szúrt be, False ha visszaesett a sima szövegre.
-    """
     if not PIL_AVAILABLE:
         return False
-
     try:
-        # blokk méret px-ben a jelenlegi cella méretek alapján
         w_px, h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
-
-        # készítsünk képet
         pil_img = _make_description_image(text or "", w_px, h_px)
         xlimg = _xlimage_from_pil(pil_img)
-
-        # a kép felső-bal sarkának horgonya
         anchor = f"{get_column_letter(c1)}{r1}"
-
-        # opcionális: egy pici paddinget hagyunk (openpyxl-nél nincs közvetlen offset),
-        # ezért a kép méretét minimálisan csökkentjük, hogy ne lógjon át a vonalakon.
-        # (openpyxl Image-nek nincs skála property-e, a pixelméret a generált PNG-ből jön)
-
         ws.add_image(xlimg, anchor)
-        # a cella szövegét üresen hagyjuk, ne zavarjon
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
-
         return True
     except Exception:
         return False
@@ -327,7 +301,7 @@ async def generate_excel(
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")   # pl. 11.08.2025
+        date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
 
@@ -336,21 +310,19 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung blokk kikeresése ---
-    r1, c1, r2, c2 = find_big_description_block(ws)
+    # --- Beschreibung blokk (csak erre készítünk képet) ---
+    r1, c1, r2, c2 = find_description_block(ws)
 
-    # Sor-magasság (konzervatív, hogy számítható legyen a képméret)
+    # Sormagasság rögzítése
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
 
-    # Próbáld képként beszúrni; ha nem megy, ess vissza a wrap-elt szövegre
+    # Kép beszúrás, ha van szöveg; különben wrap-elt szöveg
     inserted = False
     if (beschreibung or "").strip():
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, beschreibung)
-
     if not inserted:
-        # visszaesés a szövegre: wrap + top + balra
         set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
@@ -378,7 +350,6 @@ async def generate_excel(
         set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
 
-        # Vorhaltung az adott sorban, ha a sablonban van ilyen oszlop
         if vorhaltung_col and (vh or "").strip():
             set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
 
@@ -398,7 +369,7 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---- Fix méretű válasz, Content-Length-cel (iOS kompat.) ----
+    # ---- Fix méretű válasz, Content-Length-cel ----
     bio = BytesIO()
     wb.save(bio)
     data = bio.getvalue()
