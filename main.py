@@ -42,6 +42,7 @@ def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
         wrap_text=wrap,
         horizontal=("left" if align_left else "center"),
         vertical=("top" if valign_top else cell.alignment.vertical or "center"),
+        shrink_to_fit=False,  # <<< fontos: ne zsugorítsa a hosszú szöveget
     )
 
 def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="center"):
@@ -49,7 +50,7 @@ def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="ce
     rr, cc = top_left_of_block(ws, cell.row, cell.column)
     tgt = ws.cell(row=rr, column=cc)
     tgt.value = text
-    tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical)
+    tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical, shrink_to_fit=False)
 
 # ---------- time & hours ----------
 def parse_hhmm(s: str) -> time | None:
@@ -161,7 +162,7 @@ def find_description_block(ws):
                 r1, c1, r2, c2 = block_of(ws, r, c)
                 return (r1, c1, r2, c2)
 
-    # 3) Fallback: a régi logika – a legnagyobb blokk 6. sortól lefelé
+    # 3) Fallback: a legnagyobb blokk 6. sortól lefelé
     best = None
     for (r1, c1, r2, c2) in merged_ranges(ws):
         height = r2 - r1 + 1
@@ -174,7 +175,7 @@ def find_description_block(ws):
         r1, c1, r2, c2, _ = best
         return (r1, c1, r2, c2)
 
-    # Ultima ratio: egy ésszerű fix tartomány (ha minden kötél szakad)
+    # Ultima ratio
     return (6, 1, 20, 8)
 
 # ---------- routes ----------
@@ -206,7 +207,7 @@ async def generate_excel(
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")   # pl. 11.08.2025
+        date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
 
@@ -215,10 +216,10 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung: célzott blokk + wrap + top + sor-magasság ---
+    # --- Beschreibung: célzott blokk + wrap + top + magasabb sorok ---
     r1, c1, r2, c2 = find_description_block(ws)
     for r in range(r1, r2 + 1):
-        ws.row_dimensions[r].height = 22  # magasabb sorok, hogy biztosan kiférjen
+        ws.row_dimensions[r].height = 26  # kicsit magasabb, hogy Safari/Excel ne vágja le
     set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
@@ -246,7 +247,6 @@ async def generate_excel(
         set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
         set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
 
-        # Vorhaltung az adott sorban (ha van ilyen oszlop)
         if vorhaltung_col and (vh or "").strip():
             set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
 
