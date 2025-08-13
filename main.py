@@ -1,6 +1,6 @@
 # main.py
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, Request, Form, Response
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
@@ -254,13 +254,18 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
+    # ---- Itt a VÁLTOZTATÁS: fix méretű válasz, Content-Length-cel ----
     bio = BytesIO()
     wb.save(bio)
-    bio.seek(0)
+    data = bio.getvalue()
     fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
-    headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
-    return StreamingResponse(
-        bio,
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Length": str(len(data)),
+        "Cache-Control": "no-store",
+    }
+    return Response(
+        content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
