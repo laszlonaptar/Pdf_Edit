@@ -199,14 +199,14 @@ def _make_description_image(text, w_px, h_px):
         font = ImageFont.load_default()
 
     # belső margók: bal=12, jobb=10, fent=10, lent=10
-    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 10, 10
+    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 4, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
 
     sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
-    avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
-    max_chars_per_line = max(10, int(avail_w / avg_w))
-
+avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
+avg_w_eff = avg_w * 0.97   # kicsit bátrabb tördelés
+max_chars_per_line = max(10, int(avail_w / avg_w_eff))
     paragraphs = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     lines = []
     for para in paragraphs:
