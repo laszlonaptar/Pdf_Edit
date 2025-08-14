@@ -576,7 +576,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (busy) {
       submitBtn.dataset._label = submitBtn.textContent || submitBtn.value || "Generieren";
       submitBtn.disabled = true;
-      submitBtn.textContent = "Generálás…";
+      submitBtn.textContent = "Wird generiert...";
     } else {
       submitBtn.disabled = false;
       const lbl = submitBtn.dataset._label;
