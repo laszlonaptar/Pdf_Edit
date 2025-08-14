@@ -13,6 +13,7 @@ from datetime import datetime, time
 from io import BytesIO
 import os
 import uuid
+import math
 import textwrap
 
 # Képgeneráláshoz
@@ -152,10 +153,30 @@ def find_total_cells(ws, stunden_col):
 
     return right_of_label, stunden_total
 
-# ---------- A6–G15 fix Beschreibung-blokk ----------
-def description_fixed_block():
-    # A=1 .. G=7, sor: 6 .. 15
-    return (6, 1, 15, 7)
+# --- Pontos Beschreibung-blokk keresés ---
+def find_description_block(ws):
+    for (r1, c1, r2, c2) in merged_ranges(ws):
+        if r1 <= 6 <= r2 and c1 <= 1 <= c2:
+            return (r1, c1, r2, c2)
+    for row in ws.iter_rows(min_row=1, max_row=40, min_col=1, max_col=12):
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.strip().lower().startswith("beschreibung"):
+                r = cell.row
+                c = cell.column + 1
+                r1, c1, r2, c2 = block_of(ws, r, c)
+                return (r1, c1, r2, c2)
+    best = None
+    for (r1, c1, r2, c2) in merged_ranges(ws):
+        height = r2 - r1 + 1
+        width  = c2 - c1 + 1
+        if r1 >= 6 and height >= 3 and width >= 3:
+            area = height * width
+            if not best or area > best[-1]:
+                best = (r1, c1, r2, c2, area)
+    if best:
+        r1, c1, r2, c2, _ = best
+        return (r1, c1, r2, c2)
+    return (6, 1, 12, 8)
 
 # ---------- Bild (Beschreibung) helpers ----------
 def _excel_col_width_to_pixels(width):
@@ -183,11 +204,11 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
-    # FEHÉR háttér, hogy a blokkon belül biztosan "kitöltse" és ne legyen áttetsző
+    # FEHÉR háttér (opaque), pontosan a blokk méretében
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
-    # Font
+    # betű
     font = None
     for name in ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"]:
         try:
@@ -198,36 +219,44 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # Belső margó
-    pad_l, pad_t, pad_r, pad_b = 12, 10, 12, 10
-    avail_w = max(10, w_px - (pad_l + pad_r))
-    avail_h = max(10, h_px - (pad_t + pad_b))
+    # Margók: bal 10 px, jobb 2 px (szinte szélig)
+    pad_left = 10
+    pad_right = 2
+    pad_top = 10
+    pad_bottom = 10
 
-    # tördelés (szavak megőrzése)
+    avail_w = max(10, w_px - (pad_left + pad_right))
+    avail_h = max(10, h_px - (pad_top + pad_bottom))
+
+    # wrap becslés
     sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
     avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
     max_chars_per_line = max(10, int(avail_w / avg_w))
 
-    text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    paragraphs = text.split("\n")
+    paragraphs = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     lines = []
     for para in paragraphs:
         if not para:
-            lines.append("")  # üres sor
-        else:
-            lines.extend(textwrap.wrap(para, width=max_chars_per_line, replace_whitespace=False, break_long_words=False))
+            lines.append("")
+            continue
+        lines.extend(
+            textwrap.wrap(
+                para,
+                width=max_chars_per_line,
+                replace_whitespace=False,
+                break_long_words=False
+            )
+        )
 
     ascent, descent = font.getmetrics()
     line_h = ascent + descent + 4
     max_lines = max(1, int(avail_h // line_h))
 
-    # ha túl sok a sor, elférjen: utolsó sor „…”-al
     if len(lines) > max_lines:
         lines = lines[:max_lines - 1] + ["…"]
 
-    # szöveg kirajzolása balra fent
-    x = pad_l
-    y = pad_t
+    x = pad_left
+    y = pad_top
     for ln in lines:
         draw.text((x, y), ln, fill=(0, 0, 0), font=font)
         y += line_h
@@ -235,7 +264,6 @@ def _make_description_image(text, w_px, h_px):
     return img
 
 def _xlimage_from_pil(pil_img):
-    # FONTOS: buffer -> XLImage, különben openpyxl a PIL Image .fp-jét várná
     buf = BytesIO()
     pil_img.save(buf, format="PNG")
     buf.seek(0)
@@ -245,22 +273,12 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
     if not PIL_AVAILABLE:
         return False
     try:
-        # sor-magasság alapok beállítása, ha hiányzik
-        for r in range(r1, r2 + 1):
-            if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
-                ws.row_dimensions[r].height = 22
-
         w_px, h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
         pil_img = _make_description_image(text or "", w_px, h_px)
         xlimg = _xlimage_from_pil(pil_img)
-
-        # anchor és méret fixálása
         anchor = f"{get_column_letter(c1)}{r1}"
-        xlimg.width = w_px
-        xlimg.height = h_px
         ws.add_image(xlimg, anchor)
-
-        # a blokk bal-felső cellájába ne maradjon szöveg
+        # ne legyen rejtett duplikált szöveg a kép alatt
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception:
@@ -277,11 +295,9 @@ async def generate_excel(
     datum: str = Form(...),
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
-    # a régi „geraet” mezőt már nem használjuk a fejléchez, helyette soronkénti Vorhaltung van
     geraet: str = Form(""),
     beschreibung: str = Form(""),
     break_minutes: int = Form(60),
-    # dolgozók + Vorhaltung oszlop
     vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
     vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
@@ -304,14 +320,19 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung blokk: FIX A6–G15 ---
-    r1, c1, r2, c2 = description_fixed_block()
+    # --- Beschreibung blokk ---
+    r1, c1, r2, c2 = find_description_block(ws)
 
+    # Sormagasság rögzítése (ha nincs beállítva)
+    for r in range(r1, r2 + 1):
+        if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
+            ws.row_dimensions[r].height = 22
+
+    # Kép beszúrás, ha van szöveg; különben wrap-elt szöveg
     inserted = False
     if (beschreibung or "").strip():
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, beschreibung)
     if not inserted:
-        # ha nincs PIL, vagy hiba történt, szövegként írjuk be
         set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
