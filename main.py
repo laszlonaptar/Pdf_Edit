@@ -13,14 +13,17 @@ from datetime import datetime, time
 from io import BytesIO
 import os
 import uuid
+import math
 import textwrap
+import traceback
 
 # Képgeneráláshoz
 try:
     from PIL import Image as PILImage, ImageDraw, ImageFont
     PIL_AVAILABLE = True
-except Exception:
+except Exception as e:
     PIL_AVAILABLE = False
+    print("IMG: PIL not available ->", repr(e))
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -81,6 +84,7 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
         return 0
     return int((end - start).total_seconds() // 60)
 
+# ---- opcionális pause percben (60 alapértelmezés, vagy 30) ----
 def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -> float:
     if not beg or not end:
         return 0.0
@@ -151,6 +155,7 @@ def find_total_cells(ws, stunden_col):
 
     return right_of_label, stunden_total
 
+# --- Pontos Beschreibung-blokk ---
 def find_description_block(ws):
     for (r1, c1, r2, c2) in merged_ranges(ws):
         if r1 <= 6 <= r2 and c1 <= 1 <= c2:
@@ -201,11 +206,9 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
-    # Fehér háttér, hogy biztosan látszódjon (blokkméretre vágva)
+    # FEHÉR, NEM ÁTLÁTSZÓ háttér – pontosan a blokk mérete
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
-
-    # betűkészlet
     font = None
     for name in ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"]:
         try:
@@ -216,60 +219,33 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # Belmargók – jobb oldalt kisebb, hogy közelebb érjen a szélhez
-    pad_l = 12
-    pad_r = 6
-    pad_t = 10
-    pad_b = 10
+    # belső margók: bal=12, jobb=10, fent=10, lent=10
+    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 10, 10
+    avail_w = max(10, w_px - (pad_left + pad_right))
+    avail_h = max(10, h_px - (pad_top + pad_bottom))
 
-    avail_w = max(10, w_px - pad_l - pad_r)
-    avail_h = max(10, h_px - pad_t - pad_b)
+    # konzervatív tördelés (kb. 95% szélesség kihasználás)
+    sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
+    avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
+    max_chars_per_line = max(10, int(avail_w / avg_w))
 
-    # Szavanként mért sortördelés (hogy tényleg kihasználja a szélességet)
-    def wrap_paragraph(paragraph: str):
-        words = paragraph.split(" ")
-        lines = []
-        cur = ""
-        for w in words:
-            test = w if not cur else (cur + " " + w)
-            if draw.textlength(test, font=font) <= avail_w:
-                cur = test
-            else:
-                if cur:
-                    lines.append(cur)
-                    cur = w
-                else:
-                    # egyetlen szó is hosszabb: törjük durván
-                    cut = w
-                    while draw.textlength(cut, font=font) > avail_w and len(cut) > 1:
-                        cut = cut[:-1]
-                    lines.append(cut)
-                    cur = w[len(cut):]
-        lines.append(cur)
-        return lines
-
-    # bekezdések kezelése
-    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    paragraphs = raw.split("\n") if raw else [""]
+    paragraphs = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     lines = []
-    for p in paragraphs:
-        p = p.strip()
-        if not p:
-            lines.append("")  # üres sor
+    for para in paragraphs:
+        if not para:
+            lines.append("")
             continue
-        lines.extend(wrap_paragraph(p))
+        lines.extend(textwrap.wrap(para, width=max_chars_per_line, replace_whitespace=False, break_long_words=False))
 
-    # hány sor fér el függőlegesen?
     ascent, descent = font.getmetrics()
     line_h = ascent + descent + 4
     max_lines = max(1, int(avail_h // line_h))
 
     if len(lines) > max_lines:
-        lines = lines[:max_lines-1] + ["…"]
+        lines = lines[:max_lines - 1] + ["…"]
 
-    # kirajzolás
-    x = pad_l
-    y = pad_t
+    x = pad_left
+    y = pad_top
     for ln in lines:
         draw.text((x, y), ln, fill=(0, 0, 0), font=font)
         y += line_h
@@ -283,21 +259,25 @@ def _xlimage_from_pil(pil_img):
     return XLImage(buf)
 
 def insert_description_as_image(ws, r1, c1, r2, c2, text):
+    """Próbál képet beszúrni. Siker log + True, hiba esetén kivétel log és False."""
     if not PIL_AVAILABLE:
+        print("IMG: PIL not available at runtime")
         return False
     try:
+        text_s = (text or "")
+        print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
         w_px, h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
-        pil_img = _make_description_image(text or "", w_px, h_px)
+        print(f"IMG: block px size = {w_px}x{h_px}")
+        pil_img = _make_description_image(text_s, w_px, h_px)
         xlimg = _xlimage_from_pil(pil_img)
         anchor = f"{get_column_letter(c1)}{r1}"
         ws.add_image(xlimg, anchor)
-        # log a szerveren
-        print(f"IMG: placed at {anchor}, size={w_px}x{h_px}")
-        # a cella saját tartalma üres marad
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
+        print(f"IMG: inserted ok at {anchor}, size={w_px}x{h_px}")
         return True
     except Exception as e:
-        print("IMG: FAILED ->", e)
+        print("IMG: insert FAILED ->", repr(e))
+        traceback.print_exc()
         return False
 
 # ---------- routes ----------
@@ -338,15 +318,22 @@ async def generate_excel(
 
     # --- Beschreibung blokk ---
     r1, c1, r2, c2 = find_description_block(ws)
+
+    # Sormagasság rögzítése (ha nincs beállítva)
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
 
     inserted = False
-    if (beschreibung or "").strip():
-        inserted = insert_description_as_image(ws, r1, c1, r2, c2, beschreibung)
+    text_in = (beschreibung or "").strip()
+    print(f"IMG: incoming beschreibung len={len(text_in)}")
+    if text_in:
+        inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
+
+    # Ha nincs kép (hiba/üres), essünk vissza szövegre, hogy mindig legyen tartalom
     if not inserted:
-        set_text(ws, r1, c1, beschreibung, wrap=True, align_left=True, valign_top=True)
+        print("IMG: fallback to plain text (wrap+top)")
+        set_text(ws, r1, c1, text_in, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
     pos = find_header_positions(ws)
