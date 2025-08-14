@@ -186,6 +186,7 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
+    # FEHÉR háttér – pontosan a blokk mérete, alul majd 0.92-vel rövidítjük a call-ban
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     font = None
@@ -198,22 +199,31 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # belső margók: bal=12, jobb=10, fent=10, lent=10
-    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 4, 10
+    # belső margók: bal=12, jobb=2, fent=10, lent=10
+    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 2, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
 
+    # bátrabb tördelés (kb. 97% átlag karakter szélesség)
     sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
-avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
-avg_w_eff = avg_w * 0.97   # kicsit bátrabb tördelés
-max_chars_per_line = max(10, int(avail_w / avg_w_eff))
+    avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
+    avg_w_eff = avg_w * 0.97
+    max_chars_per_line = max(10, int(avail_w / avg_w_eff))
+
     paragraphs = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     lines = []
     for para in paragraphs:
         if not para:
             lines.append("")
             continue
-        lines.extend(textwrap.wrap(para, width=max_chars_per_line, replace_whitespace=False, break_long_words=False))
+        lines.extend(
+            textwrap.wrap(
+                para,
+                width=max_chars_per_line,
+                replace_whitespace=False,
+                break_long_words=False,
+            )
+        )
 
     ascent, descent = font.getmetrics()
     line_h = ascent + descent + 4
@@ -245,6 +255,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         text_s = (text or "")
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
         w_px, h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+        # a kép alját 8%-kal rövidítjük, hogy ne érjen bele az alatta lévő vonalba
         h_px = int(h_px * 0.92)
         print(f"IMG: block px size = {w_px}x{h_px}")
         pil_img = _make_description_image(text_s, w_px, h_px)
