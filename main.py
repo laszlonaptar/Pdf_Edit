@@ -98,7 +98,6 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
               + overlap_minutes(beg, end, time(12,0), time(12,45))
     else:
         minus = min(total_min, 30)
-
     return max(0.0, (total_min - minus) / 60.0)
 
 # ---------- table helpers ----------
@@ -149,22 +148,21 @@ def find_total_cells(ws, stunden_col):
     if total_row:
         rr, cc = top_left_of_block(ws, total_row, stunden_col)
         stunden_total = (rr, cc)
-
     return right_of_label, stunden_total
 
 # --- Fix Beschreibung-blokk: A6–G15 ---
 def find_description_block(ws):
     return (6, 1, 15, 7)  # A6..G15
 
-# ---------- Bild (Beschreibung) helpers ----------
+# ---------- pixel helpers ----------
 def _excel_col_width_to_pixels(width):
     if width is None:
-        width = 8.43  # Excel default
+        width = 8.43
     return int(round(7 * width + 5))
 
 def _excel_row_height_to_pixels(height):
     if height is None:
-        height = 15.0  # Excel default ~ 20px
+        height = 15.0
     return int(round(height * 96 / 72))
 
 def _get_block_pixel_size(ws, r1, c1, r2, c2):
@@ -181,8 +179,16 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     h_px = max(40, h_px)
     return w_px, h_px
 
+def _get_col_pixel_width(ws, col_index):
+    letter = get_column_letter(col_index)
+    cd = ws.column_dimensions.get(letter)
+    return _excel_col_width_to_pixels(getattr(cd, "width", None))
+
+# ---------- image (Beschreibung) ----------
+LEFT_INSET_PX = 25      # ennyivel hozzuk beljebb a teljes képet
+BOTTOM_CROP   = 0.92    # 8% magasvágás
+
 def _make_description_image(text, w_px, h_px):
-    # FEHÉR háttér – pontosan a kép méretére
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     font = None
@@ -200,7 +206,6 @@ def _make_description_image(text, w_px, h_px):
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
 
-    # bátrabb tördelés
     sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
     avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
     avg_w_eff = avg_w * 0.90
@@ -212,14 +217,7 @@ def _make_description_image(text, w_px, h_px):
         if not para:
             lines.append("")
             continue
-        lines.extend(
-            textwrap.wrap(
-                para,
-                width=max_chars_per_line,
-                replace_whitespace=False,
-                break_long_words=False,
-            )
-        )
+        lines.extend(textwrap.wrap(para, width=max_chars_per_line, replace_whitespace=False, break_long_words=False))
 
     ascent, descent = font.getmetrics()
     line_h = ascent + descent + 4
@@ -233,7 +231,6 @@ def _make_description_image(text, w_px, h_px):
     for ln in lines:
         draw.text((x, y), ln, fill=(0, 0, 0), font=font)
         y += line_h
-
     return img
 
 def _xlimage_from_pil(pil_img):
@@ -242,35 +239,33 @@ def _xlimage_from_pil(pil_img):
     buf.seek(0)
     return XLImage(buf)
 
-LEFT_INSET_PX = 25     # ennyivel legyen “beljebb” a teljes kép a bal széltől
-BOTTOM_CROP = 0.92     # 8%-kal alacsonyabb kép, hogy ne érjen bele az alatta lévő vonalba
-
 def insert_description_as_image(ws, r1, c1, r2, c2, text):
-    """Próbál képet beszúrni. Siker log + True, hiba esetén kivétel log és False."""
     if not PIL_AVAILABLE:
         print("IMG: PIL not available at runtime")
         return False
     try:
         text_s = (text or "")
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
-        w_px, h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
 
-        # teljes képet “beljebb” visszük: csökkentjük a szélességet 25 px-szel
-        w_px = max(1, w_px - LEFT_INSET_PX)
+        # teljes blokk pixelmérete + A oszlop pixel-szélessége
+        block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+        colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop
 
-        # alsó kurtítás
-        h_px = int(h_px * BOTTOM_CROP)
+        # új horgony: B6
+        anchor_col = c1 + 1  # A->B
+        anchor = f"{get_column_letter(anchor_col)}{r1}"
 
-        print(f"IMG: block px size (after inset/crop) = {w_px}x{h_px}")
-        pil_img = _make_description_image(text_s, w_px, h_px)
+        # az új kép szélessége: a teljes blokkszélességből kivonjuk az A oszlop szélességét,
+        # majd finomítunk +LEFT_INSET_PX-szel (még egy kicsit beljebb)
+        new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
+        new_h_px = int(block_h_px * BOTTOM_CROP)
+
+        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
+        pil_img = _make_description_image(text_s, new_w_px, new_h_px)
         xlimg = _xlimage_from_pil(pil_img)
 
-        anchor = f"{get_column_letter(c1)}{r1}"  # horgony A6 marad
         ws.add_image(xlimg, anchor)
-
-        # ürítsük a cellát alatta
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
-        print(f"IMG: inserted ok at {anchor}, size={w_px}x{h_px}")
         return True
     except Exception as e:
         print("IMG: insert FAILED ->", repr(e))
@@ -295,7 +290,7 @@ async def generate_excel(
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
     vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
 ):
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
@@ -316,21 +311,17 @@ async def generate_excel(
     # --- Beschreibung blokk ---
     r1, c1, r2, c2 = find_description_block(ws)
 
-    # Sormagasság rögzítése (ha nincs beállítva)
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
 
     inserted = False
     text_in = (beschreibung or "").strip()
-    print(f"IMG: incoming beschreibung len={len(text_in)}")
     if text_in:
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
 
-    # Ha nincs kép (hiba/üres), essünk vissza szövegre
     if not inserted:
-        print("IMG: fallback to plain text (wrap+top)")
-        set_text(ws, r1, c1, text_in, wrap=True, align_left=True, valign_top=True)
+        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)  # fallback B oszloptól
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
     pos = find_header_positions(ws)
@@ -338,7 +329,7 @@ async def generate_excel(
     vorhaltung_col = pos.get("vorhaltung_col", None)
 
     workers = []
-    for i in range(1, 5 + 1):
+    for i in range(1, 6):
         vn = locals().get(f"vorname{i}", "") or ""
         nn = locals().get(f"nachname{i}", "") or ""
         aw = locals().get(f"ausweis{i}", "") or ""
@@ -362,12 +353,12 @@ async def generate_excel(
 
         hb = parse_hhmm(bg)
         he = parse_hhmm(en)
+        # a break_minutes itt továbbra is számolva van, ha használod
         h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
         total_hours += h
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
         row += 1
 
-    # --- Összóraszám ---
     right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
     if stunden_total:
         tr, tc = stunden_total
@@ -376,7 +367,6 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---- Fix méretű válasz, Content-Length-cel ----
     bio = BytesIO()
     wb.save(bio)
     data = bio.getvalue()
