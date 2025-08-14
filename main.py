@@ -13,7 +13,6 @@ from datetime import datetime, time
 from io import BytesIO
 import os
 import uuid
-import math
 import textwrap
 import traceback
 
@@ -84,7 +83,6 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
         return 0
     return int((end - start).total_seconds() // 60)
 
-# ---- opcionális pause percben (60 alapértelmezés, vagy 30) ----
 def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -> float:
     if not beg or not end:
         return 0.0
@@ -186,7 +184,7 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
-    # FEHÉR háttér – pontosan a blokk mérete, alul majd 0.92-vel rövidítjük a call-ban
+    # FEHÉR háttér – pontosan a blokk mérete
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     font = None
@@ -199,15 +197,15 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # belső margók: bal=12, jobb=2, fent=10, lent=10
-    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 2, 10
+    # belső margók: bal=12, jobb=0, fent=10, lent=10
+    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 0, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
 
-    # bátrabb tördelés (kb. 97% átlag karakter szélesség)
+    # bátrabb tördelés: kb. 90% átlag-karakterszélességgel számolunk -> hosszabb sorok
     sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
     avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
-    avg_w_eff = avg_w * 0.97
+    avg_w_eff = avg_w * 0.90
     max_chars_per_line = max(10, int(avail_w / avg_w_eff))
 
     paragraphs = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
