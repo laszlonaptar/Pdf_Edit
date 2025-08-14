@@ -155,30 +155,10 @@ def find_total_cells(ws, stunden_col):
 
     return right_of_label, stunden_total
 
-# --- Pontos Beschreibung-blokk ---
+# --- Fix Beschreibung-blokk: A6–G15 ---
 def find_description_block(ws):
-    for (r1, c1, r2, c2) in merged_ranges(ws):
-        if r1 <= 6 <= r2 and c1 <= 1 <= c2:
-            return (r1, c1, r2, c2)
-    for row in ws.iter_rows(min_row=1, max_row=40, min_col=1, max_col=12):
-        for cell in row:
-            if isinstance(cell.value, str) and cell.value.strip().lower().startswith("beschreibung"):
-                r = cell.row
-                c = cell.column + 1
-                r1, c1, r2, c2 = block_of(ws, r, c)
-                return (r1, c1, r2, c2)
-    best = None
-    for (r1, c1, r2, c2) in merged_ranges(ws):
-        height = r2 - r1 + 1
-        width  = c2 - c1 + 1
-        if r1 >= 6 and height >= 3 and width >= 3:
-            area = height * width
-            if not best or area > best[-1]:
-                best = (r1, c1, r2, c2, area)
-    if best:
-        r1, c1, r2, c2, _ = best
-        return (r1, c1, r2, c2)
-    return (6, 1, 12, 8)
+    # A = 1, G = 7; 6. sortól 15. sorig
+    return (6, 1, 15, 7)
 
 # ---------- Bild (Beschreibung) helpers ----------
 def _excel_col_width_to_pixels(width):
@@ -206,7 +186,6 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
-    # FEHÉR, NEM ÁTLÁTSZÓ háttér – pontosan a blokk mérete
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     font = None
@@ -224,7 +203,6 @@ def _make_description_image(text, w_px, h_px):
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
 
-    # konzervatív tördelés (kb. 95% szélesség kihasználás)
     sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
     avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
     max_chars_per_line = max(10, int(avail_w / avg_w))
