@@ -154,13 +154,11 @@ def find_total_cells(ws, stunden_col):
 
     return right_of_label, stunden_total
 
-# --- Beschreibung-blokk keresés ---
+# --- Pontos Beschreibung-blokk keresés ---
 def find_description_block(ws):
-    # 1) Ha az A6 benne van egy merge-elt blokkban, azt használjuk
     for (r1, c1, r2, c2) in merged_ranges(ws):
         if r1 <= 6 <= r2 and c1 <= 1 <= c2:
             return (r1, c1, r2, c2)
-    # 2) "Beschreibung" felirat melletti blokk
     for row in ws.iter_rows(min_row=1, max_row=40, min_col=1, max_col=12):
         for cell in row:
             if isinstance(cell.value, str) and cell.value.strip().lower().startswith("beschreibung"):
@@ -168,7 +166,6 @@ def find_description_block(ws):
                 c = cell.column + 1
                 r1, c1, r2, c2 = block_of(ws, r, c)
                 return (r1, c1, r2, c2)
-    # 3) Fallback: legnagyobb blokk 6. sortól lefelé
     best = None
     for (r1, c1, r2, c2) in merged_ranges(ws):
         height = r2 - r1 + 1
@@ -185,12 +182,12 @@ def find_description_block(ws):
 # ---------- Bild (Beschreibung) helpers ----------
 def _excel_col_width_to_pixels(width):
     if width is None:
-        width = 8.43  # Excel default
+        width = 8.43
     return int(round(7 * width + 5))
 
 def _excel_row_height_to_pixels(height):
     if height is None:
-        height = 15.0  # Excel default ~ 20px
+        height = 15.0
     return int(round(height * 96 / 72))
 
 def _get_block_pixel_size(ws, r1, c1, r2, c2):
@@ -208,11 +205,9 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
-    # FEHÉR, nem átlátszó háttér (ez biztosítja a jó olvashatóságot minden nézőben)
+    # FEHÉR háttér (RGB) + vékony szegély – minden viewerben stabil
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
-
-    # Betűtípus
     font = None
     for name in ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"]:
         try:
@@ -227,7 +222,6 @@ def _make_description_image(text, w_px, h_px):
     avail_w = max(10, w_px - 2 * pad)
     avail_h = max(10, h_px - 2 * pad)
 
-    # Sorhossz becslés és tördelés
     sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
     avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
     max_chars_per_line = max(10, int(avail_w / avg_w))
@@ -238,34 +232,29 @@ def _make_description_image(text, w_px, h_px):
         if not para:
             lines.append("")
             continue
-        lines.extend(textwrap.wrap(
-            para, width=max_chars_per_line,
-            replace_whitespace=False,
-            break_long_words=False
-        ))
+        lines.extend(textwrap.wrap(para, width=max_chars_per_line, replace_whitespace=False, break_long_words=False))
 
     ascent, descent = font.getmetrics()
-    line_h = ascent + descent + 4  # enyhe sorköz
+    line_h = ascent + descent + 4
     max_lines = max(1, int(avail_h // line_h))
 
-    # Ha több, vágjuk „…”-tal
     if len(lines) > max_lines:
         lines = lines[:max_lines - 1] + ["…"]
 
-    # Szöveg rajzolása (balra fent, paddinggel)
     x = pad
     y = pad
     for ln in lines:
         draw.text((x, y), ln, fill=(0, 0, 0), font=font)
         y += line_h
 
+    # halvány keret, hogy QuickLook/Numbers is biztosan fesse
+    draw.rectangle([(0, 0), (w_px-1, h_px-1)], outline=(230, 230, 230), width=1)
     return img
 
 def _xlimage_from_pil(pil_img):
     buf = BytesIO()
     pil_img.save(buf, format="PNG")
     buf.seek(0)
-    # IMPORTANT: BytesIO átadása, így openpyxl nem a PIL Image.fp-re támaszkodik
     return XLImage(buf)
 
 def insert_description_as_image(ws, r1, c1, r2, c2, text):
@@ -277,7 +266,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         xlimg = _xlimage_from_pil(pil_img)
         anchor = f"{get_column_letter(c1)}{r1}"
         ws.add_image(xlimg, anchor)
-        # ne maradjon alatta szöveg
+        # ne legyen duplikált tartalom a kép alatt
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception:
@@ -294,11 +283,9 @@ async def generate_excel(
     datum: str = Form(...),
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
-    # a régi „geraet” mezőt már nem használjuk a fejléchez, helyette soronkénti Vorhaltung van
     geraet: str = Form(""),
     beschreibung: str = Form(""),
     break_minutes: int = Form(60),
-    # dolgozók + Vorhaltung oszlop
     vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
     vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
@@ -321,15 +308,13 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung blokk (erre készítünk képet) ---
+    # --- Beschreibung blokk ---
     r1, c1, r2, c2 = find_description_block(ws)
 
-    # Sormagasság rögzítése (ha nincs beállítva)
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
 
-    # Kép beszúrás, ha van szöveg; különben wrap-elt szöveg
     inserted = False
     if (beschreibung or "").strip():
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, beschreibung)
