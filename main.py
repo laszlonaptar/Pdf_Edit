@@ -209,7 +209,8 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
-    img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
+    # ÁTLÁTSZÓ háttér (RGBA)
+    img = PILImage.new("RGBA", (w_px, h_px), (255, 255, 255, 0))
     draw = ImageDraw.Draw(img)
     font = None
     for name in ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"]:
@@ -242,12 +243,13 @@ def _make_description_image(text, w_px, h_px):
     max_lines = max(1, int(avail_h // line_h))
 
     if len(lines) > max_lines:
-        lines = lines[:max_lines-1] + ["…"]
+        lines = lines[:max_lines - 1] + ["…"]
 
     x = pad
     y = pad
     for ln in lines:
-        draw.text((x, y), ln, fill=(0, 0, 0), font=font)
+        # fekete szöveg, enyhe fehér „glow” nélkül — az átlátszó háttér a lapot mutatja
+        draw.text((x, y), ln, fill=(0, 0, 0, 255), font=font)
         y += line_h
 
     return img
@@ -267,6 +269,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         xlimg = _xlimage_from_pil(pil_img)
         anchor = f"{get_column_letter(c1)}{r1}"
         ws.add_image(xlimg, anchor)
+        # takarítsuk a cella tartalmát (ne legyen duplikált szöveg a kép alatt)
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception:
@@ -313,7 +316,7 @@ async def generate_excel(
     # --- Beschreibung blokk (csak erre készítünk képet) ---
     r1, c1, r2, c2 = find_description_block(ws)
 
-    # Sormagasság rögzítése
+    # Sormagasság rögzítése (ha nincs beállítva)
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
