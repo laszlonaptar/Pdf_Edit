@@ -245,6 +245,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         text_s = (text or "")
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
         w_px, h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+        h_px = int(h_px * 0.92)
         print(f"IMG: block px size = {w_px}x{h_px}")
         pil_img = _make_description_image(text_s, w_px, h_px)
         xlimg = _xlimage_from_pil(pil_img)
