@@ -15,6 +15,8 @@ import os
 import uuid
 import math
 import textwrap
+import sys
+import traceback
 
 # Képgeneráláshoz
 try:
@@ -82,7 +84,6 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
         return 0
     return int((end - start).total_seconds() // 60)
 
-# ---- opcionális pause percben (60 alapértelmezés, vagy 30) ----
 def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -> float:
     if not beg or not end:
         return 0.0
@@ -91,15 +92,12 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
     finish = dt.replace(hour=end.hour, minute=end.minute)
     if finish <= start:
         return 0.0
-
     total_min = int((finish - start).total_seconds() // 60)
-
     if pause_min >= 60:
         minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
               + overlap_minutes(beg, end, time(12,0), time(12,45))
     else:
         minus = min(total_min, 30)
-
     return max(0.0, (total_min - minus) / 60.0)
 
 # ---------- table helpers ----------
@@ -125,7 +123,6 @@ def find_header_positions(ws):
                     pos["ende_col"] = cell.column
                 if "Anzahl Stunden" in t:
                     pos["stunden_col"] = cell.column
-                # Vorhaltung oszlop felismerése
                 if t.lower().startswith("vorhaltung") or "beauftragtes gerät" in t.lower():
                     pos["vorhaltung_col"] = cell.column
         if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
@@ -146,15 +143,12 @@ def find_total_cells(ws, stunden_col):
                 break
         if total_row:
             break
-
     stunden_total = None
     if total_row:
         rr, cc = top_left_of_block(ws, total_row, stunden_col)
         stunden_total = (rr, cc)
-
     return right_of_label, stunden_total
 
-# --- Pontos Beschreibung-blokk keresés ---
 def find_description_block(ws):
     for (r1, c1, r2, c2) in merged_ranges(ws):
         if r1 <= 6 <= r2 and c1 <= 1 <= c2:
@@ -205,7 +199,7 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
-    # FEHÉR háttér (RGB) + vékony szegély – minden viewerben stabil
+    # FEHÉR háttér (RGB) – biztos, hogy minden viewer kirajzolja
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     font = None
@@ -247,8 +241,6 @@ def _make_description_image(text, w_px, h_px):
         draw.text((x, y), ln, fill=(0, 0, 0), font=font)
         y += line_h
 
-    # halvány keret, hogy QuickLook/Numbers is biztosan fesse
-    draw.rectangle([(0, 0), (w_px-1, h_px-1)], outline=(230, 230, 230), width=1)
     return img
 
 def _xlimage_from_pil(pil_img):
@@ -259,17 +251,24 @@ def _xlimage_from_pil(pil_img):
 
 def insert_description_as_image(ws, r1, c1, r2, c2, text):
     if not PIL_AVAILABLE:
+        print("IMG: PIL not available", file=sys.stderr, flush=True)
         return False
     try:
         w_px, h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
         pil_img = _make_description_image(text or "", w_px, h_px)
         xlimg = _xlimage_from_pil(pil_img)
+        # kényszerített méret – egyes nézők csak így veszik át biztosan
+        xlimg.width = w_px
+        xlimg.height = h_px
         anchor = f"{get_column_letter(c1)}{r1}"
         ws.add_image(xlimg, anchor)
+        print(f"IMG: inserted ok at {anchor}, size={w_px}x{h_px}", file=sys.stderr, flush=True)
         # ne legyen duplikált tartalom a kép alatt
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
-    except Exception:
+    except Exception as e:
+        print("IMG: insert failed:", repr(e), file=sys.stderr, flush=True)
+        traceback.print_exc()
         return False
 
 # ---------- routes ----------
