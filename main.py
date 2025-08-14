@@ -91,7 +91,6 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
     finish = dt.replace(hour=end.hour, minute=end.minute)
     if finish <= start:
         return 0.0
-
     total_min = int((finish - start).total_seconds() // 60)
     if pause_min >= 60:
         minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
@@ -143,7 +142,6 @@ def find_total_cells(ws, stunden_col):
                 break
         if total_row:
             break
-
     stunden_total = None
     if total_row:
         rr, cc = top_left_of_block(ws, total_row, stunden_col)
@@ -185,8 +183,8 @@ def _get_col_pixel_width(ws, col_index):
     return _excel_col_width_to_pixels(getattr(cd, "width", None))
 
 # ---------- image (Beschreibung) ----------
-LEFT_INSET_PX = 25      # ennyivel hozzuk beljebb a teljes képet
-BOTTOM_CROP   = 0.92    # 8% magasvágás
+LEFT_INSET_PX = 25      # a teljes képet ennyivel hozzuk beljebb
+BOTTOM_CROP   = 0.92    # 8% levágás alul
 
 def _make_description_image(text, w_px, h_px):
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
@@ -353,7 +351,6 @@ async def generate_excel(
 
         hb = parse_hhmm(bg)
         he = parse_hhmm(en)
-        # a break_minutes itt továbbra is számolva van, ha használod
         h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
         total_hours += h
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
@@ -367,12 +364,33 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
+    # ---------- Nyomtatási beállítások: A4 landscape, Fit-to-page ----------
+    # papírméret (A4 = 9), tájolás, fit-to-width, kismargók, középre igazítás
+    try:
+        ws.page_setup.orientation = 'landscape'
+        ws.page_setup.paperSize = 9            # A4
+        ws.page_setup.fitToWidth = 1           # 1 oldal szélesség
+        ws.page_setup.fitToHeight = 0          # magasság tetszőleges
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        # margók hüvelykben (0 nem minden nyomtatón engedélyezett)
+        ws.page_margins.left   = 0.2
+        ws.page_margins.right  = 0.2
+        ws.page_margins.top    = 0.3
+        ws.page_margins.bottom = 0.3
+        # teljes felhasznált tartomány nyomtatása
+        ws.print_area = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+        # vízszintesen középre
+        ws.print_options.horizontalCentered = True
+    except Exception as e:
+        print("PRINT SETUP WARN:", repr(e))
+
+    # ---- Válasz ----
     bio = BytesIO()
     wb.save(bio)
     data = bio.getvalue()
     fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
     headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Disposition": f'attachment; filename=\"{fname}\"',
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
