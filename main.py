@@ -13,7 +13,6 @@ from datetime import datetime, time
 from io import BytesIO
 import os
 import uuid
-import math
 import textwrap
 
 # Képgeneráláshoz
@@ -82,7 +81,6 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
         return 0
     return int((end - start).total_seconds() // 60)
 
-# ---- opcionális pause percben (60 alapértelmezés, vagy 30) ----
 def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -> float:
     if not beg or not end:
         return 0.0
@@ -153,7 +151,6 @@ def find_total_cells(ws, stunden_col):
 
     return right_of_label, stunden_total
 
-# --- Pontos Beschreibung-blokk keresés ---
 def find_description_block(ws):
     for (r1, c1, r2, c2) in merged_ranges(ws):
         if r1 <= 6 <= r2 and c1 <= 1 <= c2:
@@ -204,11 +201,11 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     return w_px, h_px
 
 def _make_description_image(text, w_px, h_px):
-    # FEHÉR háttér (opaque), pontosan a blokk méretében
+    # Fehér háttér, hogy biztosan látszódjon (blokkméretre vágva)
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
-    # betű
+    # betűkészlet
     font = None
     for name in ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"]:
         try:
@@ -219,44 +216,60 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # Margók: bal 10 px, jobb 2 px (szinte szélig)
-    pad_left = 10
-    pad_right = 2
-    pad_top = 10
-    pad_bottom = 10
+    # Belmargók – jobb oldalt kisebb, hogy közelebb érjen a szélhez
+    pad_l = 12
+    pad_r = 6
+    pad_t = 10
+    pad_b = 10
 
-    avail_w = max(10, w_px - (pad_left + pad_right))
-    avail_h = max(10, h_px - (pad_top + pad_bottom))
+    avail_w = max(10, w_px - pad_l - pad_r)
+    avail_h = max(10, h_px - pad_t - pad_b)
 
-    # wrap becslés
-    sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
-    avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
-    max_chars_per_line = max(10, int(avail_w / avg_w))
+    # Szavanként mért sortördelés (hogy tényleg kihasználja a szélességet)
+    def wrap_paragraph(paragraph: str):
+        words = paragraph.split(" ")
+        lines = []
+        cur = ""
+        for w in words:
+            test = w if not cur else (cur + " " + w)
+            if draw.textlength(test, font=font) <= avail_w:
+                cur = test
+            else:
+                if cur:
+                    lines.append(cur)
+                    cur = w
+                else:
+                    # egyetlen szó is hosszabb: törjük durván
+                    cut = w
+                    while draw.textlength(cut, font=font) > avail_w and len(cut) > 1:
+                        cut = cut[:-1]
+                    lines.append(cut)
+                    cur = w[len(cut):]
+        lines.append(cur)
+        return lines
 
-    paragraphs = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    # bekezdések kezelése
+    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    paragraphs = raw.split("\n") if raw else [""]
     lines = []
-    for para in paragraphs:
-        if not para:
-            lines.append("")
+    for p in paragraphs:
+        p = p.strip()
+        if not p:
+            lines.append("")  # üres sor
             continue
-        lines.extend(
-            textwrap.wrap(
-                para,
-                width=max_chars_per_line,
-                replace_whitespace=False,
-                break_long_words=False
-            )
-        )
+        lines.extend(wrap_paragraph(p))
 
+    # hány sor fér el függőlegesen?
     ascent, descent = font.getmetrics()
     line_h = ascent + descent + 4
     max_lines = max(1, int(avail_h // line_h))
 
     if len(lines) > max_lines:
-        lines = lines[:max_lines - 1] + ["…"]
+        lines = lines[:max_lines-1] + ["…"]
 
-    x = pad_left
-    y = pad_top
+    # kirajzolás
+    x = pad_l
+    y = pad_t
     for ln in lines:
         draw.text((x, y), ln, fill=(0, 0, 0), font=font)
         y += line_h
@@ -278,10 +291,13 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         xlimg = _xlimage_from_pil(pil_img)
         anchor = f"{get_column_letter(c1)}{r1}"
         ws.add_image(xlimg, anchor)
-        # ne legyen rejtett duplikált szöveg a kép alatt
+        # log a szerveren
+        print(f"IMG: placed at {anchor}, size={w_px}x{h_px}")
+        # a cella saját tartalma üres marad
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
-    except Exception:
+    except Exception as e:
+        print("IMG: FAILED ->", e)
         return False
 
 # ---------- routes ----------
@@ -322,13 +338,10 @@ async def generate_excel(
 
     # --- Beschreibung blokk ---
     r1, c1, r2, c2 = find_description_block(ws)
-
-    # Sormagasság rögzítése (ha nincs beállítva)
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
 
-    # Kép beszúrás, ha van szöveg; különben wrap-elt szöveg
     inserted = False
     if (beschreibung or "").strip():
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, beschreibung)
