@@ -2,202 +2,144 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Arbeitsrapport</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Leistungsnachweis</title>
+  <link rel="stylesheet" href="/static/style.css?v=12" />
   <style>
-    /* Biztonsági alap-stílusok, ha style.css nincs betöltve */
-    :root { --gap: 12px; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #f6f7f9; color: #111; }
-    .container { max-width: 1100px; margin: 20px auto; padding: 20px; background: #fff; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
-    h1 { margin: 0 0 12px; font-size: 1.6rem; }
-    h2 { margin: 24px 0 8px; font-size: 1.2rem; }
-    .grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: var(--gap); }
-    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: var(--gap); }
-    label { display: block; font-size: .9rem; color: #333; }
-    input, textarea, select { margin-top: 6px; width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; font: inherit; }
-    textarea { min-height: 110px; resize: vertical; }
-    .actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
-    button { appearance: none; border: 0; background: #0e5ef0; color: #fff; padding: 10px 16px; border-radius: 10px; font-weight: 600; cursor: pointer; }
-    button.secondary { background: #111827; }
-    button.ghost { background: #e5e7eb; color: #111; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    th, td { padding: 8px; border-bottom: 1px solid #eee; text-align: left; }
-    th { background: #f3f4f6; font-weight: 600; font-size: .9rem; }
-    .row-actions { text-align: right; white-space: nowrap; }
-    .note { color: #6b7280; font-size: .85rem; }
-    @media (max-width: 880px){
-      .grid { grid-template-columns: 1fr; }
-      .grid-2 { grid-template-columns: 1fr; }
-      table { display: block; overflow-x: auto; }
+    /* Checkbox ne nézzen ki szövegmezőnek a globális input-stílus miatt */
+    input[type="checkbox"]{
+      width:auto; height:auto; padding:0; margin:0;
+      border:none; background:transparent; box-shadow:none;
+      appearance:auto; -webkit-appearance:auto;
     }
+    .ck-row{ display:flex; align-items:center; gap:.5rem; font-weight:600; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Arbeitsrapport</h1>
+  <main class="container">
+    <h1>Leistungsnachweis</h1>
 
-    <!-- ALAP FORM: Excel az alap action, PDF a második gomb formaction-nel -->
-    <form id="frm" method="post" action="/generate_excel">
-      <div class="grid">
-        <label>
-          Datum der Leistungsausführung
-          <input type="date" name="datum" required />
-        </label>
-        <label>
-          Projekt / Bau
-          <input type="text" name="bau" placeholder="Bau / Projekt" required />
-        </label>
-        <label>
-          BASF-Beauftragter
-          <!-- FONTOS: a backend 'basf_beauftragter' mezőt vár -->
-          <input type="text" name="basf_beauftragter" placeholder="Name" />
-        </label>
-      </div>
+    <form id="ln-form" method="post" action="/generate_excel" novalidate>
+      <!-- Kopf -->
+      <section class="card">
+        <div class="grid grid-2">
+          <div class="field">
+            <label for="datum">Datum der Leistungsausführung</label>
+            <input id="datum" name="datum" type="date" required />
+          </div>
+          <div class="field">
+            <label for="bau">Bau und Ausführungsort</label>
+            <input id="bau" name="bau" type="text" placeholder="z. B. G725" required />
+          </div>
+          <div class="field">
+            <label for="basf_beauftragter">BASF-Beauftragter, Org.-Code</label>
+            <input id="basf_beauftragter" name="basf_beauftragter" type="text" required />
+          </div>
+        </div>
+      </section>
 
-      <h2>Tätigkeiten (Beschreibung)</h2>
-      <textarea name="beschreibung" rows="6" placeholder="Was wurde gemacht?" required></textarea>
+      <!-- Beschreibung -->
+      <section class="card">
+        <div class="field">
+          <label for="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
+          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" required
+            placeholder="Max. 1000 Zeichen"></textarea>
+          <div class="muted" id="besch-count">0 / 1000</div>
+        </div>
+      </section>
 
-      <div class="grid-2">
-        <label>
-          Pausenabzug (Minuten)
-          <select name="break_minutes">
-            <option value="60" selected>60</option>
-            <option value="30">30</option>
-            <option value="0">0</option>
-          </select>
-        </label>
-        <div></div>
-      </div>
+      <!-- Mitarbeiter -->
+      <section class="card">
+        <h2>Mitarbeiter</h2>
 
-      <h2>Mitarbeiter</h2>
-      <div class="note">Max. 5 Zeilen – die Felder passen exakt zu den Backend-Parametern (<code>vorname1..5</code>, <code>nachname1..5</code>, <code>ausweis1..5</code>, <code>beginn1..5</code>, <code>ende1..5</code>, <code>vorhaltung1..5</code>).</div>
+        <div id="worker-list" class="stack">
+          <!-- Worker #1 -->
+          <fieldset class="worker" data-index="1">
+            <legend>Mitarbeiter 1</legend>
+            <div class="grid grid-3">
+              <div class="field">
+                <label>Vorname</label>
+                <input name="vorname1" type="text" required />
+              </div>
+              <div class="field">
+                <label>Nachname</label>
+                <input name="nachname1" type="text" required />
+              </div>
+              <div class="field">
+                <label>Ausweis-Nr. / Kennzeichen</label>
+                <input name="ausweis1" type="text" required />
+              </div>
+            </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Vorname</th>
-            <th>Name</th>
-            <th>Ausweis</th>
-            <th>Beginn (HH:MM)</th>
-            <th>Ende (HH:MM)</th>
-            <th>Vorhaltung / Gerät</th>
-            <th class="row-actions">Aktion</th>
-          </tr>
-        </thead>
-        <tbody id="workers">
-          <!-- 1..5 sor — a fölös sorok rejtve indulnak -->
-          <!-- Row 1 -->
-          <tr data-row="1">
-            <td><input name="vorname1" placeholder="Max" /></td>
-            <td><input name="nachname1" placeholder="Mustermann" /></td>
-            <td><input name="ausweis1" placeholder="ID / Nummer" /></td>
-            <td><input name="beginn1" placeholder="07:00" inputmode="numeric" /></td>
-            <td><input name="ende1" placeholder="15:30" inputmode="numeric" /></td>
-            <td><input name="vorhaltung1" placeholder="Bagger, Kran..." /></td>
-            <td class="row-actions"><button class="ghost" data-remove="1" type="button" title="Zeile leeren">Leeren</button></td>
-          </tr>
-          <!-- Row 2 -->
-          <tr data-row="2" hidden>
-            <td><input name="vorname2" /></td>
-            <td><input name="nachname2" /></td>
-            <td><input name="ausweis2" /></td>
-            <td><input name="beginn2" inputmode="numeric" /></td>
-            <td><input name="ende2" inputmode="numeric" /></td>
-            <td><input name="vorhaltung2" /></td>
-            <td class="row-actions"><button class="ghost" data-remove="2" type="button">Leeren</button></td>
-          </tr>
-          <!-- Row 3 -->
-          <tr data-row="3" hidden>
-            <td><input name="vorname3" /></td>
-            <td><input name="nachname3" /></td>
-            <td><input name="ausweis3" /></td>
-            <td><input name="beginn3" inputmode="numeric" /></td>
-            <td><input name="ende3" inputmode="numeric" /></td>
-            <td><input name="vorhaltung3" /></td>
-            <td class="row-actions"><button class="ghost" data-remove="3" type="button">Leeren</button></td>
-          </tr>
-          <!-- Row 4 -->
-          <tr data-row="4" hidden>
-            <td><input name="vorname4" /></td>
-            <td><input name="nachname4" /></td>
-            <td><input name="ausweis4" /></td>
-            <td><input name="beginn4" inputmode="numeric" /></td>
-            <td><input name="ende4" inputmode="numeric" /></td>
-            <td><input name="vorhaltung4" /></td>
-            <td class="row-actions"><button class="ghost" data-remove="4" type="button">Leeren</button></td>
-          </tr>
-          <!-- Row 5 -->
-          <tr data-row="5" hidden>
-            <td><input name="vorname5" /></td>
-            <td><input name="nachname5" /></td>
-            <td><input name="ausweis5" /></td>
-            <td><input name="beginn5" inputmode="numeric" /></td>
-            <td><input name="ende5" inputmode="numeric" /></td>
-            <td><input name="vorhaltung5" /></td>
-            <td class="row-actions"><button class="ghost" data-remove="5" type="button">Leeren</button></td>
-          </tr>
-        </tbody>
-      </table>
+            <!-- Vorhaltung pro Mitarbeiter -->
+            <div class="grid">
+              <div class="field">
+                <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+                <input name="vorhaltung1" type="text" />
+              </div>
+            </div>
+
+            <!-- Pause-Option -->
+            <div class="field">
+              <label class="ck-row">
+                <input type="checkbox" id="break_half" />
+                <span>Pause nur 0,5&nbsp;h</span>
+              </label>
+              <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
+              <div class="muted small">
+                Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
+              </div>
+            </div>
+
+            <div class="grid grid-3">
+              <div class="field">
+                <label>Beginn</label>
+                <input name="beginn1" type="time" step="60" required />
+              </div>
+              <div class="field">
+                <label>Ende</label>
+                <input name="ende1" type="time" step="60" required />
+              </div>
+              <div class="field">
+                <label>Stunden (auto)</label>
+                <input class="stunden-display" type="text" value="" readonly />
+              </div>
+            </div>
+          </fieldset>
+        </div>
+
+        <button type="button" id="add-worker" class="btn secondary">+ Weitere Mitarbeiter hinzufügen</button>
+      </section>
+
+      <!-- Gesamtzeit -->
+      <section class="card">
+        <h2>Gesamtzeit</h2>
+        <div class="grid">
+          <div class="field">
+            <label>Gesamtstunden (auto)</label>
+            <input id="gesamtstunden_auto" type="text" value="" readonly />
+            <div class="muted small">
+              Automatischer Pausenabzug: standardmäßig 1,00&nbsp;h. Wenn „Pause nur 0,5&nbsp;h” gewählt, werden 0,50&nbsp;h abgezogen.
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div class="actions">
-        <button type="button" id="addWorker" class="ghost">+ Weiterer Mitarbeiter</button>
-      </div>
-
-      <div class="actions">
-        <button type="submit" class="secondary">Excel generieren</button>
-        <button type="submit" formaction="/generate_pdf">PDF Vorschau</button>
+        <button class="btn primary" type="submit">Excel generieren</button>
+        <button class="btn secondary" type="button" id="pdf-preview">PDF Vorschau</button>
       </div>
     </form>
-  </div>
+  </main>
 
+  <script src="/static/script.js?v=validate1"></script>
   <script>
-    // Egyszerű +/leürítés logika, hogy 1..5 sorig tudj bővíteni
-    (function(){
-      const maxRows = 5;
-      const tbody = document.getElementById('workers');
-      const btnAdd = document.getElementById('addWorker');
-
-      function firstHiddenRow(){
-        for (let i=1;i<=maxRows;i++){
-          const tr = tbody.querySelector('tr[data-row="'+i+'"]');
-          if (tr && tr.hasAttribute('hidden')) return tr;
-        }
-        return null;
-      }
-
-      function showRow(tr){
-        tr.removeAttribute('hidden');
-      }
-
-      function clearRow(idx){
-        const tr = tbody.querySelector('tr[data-row="'+idx+'"]');
-        if (!tr) return;
-        tr.querySelectorAll('input').forEach(inp => inp.value = '');
-        // az első sort nem rejtjük el, a többinél elrejthetjük
-        if (idx !== 1) tr.setAttribute('hidden','');
-      }
-
-      btnAdd?.addEventListener('click', () => {
-        const tr = firstHiddenRow();
-        if (tr) {
-          showRow(tr);
-        } else {
-          btnAdd.disabled = true;
-        }
-      });
-
-      tbody.addEventListener('click', (e) => {
-        const btn = e.target.closest('button[data-remove]');
-        if (!btn) return;
-        const idx = parseInt(btn.getAttribute('data-remove'),10);
-        clearRow(idx);
-        btnAdd.disabled = false;
-      });
-    })();
+    document.getElementById("pdf-preview").addEventListener("click", function () {
+      const form = document.getElementById("ln-form");
+      const formData = new FormData(form);
+      const query = new URLSearchParams(formData).toString();
+      window.open("/generate_pdf?" + query, "_blank");
+    });
   </script>
-
-  <!-- Ha már van saját /static/script.js fájlod a régi form logikával, hagyd meg itt is: -->
-  <script src="/static/script.js"></script>
 </body>
 </html>
