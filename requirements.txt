@@ -5,3 +5,4 @@ openpyxl
 python-multipart
 Pillow>=10.0.0
 reportlab
+itsdangerous>=2.1.2
