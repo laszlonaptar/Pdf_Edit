@@ -1,6 +1,6 @@
 # main.py
 from fastapi import FastAPI, Request, Form, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
@@ -15,6 +15,18 @@ import os
 import uuid
 import textwrap
 import traceback
+
+# ---- PDF (ReportLab) - opcionális ----
+REPORTLAB_AVAILABLE = False
+try:
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    REPORTLAB_AVAILABLE = True
+except Exception as e:
+    REPORTLAB_AVAILABLE = False
+    print("PDF: ReportLab not available ->", repr(e))
 
 # Képgeneráláshoz
 try:
@@ -245,7 +257,6 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         text_s = (text or "")
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
 
-        # teljes blokk pixelmérete + A oszlop pixel-szélessége
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
         colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop
 
@@ -253,8 +264,6 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         anchor_col = c1 + 1  # A->B
         anchor = f"{get_column_letter(anchor_col)}{r1}"
 
-        # az új kép szélessége: a teljes blokkszélességből kivonjuk az A oszlop szélességét,
-        # majd finomítunk +LEFT_INSET_PX-szel (még egy kicsit beljebb)
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
@@ -269,6 +278,100 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         print("IMG: insert FAILED ->", repr(e))
         traceback.print_exc()
         return False
+
+# ---------- PDF előnézet (ReportLab) ----------
+def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
+    """
+    Gyors PDF-előnézet A4 landscape-ben: fejlécek, Beschreibung képként, majd dolgozói táblázat.
+    Nem cél a 100%-os vizuális azonosság, hanem a nyomtatási kép ellenőrzése iPhone-on.
+    """
+    if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
+        raise RuntimeError("ReportLab vagy PIL nincs telepítve.")
+
+    # Oldalméret
+    pw, ph = landscape(A4)  # pontokban
+    margin_left = 12 * mm
+    margin_right = 12 * mm
+    margin_top = 12 * mm
+    margin_bottom = 12 * mm
+
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=(pw, ph))
+
+    y = ph - margin_top
+
+    # Fejlécek
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin_left, y, f"Datum: {date_text}")
+    y -= 16
+    c.setFont("Helvetica", 12)
+    c.drawString(margin_left, y, f"Bau: {bau}")
+    y -= 16
+    if (basf_beauftragter or "").strip():
+        c.drawString(margin_left, y, f"BASF Beauftragter: {basf_beauftragter}")
+        y -= 10
+
+    y -= 6
+
+    # Beschreibung képként (ugyanazzal a szélességgel/magassággal, mint Excelben)
+    block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+    colA_w_px = _get_col_pixel_width(ws, 1)
+    new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
+    new_h_px = int(block_h_px * BOTTOM_CROP)
+
+    pil_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
+
+    # px -> pt (96 dpi feltételezéssel: 1 px ~ 0.75 pt)
+    w_pt = new_w_px * 0.75
+    h_pt = new_h_px * 0.75
+
+    # Ha túl széles, skálázzuk be a margók közé
+    max_w_pt = pw - margin_left - margin_right
+    if w_pt > max_w_pt:
+        scale = max_w_pt / w_pt
+        w_pt *= scale
+        h_pt *= scale
+
+    # Rajzolás
+    y -= h_pt
+    c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto')
+    y -= 12
+
+    # Dolgozói táblázat (egyszerű, előnézetre)
+    c.setFont("Helvetica-Bold", 11)
+    headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
+    col_widths = [70, 70, 90, 60, 60, 60, 100]  # pt
+    x = margin_left
+    for hdr, w in zip(headers, col_widths):
+        c.drawString(x, y, hdr)
+        x += w
+    y -= 14
+    c.setLineWidth(0.3)
+    c.line(margin_left, y, margin_left + sum(col_widths), y)
+    y -= 6
+
+    c.setFont("Helvetica", 10)
+    for (vn, nn, aw, bg, en, vh) in workers:
+        x = margin_left
+        vals = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}", vh]
+        for val, w in zip(vals, col_widths):
+            c.drawString(x, y, str(val or ""))
+            x += w
+        y -= 14
+        if y < margin_bottom + 40:
+            c.showPage()
+            y = ph - margin_top
+            c.setFont("Helvetica", 10)
+
+    # Összes óraszám
+    y -= 6
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf.read()
 
 # ---------- routes ----------
 @app.get("/", response_class=HTMLResponse)
@@ -364,33 +467,29 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---------- Nyomtatási beállítások: A4 landscape, Fit-to-page ----------
-    # papírméret (A4 = 9), tájolás, fit-to-width, kismargók, középre igazítás
+    # ---------- Nyomtatási beállítások ----------
     try:
         ws.page_setup.orientation = 'landscape'
         ws.page_setup.paperSize = 9            # A4
         ws.page_setup.fitToWidth = 1           # 1 oldal szélesség
         ws.page_setup.fitToHeight = 0          # magasság tetszőleges
         ws.sheet_properties.pageSetUpPr.fitToPage = True
-        # margók hüvelykben (0 nem minden nyomtatón engedélyezett)
         ws.page_margins.left   = 0.2
         ws.page_margins.right  = 0.2
         ws.page_margins.top    = 0.3
         ws.page_margins.bottom = 0.3
-        # teljes felhasznált tartomány nyomtatása
         ws.print_area = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
-        # vízszintesen középre
         ws.print_options.horizontalCentered = True
     except Exception as e:
         print("PRINT SETUP WARN:", repr(e))
 
-    # ---- Válasz ----
+    # ---- Válasz (Excel) ----
     bio = BytesIO()
     wb.save(bio)
     data = bio.getvalue()
     fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
     headers = {
-        "Content-Disposition": f'attachment; filename=\"{fname}\"',
+        "Content-Disposition": f'attachment; filename="{fname}"',
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
@@ -399,3 +498,78 @@ async def generate_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
+
+# ÚJ: PDF előnézet ugyanazzal a formmal
+@app.post("/generate_pdf")
+async def generate_pdf(
+    request: Request,
+    datum: str = Form(...),
+    bau: str = Form(...),
+    basf_beauftragter: str = Form(""),
+    geraet: str = Form(""),
+    beschreibung: str = Form(""),
+    break_minutes: int = Form(60),
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
+):
+    if not REPORTLAB_AVAILABLE or not PIL_AVAILABLE:
+        return PlainTextResponse(
+            "PDF előállítás nem elérhető: telepítsd a 'reportlab' csomagot (és a PIL-t). "
+            "Add hozzá a requirements.txt-hez: reportlab",
+            status_code=501
+        )
+
+    # Excel betöltése csak a méretezési adatok miatt (oszlopszélesség/sormagasság)
+    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
+    ws = wb.active
+
+    # Dátum formázása
+    date_text = datum
+    try:
+        dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
+        date_text = dt.strftime("%d.%m.%Y")
+    except Exception:
+        pass
+
+    # Beschreibung blokk helye
+    r1, c1, r2, c2 = find_description_block(ws)
+
+    # Dolgozói adatok + órák összegyűjtése
+    workers = []
+    for i in range(1, 6):
+        vn = locals().get(f"vorname{i}", "") or ""
+        nn = locals().get(f"nachname{i}", "") or ""
+        aw = locals().get(f"ausweis{i}", "") or ""
+        bg = locals().get(f"beginn{i}", "") or ""
+        en = locals().get(f"ende{i}", "") or ""
+        vh = locals().get(f"vorhaltung{i}", "") or ""
+        if not (vn or nn or aw or bg or en or vh):
+            continue
+        workers.append((vn, nn, aw, bg, en, vh))
+
+    total_hours = 0.0
+    for (_, _, _, bg, en, _) in workers:
+        hb = parse_hhmm(bg)
+        he = parse_hhmm(en)
+        total_hours += hours_with_breaks(hb, he, int(break_minutes))
+
+    pdf_bytes = _build_pdf_preview(
+        date_text=date_text,
+        bau=bau,
+        basf_beauftragter=basf_beauftragter,
+        beschreibung=beschreibung,
+        ws=ws, r1=r1, c1=c1, r2=r2, c2=c2,
+        workers=workers,
+        total_hours=total_hours
+    )
+
+    fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Length": str(len(pdf_bytes)),
+        "Cache-Control": "no-store",
+    }
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
