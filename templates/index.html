@@ -71,7 +71,6 @@
               </div>
             </div>
 
-            <!-- Vorhaltung pro Mitarbeiter -->
             <div class="grid">
               <div class="field">
                 <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
@@ -79,7 +78,6 @@
               </div>
             </div>
 
-            <!-- Pause-Option -->
             <div class="field">
               <label class="ck-row">
                 <input type="checkbox" id="break_half" />
@@ -125,21 +123,15 @@
         </div>
       </section>
 
-      <div class="actions">
+      <div class="actions" style="display:flex;gap:1rem;">
         <button class="btn primary" type="submit">Excel generieren</button>
-        <button class="btn secondary" type="button" id="pdf-preview">PDF Vorschau</button>
+        <button class="btn secondary" type="submit" formaction="/generate_pdf" formmethod="post" formtarget="_blank">
+          PDF Vorschau
+        </button>
       </div>
     </form>
   </main>
 
   <script src="/static/script.js?v=validate1"></script>
-  <script>
-    document.getElementById("pdf-preview").addEventListener("click", function () {
-      const form = document.getElementById("ln-form");
-      const formData = new FormData(form);
-      const query = new URLSearchParams(formData).toString();
-      window.open("/generate_pdf?" + query, "_blank");
-    });
-  </script>
 </body>
 </html>
