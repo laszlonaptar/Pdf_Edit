@@ -1,8 +1,9 @@
 # main.py
-from fastapi import FastAPI, Request, Form, Response
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Form, Response, Depends, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
@@ -33,9 +34,25 @@ except Exception as e:
     PIL_AVAILABLE = False
     print("IMG: PIL not available ->", repr(e))
 
+# ---------------- App & Templating ----------------
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+# ---- Session (cookie) a beléptetéshez ----
+SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-secret-change-me")
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=60*60*8, same_site="lax")
+
+APP_USERNAME = os.getenv("APP_USERNAME", "admin")  # beállítható a Render-en
+APP_PASSWORD = os.getenv("APP_PASSWORD", "secret") # beállítható a Render-en
+
+def is_authed(request: Request) -> bool:
+    return bool(request.session.get("auth_ok") is True)
+
+def require_auth(request: Request):
+    if not is_authed(request):
+        # 307-tel átirányítjuk a /login oldalra
+        raise HTTPException(status_code=307, headers={"Location": "/login"})
 
 # ---------- helpers for merged cells ----------
 def merged_ranges(ws):
@@ -262,7 +279,8 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         anchor_col = c1 + 1  # A->B
         anchor = f"{get_column_letter(anchor_col)}{r1}"
 
-        # új kép szélessége
+        # az új kép szélessége: a teljes blokkszélességből kivonjuk az A oszlop szélességét,
+        # majd finomítunk +LEFT_INSET_PX-szel (még egy kicsit beljebb)
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
@@ -278,9 +296,32 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# ---------- routes ----------
+# -------------------- AUTH ROUTES --------------------
+@app.get("/login", response_class=HTMLResponse)
+async def login_form(request: Request):
+    if is_authed(request):
+        return RedirectResponse(url="/", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": False})
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_submit(request: Request, username: str = Form(""), password: str = Form("")):
+    ok = (username == APP_USERNAME) and (password == APP_PASSWORD)
+    if ok:
+        request.session["auth_ok"] = True
+        return RedirectResponse(url="/", status_code=303)
+    # hibás jelszó -> marad a login oldal
+    return templates.TemplateResponse("login.html", {"request": request, "error": True})
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=303)
+
+# -------------------- APP ROUTES --------------------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    if not is_authed(request):
+        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/generate_excel")
@@ -298,6 +339,9 @@ async def generate_excel(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
 ):
+    if not is_authed(request):
+        return RedirectResponse(url="/login", status_code=303)
+
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
@@ -372,12 +416,12 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---------- Nyomtatási beállítások: A4 landscape, Fit-to-page ----------
+    # ---------- Nyomtatási beállítások ----------
     try:
         ws.page_setup.orientation = 'landscape'
-        ws.page_setup.paperSize = 9            # A4
-        ws.page_setup.fitToWidth = 1           # 1 oldal szélesség
-        ws.page_setup.fitToHeight = 0          # magasság tetszőleges
+        ws.page_setup.paperSize = 9
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.page_margins.left   = 0.2
         ws.page_margins.right  = 0.2
@@ -404,7 +448,7 @@ async def generate_excel(
         headers=headers,
     )
 
-# ---------- PDF VORSCHAU (A4 landscape, fix margók, nem fut ki a széléig) ----------
+# ---------- PDF VORSCHAU ----------
 @app.post("/generate_pdf")
 async def generate_pdf(
     request: Request,
@@ -420,32 +464,20 @@ async def generate_pdf(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
 ):
-    pagesize = landscape(A4)          # 297 x 210 mm
-    W, H = pagesize
+    if not is_authed(request):
+        return RedirectResponse(url="/login", status_code=303)
 
-    # NYOMTATHATÓ TERÜLET – nagyobb oldalmargók, hogy biztosan ne fusson ki
-    M_LEFT   = 15 * mm
-    M_RIGHT  = 15 * mm
-    M_TOP    = 12 * mm
-    M_BOTTOM = 15 * mm
-    X0 = M_LEFT
-    Y0 = M_BOTTOM
-    CONTENT_W = W - (M_LEFT + M_RIGHT)
-    CONTENT_H = H - (M_TOP + M_BOTTOM)
+    pagesize = landscape(A4)
+    W, H = pagesize
+    margin = 12 * mm
 
     bio = BytesIO()
     c = canvas.Canvas(bio, pagesize=pagesize)
 
-    # „print area” keret (vizuális támpont)
-    c.setStrokeColor(colors.lightgrey)
-    c.rect(X0, Y0, CONTENT_W, CONTENT_H, stroke=1, fill=0)
-    c.setStrokeColor(colors.black)
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(margin, H - margin, "Leistungsnachweis – PDF Vorschau")
 
-    # Fejléc
-    c.setFont("Helvetica-Bold", 13)
-    c.drawString(X0, H - M_TOP + 2*mm, "Leistungsnachweis – PDF Vorschau")
-
-    # Dátum formázás
+    # Dátum
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -453,24 +485,26 @@ async def generate_pdf(
     except Exception:
         pass
 
-    # Alap adatok blokk
-    c.setFont("Helvetica", 10.5)
-    y = H - M_TOP - 6*mm
-    c.drawString(X0, y, f"Datum: {date_text}")
-    y -= 5.5*mm
-    c.drawString(X0, y, f"Bau: {bau}")
-    y -= 5.5*mm
+    c.setFont("Helvetica", 11)
+    y = H - margin - 10*mm
+    c.drawString(margin, y, f"Datum: {date_text}")
+    y -= 6 * mm
+    c.drawString(margin, y, f"Bau: {bau}")
+    y -= 6 * mm
     if (basf_beauftragter or "").strip():
-        c.drawString(X0, y, f"BASF-Beauftragter: {basf_beauftragter}")
-        y -= 2*mm
+        c.drawString(margin, y, f"BASF-Beauftragter: {basf_beauftragter}")
+        y -= 8 * mm
+    else:
+        y -= 2 * mm
 
     # Beschreibung doboz
-    BOX_H = 48 * mm
-    box_x = X0
-    box_y = H - M_TOP - 22*mm - BOX_H
-    box_w = CONTENT_W
+    box_x = margin
+    box_w = W - 2*margin
+    box_h = 45 * mm
+    box_y = H/2
 
-    c.rect(box_x, box_y, box_w, BOX_H, stroke=1, fill=0)
+    c.setStrokeColor(colors.black)
+    c.rect(box_x, box_y - box_h, box_w, box_h, stroke=1, fill=0)
 
     styles = getSampleStyleSheet()
     style = styles["Normal"]
@@ -482,37 +516,29 @@ async def generate_pdf(
     beschr = (beschreibung or "").replace("\r\n", "\n").replace("\r", "\n")
     para = Paragraph(beschr, style)
 
-    pad = 6 * mm
-    frame = Frame(box_x + pad, box_y + pad, box_w - 2*pad, BOX_H - 2*pad, showBoundary=0)
+    frame = Frame(box_x + 10*mm, (box_y - box_h) + 10*mm,
+                  box_w - 20*mm, box_h - 20*mm, showBoundary=0)
     frame.addFromList([para], c)
 
     # Táblázat fejlécek
-    y_tab = box_y - 10*mm
+    y_tab = box_y - 15*mm
     c.setFont("Helvetica-Bold", 10)
     headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Anzahl Stunden", "Vorhaltung"]
-
-    # oszlopszélek arányosítása a tartalomszélességhez
-    col_base = [35, 35, 28, 20, 20, 28, 41]  # mm
-    scale = (CONTENT_W / mm) / sum(col_base)
-    col_widths = [w * scale * mm for w in col_base]
-
-    x = X0
+    col_widths = [35*mm, 35*mm, 28*mm, 20*mm, 20*mm, 28*mm, 40*mm]
+    x = margin
     for htxt, w in zip(headers, col_widths):
         c.drawString(x, y_tab, htxt)
         x += w
 
-    # Sorok
     c.setFont("Helvetica", 10)
 
     def row(values, yrow):
-        x = X0
+        x = margin
         for val, w in zip(values, col_widths):
             c.drawString(x, yrow, str(val or ""))
             x += w
 
-    def hhmm(t):
-        return parse_hhmm(t) if t else None
-
+    def hhmm(t): return parse_hhmm(t) if t else None
     workers = [
         (nachname1, vorname1, ausweis1, beginn1, ende1, vorhaltung1),
         (nachname2, vorname2, ausweis2, beginn2, ende2, vorhaltung2),
@@ -536,12 +562,11 @@ async def generate_pdf(
     # Összesítés
     y_tab -= 4 * mm
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(X0, y_tab, f"Gesamtstunden: {round(total_hours, 2)}")
+    c.drawString(margin, y_tab, f"Gesamtstunden: {round(total_hours, 2)}")
 
-    # Lábjegyzet
     c.setFont("Helvetica", 8)
     c.setFillColor(colors.grey)
-    c.drawRightString(W - M_RIGHT, M_BOTTOM - 2*mm, "PDF Vorschau – Test (margókkal)")
+    c.drawRightString(W - margin, margin - 2*mm, "PDF Vorschau – tesztcélra (ReportLab)")
 
     c.showPage()
     c.save()
