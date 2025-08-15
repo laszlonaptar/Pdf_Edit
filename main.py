@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, Request, Form, Response, Depends, HTTPException
+from fastapi import FastAPI, Request, Form, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
@@ -34,25 +34,97 @@ except Exception as e:
     PIL_AVAILABLE = False
     print("IMG: PIL not available ->", repr(e))
 
-# ---------------- App & Templating ----------------
+# -------- App + statikusok, sablonok --------
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ---- Session (cookie) a beléptetéshez ----
+# -------- Egyszerű jelszóvédelem (Render env var-okkal) --------
+APP_USERNAME = os.getenv("APP_USERNAME", "")
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-secret-change-me")
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=60*60*8, same_site="lax")
 
-APP_USERNAME = os.getenv("APP_USERNAME", "admin")  # beállítható a Render-en
-APP_PASSWORD = os.getenv("APP_PASSWORD", "secret") # beállítható a Render-en
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    same_site="lax",
+)
 
-def is_authed(request: Request) -> bool:
+def _is_authed(request: Request) -> bool:
     return bool(request.session.get("auth_ok") is True)
 
-def require_auth(request: Request):
-    if not is_authed(request):
-        # 307-tel átirányítjuk a /login oldalra
-        raise HTTPException(status_code=307, headers={"Location": "/login"})
+def _login_page(msg: str = "", next_path: str = "/") -> str:
+    # minimál bejelentkező oldal – beépítve (nincs külön template)
+    return f"""
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Login</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .login-card{{max-width:420px;margin:4rem auto;padding:1.25rem}}
+  .muted{{color:#666;font-size:.9rem}}
+  .err{{color:#b00020;margin:.5rem 0}}
+</style>
+</head><body>
+  <main class="container">
+    <section class="card login-card">
+      <h1>Anmeldung</h1>
+      {"<div class='err'>"+msg+"</div>" if msg else ""}
+      <form method="post" action="/login">
+        <input type="hidden" name="next" value="{next_path}">
+        <div class="field">
+          <label for="u">Benutzername</label>
+          <input id="u" name="username" type="text" required>
+        </div>
+        <div class="field">
+          <label for="p">Passwort</label>
+          <input id="p" name="password" type="password" required>
+        </div>
+        <div class="actions">
+          <button class="btn primary" type="submit">Anmelden</button>
+        </div>
+      </form>
+      <p class="muted">Zugriff ist passwortgeschützt.</p>
+    </section>
+  </main>
+</body></html>
+"""
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_form(request: Request, next: str = "/"):
+    # ha már be van lépve, mehet tovább
+    if _is_authed(request):
+        return RedirectResponse(next or "/", status_code=303)
+    return HTMLResponse(_login_page(next_path=next))
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form("/")
+):
+    if APP_USERNAME and APP_PASSWORD:
+        if username == APP_USERNAME and password == APP_PASSWORD:
+            request.session["auth_ok"] = True
+            return RedirectResponse(next or "/", status_code=303)
+        else:
+            return HTMLResponse(_login_page("Falscher Benutzername oder Passwort.", next), status_code=401)
+    else:
+        # Ha nincs beállítva az env var, engedjük át (fejlesztés).
+        request.session["auth_ok"] = True
+        return RedirectResponse(next or "/", status_code=303)
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
+
+def _guard(request: Request, next_to: str = "/"):
+    """Ha nincs bejelentkezve, átirányít a /login oldalra."""
+    if not _is_authed(request):
+        raise RedirectResponse(url=f"/login?next={next_to}", status_code=303)
 
 # ---------- helpers for merged cells ----------
 def merged_ranges(ws):
@@ -209,8 +281,8 @@ def _get_col_pixel_width(ws, col_index):
     return _excel_col_width_to_pixels(getattr(cd, "width", None))
 
 # ---------- image (Beschreibung) ----------
-LEFT_INSET_PX = 25      # a teljes képet ennyivel hozzuk beljebb
-BOTTOM_CROP   = 0.92    # 8% levágás alul
+LEFT_INSET_PX = 25
+BOTTOM_CROP   = 0.92
 
 def _make_description_image(text, w_px, h_px):
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
@@ -225,7 +297,6 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # belső margók: bal=12, jobb=0, fent=10, lent=10
     pad_left, pad_top, pad_right, pad_bottom = 12, 10, 0, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
@@ -271,16 +342,12 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         text_s = (text or "")
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
 
-        # teljes blokk pixelmérete + A oszlop pixel-szélessége
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
-        colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop
+        colA_w_px = _get_col_pixel_width(ws, 1)
 
-        # új horgony: B6
-        anchor_col = c1 + 1  # A->B
+        anchor_col = c1 + 1  # B6
         anchor = f"{get_column_letter(anchor_col)}{r1}"
 
-        # az új kép szélessége: a teljes blokkszélességből kivonjuk az A oszlop szélességét,
-        # majd finomítunk +LEFT_INSET_PX-szel (még egy kicsit beljebb)
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
@@ -296,32 +363,12 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# -------------------- AUTH ROUTES --------------------
-@app.get("/login", response_class=HTMLResponse)
-async def login_form(request: Request):
-    if is_authed(request):
-        return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": False})
-
-@app.post("/login", response_class=HTMLResponse)
-async def login_submit(request: Request, username: str = Form(""), password: str = Form("")):
-    ok = (username == APP_USERNAME) and (password == APP_PASSWORD)
-    if ok:
-        request.session["auth_ok"] = True
-        return RedirectResponse(url="/", status_code=303)
-    # hibás jelszó -> marad a login oldal
-    return templates.TemplateResponse("login.html", {"request": request, "error": True})
-
-@app.get("/logout")
-async def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse(url="/login", status_code=303)
-
-# -------------------- APP ROUTES --------------------
+# ---------- routes ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    if not is_authed(request):
-        return RedirectResponse(url="/login", status_code=303)
+    # védelem
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/generate_excel")
@@ -339,8 +386,8 @@ async def generate_excel(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
 ):
-    if not is_authed(request):
-        return RedirectResponse(url="/login", status_code=303)
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/", status_code=303)
 
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
@@ -371,7 +418,7 @@ async def generate_excel(
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
 
     if not inserted:
-        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)  # fallback B oszloptól
+        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)
 
     # --- Dolgozók és órák + Vorhaltung oszlop ---
     pos = find_header_positions(ws)
@@ -419,7 +466,7 @@ async def generate_excel(
     # ---------- Nyomtatási beállítások ----------
     try:
         ws.page_setup.orientation = 'landscape'
-        ws.page_setup.paperSize = 9
+        ws.page_setup.paperSize = 9            # A4
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 0
         ws.sheet_properties.pageSetUpPr.fitToPage = True
@@ -438,7 +485,7 @@ async def generate_excel(
     data = bio.getvalue()
     fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
     headers = {
-        "Content-Disposition": f'attachment; filename=\"{fname}\"',
+        "Content-Disposition": f'attachment; filename="{fname}"',
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
@@ -464,8 +511,8 @@ async def generate_pdf(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
 ):
-    if not is_authed(request):
-        return RedirectResponse(url="/login", status_code=303)
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/", status_code=303)
 
     pagesize = landscape(A4)
     W, H = pagesize
@@ -474,10 +521,11 @@ async def generate_pdf(
     bio = BytesIO()
     c = canvas.Canvas(bio, pagesize=pagesize)
 
+    # Fejléc
     c.setFont("Helvetica-Bold", 14)
     c.drawString(margin, H - margin, "Leistungsnachweis – PDF Vorschau")
 
-    # Dátum
+    # Dátum formázás
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -485,6 +533,7 @@ async def generate_pdf(
     except Exception:
         pass
 
+    # Alap adatok
     c.setFont("Helvetica", 11)
     y = H - margin - 10*mm
     c.drawString(margin, y, f"Datum: {date_text}")
@@ -520,7 +569,7 @@ async def generate_pdf(
                   box_w - 20*mm, box_h - 20*mm, showBoundary=0)
     frame.addFromList([para], c)
 
-    # Táblázat fejlécek
+    # Dolgozói táblázat fejlécek
     y_tab = box_y - 15*mm
     c.setFont("Helvetica-Bold", 10)
     headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Anzahl Stunden", "Vorhaltung"]
@@ -530,8 +579,8 @@ async def generate_pdf(
         c.drawString(x, y_tab, htxt)
         x += w
 
+    # Sorok
     c.setFont("Helvetica", 10)
-
     def row(values, yrow):
         x = margin
         for val, w in zip(values, col_widths):
@@ -564,6 +613,7 @@ async def generate_pdf(
     c.setFont("Helvetica-Bold", 11)
     c.drawString(margin, y_tab, f"Gesamtstunden: {round(total_hours, 2)}")
 
+    # Lábjegyzet
     c.setFont("Helvetica", 8)
     c.setFillColor(colors.grey)
     c.drawRightString(W - margin, margin - 2*mm, "PDF Vorschau – tesztcélra (ReportLab)")
@@ -574,7 +624,7 @@ async def generate_pdf(
     data = bio.getvalue()
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:6]}.pdf"
     headers = {
-        "Content-Disposition": f'attachment; filename=\"{fname}\"',
+        "Content-Disposition": f'attachment; filename="{fname}"',
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
