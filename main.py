@@ -262,8 +262,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         anchor_col = c1 + 1  # A->B
         anchor = f"{get_column_letter(anchor_col)}{r1}"
 
-        # az új kép szélessége: a teljes blokkszélességből kivonjuk az A oszlop szélességét,
-        # majd finomítunk +LEFT_INSET_PX-szel (még egy kicsit beljebb)
+        # új kép szélessége
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
@@ -395,7 +394,7 @@ async def generate_excel(
     data = bio.getvalue()
     fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
     headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Disposition": f'attachment; filename=\"{fname}\"',
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
@@ -405,7 +404,7 @@ async def generate_excel(
         headers=headers,
     )
 
-# ---------- PDF VORSCHAU ----------
+# ---------- PDF VORSCHAU (A4 landscape, fix margók, nem fut ki a széléig) ----------
 @app.post("/generate_pdf")
 async def generate_pdf(
     request: Request,
@@ -421,16 +420,30 @@ async def generate_pdf(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
 ):
-    pagesize = landscape(A4)
+    pagesize = landscape(A4)          # 297 x 210 mm
     W, H = pagesize
-    margin = 12 * mm
+
+    # NYOMTATHATÓ TERÜLET – nagyobb oldalmargók, hogy biztosan ne fusson ki
+    M_LEFT   = 15 * mm
+    M_RIGHT  = 15 * mm
+    M_TOP    = 12 * mm
+    M_BOTTOM = 15 * mm
+    X0 = M_LEFT
+    Y0 = M_BOTTOM
+    CONTENT_W = W - (M_LEFT + M_RIGHT)
+    CONTENT_H = H - (M_TOP + M_BOTTOM)
 
     bio = BytesIO()
     c = canvas.Canvas(bio, pagesize=pagesize)
 
+    # „print area” keret (vizuális támpont)
+    c.setStrokeColor(colors.lightgrey)
+    c.rect(X0, Y0, CONTENT_W, CONTENT_H, stroke=1, fill=0)
+    c.setStrokeColor(colors.black)
+
     # Fejléc
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(margin, H - margin, "Leistungsnachweis – PDF Vorschau")
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(X0, H - M_TOP + 2*mm, "Leistungsnachweis – PDF Vorschau")
 
     # Dátum formázás
     date_text = datum
@@ -440,27 +453,24 @@ async def generate_pdf(
     except Exception:
         pass
 
-    # Alap adatok
-    c.setFont("Helvetica", 11)
-    y = H - margin - 10*mm
-    c.drawString(margin, y, f"Datum: {date_text}")
-    y -= 6 * mm
-    c.drawString(margin, y, f"Bau: {bau}")
-    y -= 6 * mm
+    # Alap adatok blokk
+    c.setFont("Helvetica", 10.5)
+    y = H - M_TOP - 6*mm
+    c.drawString(X0, y, f"Datum: {date_text}")
+    y -= 5.5*mm
+    c.drawString(X0, y, f"Bau: {bau}")
+    y -= 5.5*mm
     if (basf_beauftragter or "").strip():
-        c.drawString(margin, y, f"BASF-Beauftragter: {basf_beauftragter}")
-        y -= 8 * mm
-    else:
-        y -= 2 * mm
+        c.drawString(X0, y, f"BASF-Beauftragter: {basf_beauftragter}")
+        y -= 2*mm
 
     # Beschreibung doboz
-    box_x = margin
-    box_w = W - 2*margin
-    box_h = 45 * mm
-    box_y = H/2
+    BOX_H = 48 * mm
+    box_x = X0
+    box_y = H - M_TOP - 22*mm - BOX_H
+    box_w = CONTENT_W
 
-    c.setStrokeColor(colors.black)
-    c.rect(box_x, box_y - box_h, box_w, box_h, stroke=1, fill=0)
+    c.rect(box_x, box_y, box_w, BOX_H, stroke=1, fill=0)
 
     styles = getSampleStyleSheet()
     style = styles["Normal"]
@@ -472,29 +482,37 @@ async def generate_pdf(
     beschr = (beschreibung or "").replace("\r\n", "\n").replace("\r", "\n")
     para = Paragraph(beschr, style)
 
-    frame = Frame(box_x + 10*mm, (box_y - box_h) + 10*mm,
-                  box_w - 20*mm, box_h - 20*mm, showBoundary=0)
+    pad = 6 * mm
+    frame = Frame(box_x + pad, box_y + pad, box_w - 2*pad, BOX_H - 2*pad, showBoundary=0)
     frame.addFromList([para], c)
 
-    # Dolgozói táblázat fejlécek
-    y_tab = box_y - 15*mm
+    # Táblázat fejlécek
+    y_tab = box_y - 10*mm
     c.setFont("Helvetica-Bold", 10)
     headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Anzahl Stunden", "Vorhaltung"]
-    col_widths = [35*mm, 35*mm, 28*mm, 20*mm, 20*mm, 28*mm, 40*mm]
-    x = margin
+
+    # oszlopszélek arányosítása a tartalomszélességhez
+    col_base = [35, 35, 28, 20, 20, 28, 41]  # mm
+    scale = (CONTENT_W / mm) / sum(col_base)
+    col_widths = [w * scale * mm for w in col_base]
+
+    x = X0
     for htxt, w in zip(headers, col_widths):
         c.drawString(x, y_tab, htxt)
         x += w
 
     # Sorok
     c.setFont("Helvetica", 10)
+
     def row(values, yrow):
-        x = margin
+        x = X0
         for val, w in zip(values, col_widths):
             c.drawString(x, yrow, str(val or ""))
             x += w
 
-    def hhmm(t): return parse_hhmm(t) if t else None
+    def hhmm(t):
+        return parse_hhmm(t) if t else None
+
     workers = [
         (nachname1, vorname1, ausweis1, beginn1, ende1, vorhaltung1),
         (nachname2, vorname2, ausweis2, beginn2, ende2, vorhaltung2),
@@ -518,12 +536,12 @@ async def generate_pdf(
     # Összesítés
     y_tab -= 4 * mm
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(margin, y_tab, f"Gesamtstunden: {round(total_hours, 2)}")
+    c.drawString(X0, y_tab, f"Gesamtstunden: {round(total_hours, 2)}")
 
     # Lábjegyzet
     c.setFont("Helvetica", 8)
     c.setFillColor(colors.grey)
-    c.drawRightString(W - margin, margin - 2*mm, "PDF Vorschau – tesztcélra (ReportLab)")
+    c.drawRightString(W - M_RIGHT, M_BOTTOM - 2*mm, "PDF Vorschau – Test (margókkal)")
 
     c.showPage()
     c.save()
@@ -531,7 +549,7 @@ async def generate_pdf(
     data = bio.getvalue()
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:6]}.pdf"
     headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Disposition": f'attachment; filename=\"{fname}\"',
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
