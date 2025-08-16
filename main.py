@@ -54,7 +54,6 @@ def _is_authed(request: Request) -> bool:
     return bool(request.session.get("auth_ok") is True)
 
 def _login_page(msg: str = "", next_path: str = "/") -> str:
-    # minimál bejelentkező oldal – beépítve (nincs külön template)
     return f"""
 <!doctype html>
 <html lang="de"><head>
@@ -182,14 +181,12 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
     finish = dt.replace(hour=end.hour, minute=end.minute)
     if finish <= start:
         return 0.0
-
     total_min = int((finish - start).total_seconds() // 60)
     if pause_min >= 60:
         minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
               + overlap_minutes(beg, end, time(12,0), time(12,45))
     else:
         minus = min(total_min, 30)
-
     return max(0.0, (total_min - minus) / 60.0)
 
 # ---------- table helpers ----------
@@ -235,12 +232,10 @@ def find_total_cells(ws, stunden_col):
                 break
         if total_row:
             break
-
     stunden_total = None
     if total_row:
         rr, cc = top_left_of_block(ws, total_row, stunden_col)
         stunden_total = (rr, cc)
-
     return right_of_label, stunden_total
 
 # --- Fix Beschreibung-blokk: A6–G15 ---
@@ -337,18 +332,19 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         return False
     try:
         text_s = (text or "")
-        print(f"IMG: will insert, text_len={{len(text_s)}} at {{get_column_letter(c1)}}{{r1}}-{{get_column_letter(c2)}}{{r2}}")
+        # HELYES f-stringek (nincs dupla kapcsos zárójel!)
+        print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
 
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
         colA_w_px = _get_col_pixel_width(ws, 1)
 
         anchor_col = c1 + 1  # B6
-        anchor = f"{{get_column_letter(anchor_col)}}{{r1}}"
+        anchor = f"{get_column_letter(anchor_col)}{r1}"
 
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
-        print(f"IMG: new size w={{new_w_px}}, h={{new_h_px}}, anchor={{anchor}}")
+        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
         pil_img = _make_description_image(text_s, new_w_px, new_h_px)
         xlimg = _xlimage_from_pil(pil_img)
 
@@ -510,17 +506,13 @@ async def generate_pdf(
     if not _is_authed(request):
         return RedirectResponse("/login?next=/", status_code=303)
 
-    # nagyobb, fix margók, ne legyen széltől-szélig
+    # nagyobb, fix margók
     pagesize = landscape(A4)
     W, H = pagesize
     margin = 18 * mm
 
     bio = BytesIO()
     c = canvas.Canvas(bio, pagesize=pagesize)
-
-    # Oldalszegély halvány segítségnek (kommenteld ki ha nem kell)
-    # c.setStrokeColorRGB(0.85, 0.85, 0.85)
-    # c.rect(margin, margin, W-2*margin, H-2*margin, stroke=1, fill=0)
 
     # Fejléc
     c.setFont("Helvetica-Bold", 14)
@@ -552,7 +544,7 @@ async def generate_pdf(
     box_x = margin
     box_w = W - 2*margin
     box_h = 52 * mm
-    box_y = H - margin - 40*mm  # a fejléc + adatok alatt
+    box_y = H - margin - 40*mm
 
     c.setStrokeColor(colors.black)
     c.rect(box_x, box_y - box_h, box_w, box_h, stroke=1, fill=0)
@@ -568,7 +560,6 @@ async def generate_pdf(
     )
 
     beschr = (beschreibung or "").replace("\r\n", "\n").replace("\r", "\n")
-    # HTML-escape + sortörések
     beschr_html = "<br/>".join(beschr.split("\n"))
     para = Paragraph(beschr_html, style)
 
