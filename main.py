@@ -21,7 +21,7 @@ import traceback
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Paragraph, Frame
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib import colors
@@ -93,7 +93,6 @@ def _login_page(msg: str = "", next_path: str = "/") -> str:
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request, next: str = "/"):
-    # ha már be van lépve, mehet tovább
     if _is_authed(request):
         return RedirectResponse(next or "/", status_code=303)
     return HTMLResponse(_login_page(next_path=next))
@@ -112,7 +111,6 @@ async def login_submit(
         else:
             return HTMLResponse(_login_page("Falscher Benutzername oder Passwort.", next), status_code=401)
     else:
-        # Ha nincs beállítva az env var, engedjük át (fejlesztés).
         request.session["auth_ok"] = True
         return RedirectResponse(next or "/", status_code=303)
 
@@ -120,11 +118,6 @@ async def login_submit(
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
-
-def _guard(request: Request, next_to: str = "/"):
-    """Ha nincs bejelentkezve, átirányít a /login oldalra."""
-    if not _is_authed(request):
-        raise RedirectResponse(url=f"/login?next={next_to}", status_code=303)
 
 # ---------- helpers for merged cells ----------
 def merged_ranges(ws):
@@ -189,12 +182,14 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
     finish = dt.replace(hour=end.hour, minute=end.minute)
     if finish <= start:
         return 0.0
+
     total_min = int((finish - start).total_seconds() // 60)
     if pause_min >= 60:
         minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
               + overlap_minutes(beg, end, time(12,0), time(12,45))
     else:
         minus = min(total_min, 30)
+
     return max(0.0, (total_min - minus) / 60.0)
 
 # ---------- table helpers ----------
@@ -240,10 +235,12 @@ def find_total_cells(ws, stunden_col):
                 break
         if total_row:
             break
+
     stunden_total = None
     if total_row:
         rr, cc = top_left_of_block(ws, total_row, stunden_col)
         stunden_total = (rr, cc)
+
     return right_of_label, stunden_total
 
 # --- Fix Beschreibung-blokk: A6–G15 ---
@@ -340,18 +337,18 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         return False
     try:
         text_s = (text or "")
-        print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
+        print(f"IMG: will insert, text_len={{len(text_s)}} at {{get_column_letter(c1)}}{{r1}}-{{get_column_letter(c2)}}{{r2}}")
 
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
         colA_w_px = _get_col_pixel_width(ws, 1)
 
         anchor_col = c1 + 1  # B6
-        anchor = f"{get_column_letter(anchor_col)}{r1}"
+        anchor = f"{{get_column_letter(anchor_col)}}{{r1}}"
 
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
-        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
+        print(f"IMG: new size w={{new_w_px}}, h={{new_h_px}}, anchor={{anchor}}")
         pil_img = _make_description_image(text_s, new_w_px, new_h_px)
         xlimg = _xlimage_from_pil(pil_img)
 
@@ -366,7 +363,6 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
 # ---------- routes ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    # védelem
     if not _is_authed(request):
         return RedirectResponse("/login?next=/", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request})
@@ -514,15 +510,21 @@ async def generate_pdf(
     if not _is_authed(request):
         return RedirectResponse("/login?next=/", status_code=303)
 
+    # nagyobb, fix margók, ne legyen széltől-szélig
     pagesize = landscape(A4)
     W, H = pagesize
-    margin = 12 * mm
+    margin = 18 * mm
 
     bio = BytesIO()
     c = canvas.Canvas(bio, pagesize=pagesize)
 
+    # Oldalszegély halvány segítségnek (kommenteld ki ha nem kell)
+    # c.setStrokeColorRGB(0.85, 0.85, 0.85)
+    # c.rect(margin, margin, W-2*margin, H-2*margin, stroke=1, fill=0)
+
     # Fejléc
     c.setFont("Helvetica-Bold", 14)
+    c.setFillColor(colors.black)
     c.drawString(margin, H - margin, "Leistungsnachweis – PDF Vorschau")
 
     # Dátum formázás
@@ -546,31 +548,36 @@ async def generate_pdf(
     else:
         y -= 2 * mm
 
-    # Beschreibung doboz
+    # Beschreibung doboz (fix terület)
     box_x = margin
     box_w = W - 2*margin
-    box_h = 45 * mm
-    box_y = H/2
+    box_h = 52 * mm
+    box_y = H - margin - 40*mm  # a fejléc + adatok alatt
 
     c.setStrokeColor(colors.black)
     c.rect(box_x, box_y - box_h, box_w, box_h, stroke=1, fill=0)
 
     styles = getSampleStyleSheet()
-    style = styles["Normal"]
-    style.fontName = "Helvetica"
-    style.fontSize = 10.5
-    style.leading = 13
-    style.alignment = TA_LEFT
+    style = ParagraphStyle(
+        "Besch",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=11,
+        leading=13.5,
+        alignment=TA_LEFT,
+    )
 
     beschr = (beschreibung or "").replace("\r\n", "\n").replace("\r", "\n")
-    para = Paragraph(beschr, style)
+    # HTML-escape + sortörések
+    beschr_html = "<br/>".join(beschr.split("\n"))
+    para = Paragraph(beschr_html, style)
 
-    frame = Frame(box_x + 10*mm, (box_y - box_h) + 10*mm,
-                  box_w - 20*mm, box_h - 20*mm, showBoundary=0)
+    frame = Frame(box_x + 8*mm, (box_y - box_h) + 8*mm,
+                  box_w - 16*mm, box_h - 16*mm, showBoundary=0)
     frame.addFromList([para], c)
 
-    # Dolgozói táblázat fejlécek
-    y_tab = box_y - 15*mm
+    # Dolgozói táblázat
+    y_tab = box_y - 12*mm
     c.setFont("Helvetica-Bold", 10)
     headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Anzahl Stunden", "Vorhaltung"]
     col_widths = [35*mm, 35*mm, 28*mm, 20*mm, 20*mm, 28*mm, 40*mm]
@@ -616,7 +623,7 @@ async def generate_pdf(
     # Lábjegyzet
     c.setFont("Helvetica", 8)
     c.setFillColor(colors.grey)
-    c.drawRightString(W - margin, margin - 2*mm, "PDF Vorschau – tesztcélra (ReportLab)")
+    c.drawRightString(W - margin, margin - 2*mm, "PDF Vorschau – tesztcél (ReportLab)")
 
     c.showPage()
     c.save()
