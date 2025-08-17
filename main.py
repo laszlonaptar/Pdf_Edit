@@ -387,40 +387,41 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # Nyomtatási beállítások
-    # Nyomtatási beállítások – Excelben teljes A4 kitöltés
+    # ---------- Nyomtatási beállítások (A4, teljes oldal, 1×1 oldalra illesztés) ----------
     try:
+        # A4 fekvő
         ws.page_setup.orientation = 'landscape'
         ws.page_setup.paperSize = 9  # A4
 
-        # Nagyon fontos: a "Fit to page" mód használata
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        # Skálázás: pontosan 1 oldal széles × 1 oldal magas
+        # (fontos: ha scale be lenne állítva, nullázzuk)
+        ws.page_setup.scale = None
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 1
-        ws.page_setup.scale = None   # ne keverje a scale-t a FitTo-val
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
 
-        # Szűkebb margók, hogy jobban kitöltse az oldalt
-        ws.page_margins.left   = 0.15
-        ws.page_margins.right  = 0.15
-        ws.page_margins.top    = 0.25
-        ws.page_margins.bottom = 0.25
+        # Margók minimalizálása
+        ws.page_margins.left   = 0.2
+        ws.page_margins.right  = 0.2
+        ws.page_margins.top    = 0.2
+        ws.page_margins.bottom = 0.2
+        ws.page_margins.header = 0
+        ws.page_margins.footer = 0
 
-        # --- Dinamikus nyomtatási terület ---
-        # r2: Beschreibung blokk alja; row: a következő üres sor a táblázatban;
-        # find_total_cells() visszaadja a "Gesamtstunden" sorát is.
-        right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
-        used_last_row_candidates = [r2, row - 1]
-        if stunden_total:
-            used_last_row_candidates.append(stunden_total[0])
-        used_last_row = max(v for v in used_last_row_candidates if isinstance(v, int))
+        # Header/Footer letiltása – LO gyakran hagy ott extra helyet
+        ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
+        ws.oddFooter.left.text = ws.oddFooter.center.text = ws.oddFooter.right.text = ""
+        ws.header_footer.differentFirst = False
+        ws.header_footer.differentOddEven = False
 
-        last_col_letter = get_column_letter(ws.max_column)
-        ws.print_area = f"A1:{last_col_letter}{used_last_row}"
+        # Nyomtatási terület: a ténylegesen használt tartomány
+        last_row = ws.max_row
+        last_col = ws.max_column
+        ws.print_area = f"A1:{get_column_letter(last_col)}{last_row}"
 
-        # Középre rendezés vízszintesen (függőlegest nem erőltetjük)
-        ws.print_options.horizontalCentered = True
+        # Ne középre igazítsuk (különben optikailag kisebbnek hat)
+        ws.print_options.horizontalCentered = False
         ws.print_options.verticalCentered = False
-
     except Exception as e:
         print("PRINT SETUP WARN:", repr(e))
 
