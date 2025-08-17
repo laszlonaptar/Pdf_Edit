@@ -377,6 +377,13 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
 
     # Dolgozók
     pos = find_header_positions(ws)
+
+    # (ÚJ) oszlopszélességek a szebb A4 kitöltéshez
+    try:
+        _set_column_widths_for_print(ws, pos)
+    except Exception as _e:
+        print("WIDTH SET WARN:", repr(_e))
+
     row = pos["data_start_row"]
     vorhaltung_col = pos.get("vorhaltung_col", None)
 
@@ -434,7 +441,7 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         ws.header_footer.differentFirst = False
         ws.header_footer.differentOddEven = False
 
-        # 🔽 IDE kell beszúrni a javítást 🔽
+        # Nyomtatási terület: ténylegesen használt utolsó sorig
         last_data_row = 1
         for r in range(1, ws.max_row + 1):
             if any(ws.cell(row=r, column=c).value not in (None, "") for c in range(1, ws.max_column + 1)):
@@ -623,9 +630,14 @@ async def generate_pdf(
             xlsx_path = os.path.join(tmpdir, f"ln_{uuid.uuid4().hex[:8]}.xlsx")
             pdf_outdir = tmpdir
             wb.save(xlsx_path)
+
+            # ---- FONTOS: FilterData, hogy a Calc a lapbeállításokat használja és 1×1 oldalra skálázzon
+            filter_data = '{"UsePageSettings":true,"ScaleToPagesX":1,"ScaleToPagesY":1}'
             cmd = [
                 "soffice","--headless","--nologo","--nodefault","--nolockcheck","--nofirststartwizard",
-                "--convert-to","pdf","--outdir", pdf_outdir, xlsx_path
+                "--convert-to", f"pdf:calc_pdf_Export:{filter_data}",
+                "--outdir", pdf_outdir,
+                xlsx_path
             ]
             try:
                 subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
