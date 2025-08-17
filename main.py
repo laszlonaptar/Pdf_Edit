@@ -312,7 +312,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
-        print(f\"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}\")
+        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
         pil_img = _make_description_image(text_s, new_w_px, new_h_px)
         xlimg = _xlimage_from_pil(pil_img)
 
