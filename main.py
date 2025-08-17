@@ -241,6 +241,27 @@ def _get_col_pixel_width(ws, col_index):
     cd = ws.column_dimensions.get(letter)
     return _excel_col_width_to_pixels(getattr(cd, "width", None))
 
+# ---------- (ÚJ) oszlopszélességek a teljes A4 kitöltéséhez ----------
+def _set_column_widths_for_print(ws, pos):
+    """
+    Oszlopszélességek beállítása úgy, hogy A4 fekvőben a rács szépen kitöltse a lapot.
+    Igény szerint később finomhangolható.
+    """
+    widths = {
+        pos["name_col"]:     18.0,  # Name
+        pos["vorname_col"]:  14.0,  # Vorname
+        pos["ausweis_col"]:  14.0,  # Ausweis/Kennzeichen
+        pos["beginn_col"]:   10.0,  # Beginn
+        pos["ende_col"]:     10.0,  # Ende
+        pos["stunden_col"]:  12.0,  # Anzahl Stunden
+    }
+    if "vorhaltung_col" in pos and pos["vorhaltung_col"]:
+        widths[pos["vorhaltung_col"]] = 28.0  # Vorhaltung / Gerät
+
+    for col_idx, width in widths.items():
+        letter = get_column_letter(col_idx)
+        ws.column_dimensions[letter].width = width
+
 # ---------- image (Beschreibung) ----------
 LEFT_INSET_PX = 25
 BOTTOM_CROP   = 0.92
@@ -389,12 +410,14 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
 
     # ---------- Nyomtatási beállítások (A4, teljes oldal, 1×1 oldalra illesztés) ----------
     try:
+        # Oszlopszélességek a teljes A4 kitöltéséhez
+        _set_column_widths_for_print(ws, pos)
+
         # A4 fekvő
         ws.page_setup.orientation = 'landscape'
         ws.page_setup.paperSize = 9  # A4
 
-        # Skálázás: pontosan 1 oldal széles × 1 oldal magas
-        # (fontos: ha scale be lenne állítva, nullázzuk)
+        # Skálázás: 1 oldal széles × 1 oldal magas
         ws.page_setup.scale = None
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 1
@@ -408,18 +431,18 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         ws.page_margins.header = 0
         ws.page_margins.footer = 0
 
-        # Header/Footer letiltása – LO gyakran hagy ott extra helyet
+        # Header/Footer üres
         ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
         ws.oddFooter.left.text = ws.oddFooter.center.text = ws.oddFooter.right.text = ""
         ws.header_footer.differentFirst = False
         ws.header_footer.differentOddEven = False
 
-        # Nyomtatási terület: a ténylegesen használt tartomány
+        # Nyomtatási terület
         last_row = ws.max_row
         last_col = ws.max_column
         ws.print_area = f"A1:{get_column_letter(last_col)}{last_row}"
 
-        # Ne középre igazítsuk (különben optikailag kisebbnek hat)
+        # Ne középre igazítsuk a tartalmat
         ws.print_options.horizontalCentered = False
         ws.print_options.verticalCentered = False
     except Exception as e:
