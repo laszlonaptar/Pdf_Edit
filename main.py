@@ -307,7 +307,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         colA_w_px = _get_col_pixel_width(ws, 1)
 
         anchor_col = c1 + 1  # B6
-        anchor = f\"{get_column_letter(anchor_col)}{r1}\"
+        anchor = f"{get_column_letter(anchor_col)}{r1}\"
 
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
