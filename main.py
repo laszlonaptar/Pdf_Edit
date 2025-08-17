@@ -388,18 +388,39 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
     # Nyomtatási beállítások
+    # Nyomtatási beállítások – Excelben teljes A4 kitöltés
     try:
         ws.page_setup.orientation = 'landscape'
-        ws.page_setup.paperSize = 9
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0
+        ws.page_setup.paperSize = 9  # A4
+
+        # Nagyon fontos: a "Fit to page" mód használata
         ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.page_margins.left   = 0.2
-        ws.page_margins.right  = 0.2
-        ws.page_margins.top    = 0.3
-        ws.page_margins.bottom = 0.3
-        ws.print_area = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 1
+        ws.page_setup.scale = None   # ne keverje a scale-t a FitTo-val
+
+        # Szűkebb margók, hogy jobban kitöltse az oldalt
+        ws.page_margins.left   = 0.15
+        ws.page_margins.right  = 0.15
+        ws.page_margins.top    = 0.25
+        ws.page_margins.bottom = 0.25
+
+        # --- Dinamikus nyomtatási terület ---
+        # r2: Beschreibung blokk alja; row: a következő üres sor a táblázatban;
+        # find_total_cells() visszaadja a "Gesamtstunden" sorát is.
+        right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
+        used_last_row_candidates = [r2, row - 1]
+        if stunden_total:
+            used_last_row_candidates.append(stunden_total[0])
+        used_last_row = max(v for v in used_last_row_candidates if isinstance(v, int))
+
+        last_col_letter = get_column_letter(ws.max_column)
+        ws.print_area = f"A1:{last_col_letter}{used_last_row}"
+
+        # Középre rendezés vízszintesen (függőlegest nem erőltetjük)
         ws.print_options.horizontalCentered = True
+        ws.print_options.verticalCentered = False
+
     except Exception as e:
         print("PRINT SETUP WARN:", repr(e))
 
