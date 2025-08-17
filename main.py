@@ -410,14 +410,11 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
 
     # ---------- Nyomtatási beállítások (A4, teljes oldal, 1×1 oldalra illesztés) ----------
     try:
-        # Oszlopszélességek a teljes A4 kitöltéséhez
-        _set_column_widths_for_print(ws, pos)
-
         # A4 fekvő
         ws.page_setup.orientation = 'landscape'
         ws.page_setup.paperSize = 9  # A4
 
-        # Skálázás: 1 oldal széles × 1 oldal magas
+        # Skálázás: pontosan 1 oldal széles × 1 oldal magas
         ws.page_setup.scale = None
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 1
@@ -431,18 +428,22 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         ws.page_margins.header = 0
         ws.page_margins.footer = 0
 
-        # Header/Footer üres
+        # Header/Footer letiltása
         ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
         ws.oddFooter.left.text = ws.oddFooter.center.text = ws.oddFooter.right.text = ""
         ws.header_footer.differentFirst = False
         ws.header_footer.differentOddEven = False
 
-        # Nyomtatási terület
-        last_row = ws.max_row
-        last_col = ws.max_column
-        ws.print_area = f"A1:{get_column_letter(last_col)}{last_row}"
+        # 🔽 IDE kell beszúrni a javítást 🔽
+        last_data_row = 1
+        for r in range(1, ws.max_row + 1):
+            if any(ws.cell(row=r, column=c).value not in (None, "") for c in range(1, ws.max_column + 1)):
+                last_data_row = r
 
-        # Ne középre igazítsuk a tartalmat
+        last_col = ws.max_column
+        ws.print_area = f"A1:{get_column_letter(last_col)}{last_data_row}"
+
+        # Ne középre igazítsuk
         ws.print_options.horizontalCentered = False
         ws.print_options.verticalCentered = False
     except Exception as e:
