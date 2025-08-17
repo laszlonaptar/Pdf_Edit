@@ -1,4 +1,4 @@
-# main.py
+# main.py — FastAPI app with Excel export and true print-preview PDF via LibreOffice (fallback to ReportLab)
 from fastapi import FastAPI, Request, Form, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,12 +12,9 @@ from openpyxl.utils import get_column_letter
 
 from datetime import datetime, time
 from io import BytesIO
-import os
-import uuid
-import textwrap
-import traceback
+import os, uuid, textwrap, traceback, subprocess, tempfile, shutil
 
-# --- PDF (előnézet) importok ---
+# --- ReportLab for PDF fallback ---
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
@@ -44,51 +41,29 @@ APP_USERNAME = os.getenv("APP_USERNAME", "")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-secret-change-me")
 
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=SESSION_SECRET,
-    same_site="lax",
-)
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
 
 def _is_authed(request: Request) -> bool:
     return bool(request.session.get("auth_ok") is True)
 
 def _login_page(msg: str = "", next_path: str = "/") -> str:
-    return f"""
-<!doctype html>
-<html lang="de"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Login</title>
-<link rel="stylesheet" href="/static/style.css">
-<style>
-  .login-card{{max-width:420px;margin:4rem auto;padding:1.25rem}}
-  .muted{{color:#666;font-size:.9rem}}
-  .err{{color:#b00020;margin:.5rem 0}}
-</style>
-</head><body>
-  <main class="container">
-    <section class="card login-card">
-      <h1>Anmeldung</h1>
-      {"<div class='err'>"+msg+"</div>" if msg else ""}
+    return f"""<!doctype html>
+    <html lang="de"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>.login-card{{max-width:420px;margin:4rem auto;padding:1.25rem}}
+    .muted{{color:#666;font-size:.9rem}}.err{{color:#b00020;margin:.5rem 0}}</style>
+    </head><body><main class="container"><section class="card login-card">
+      <h1>Anmeldung</h1>{("<div class='err'>"+msg+"</div>" if msg else "")}
       <form method="post" action="/login">
         <input type="hidden" name="next" value="{next_path}">
-        <div class="field">
-          <label for="u">Benutzername</label>
-          <input id="u" name="username" type="text" required>
-        </div>
-        <div class="field">
-          <label for="p">Passwort</label>
-          <input id="p" name="password" type="password" required>
-        </div>
-        <div class="actions">
-          <button class="btn primary" type="submit">Anmelden</button>
-        </div>
-      </form>
-      <p class="muted">Zugriff ist passwortgeschützt.</p>
-    </section>
-  </main>
-</body></html>
-"""
+        <div class="field"><label for="u">Benutzername</label>
+        <input id="u" name="username" type="text" required></div>
+        <div class="field"><label for="p">Passwort</label>
+        <input id="p" name="password" type="password" required></div>
+        <div class="actions"><button class="btn primary" type="submit">Anmelden</button></div>
+      </form><p class="muted">Zugriff ist passwortgeschützt.</p></section></main></body></html>"""
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request, next: str = "/"):
@@ -97,12 +72,7 @@ async def login_form(request: Request, next: str = "/"):
     return HTMLResponse(_login_page(next_path=next))
 
 @app.post("/login", response_class=HTMLResponse)
-async def login_submit(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    next: str = Form("/")
-):
+async def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
     if APP_USERNAME and APP_PASSWORD:
         if username == APP_USERNAME and password == APP_PASSWORD:
             request.session["auth_ok"] = True
@@ -183,8 +153,7 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
         return 0.0
     total_min = int((finish - start).total_seconds() // 60)
     if pause_min >= 60:
-        minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
-              + overlap_minutes(beg, end, time(12,0), time(12,45))
+        minus = overlap_minutes(beg, end, time(9,0), time(9,15)) + overlap_minutes(beg, end, time(12,0), time(12,45))
     else:
         minus = min(total_min, 30)
     return max(0.0, (total_min - minus) / 60.0)
@@ -332,19 +301,18 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         return False
     try:
         text_s = (text or "")
-        # HELYES f-stringek (nincs dupla kapcsos zárójel!)
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
 
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
         colA_w_px = _get_col_pixel_width(ws, 1)
 
         anchor_col = c1 + 1  # B6
-        anchor = f"{get_column_letter(anchor_col)}{r1}"
+        anchor = f\"{get_column_letter(anchor_col)}{r1}\"
 
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
-        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
+        print(f\"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}\")
         pil_img = _make_description_image(text_s, new_w_px, new_h_px)
         xlimg = _xlimage_from_pil(pil_img)
 
@@ -356,50 +324,25 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# ---------- routes ----------
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    if not _is_authed(request):
-        return RedirectResponse("/login?next=/", status_code=303)
-    return templates.TemplateResponse("index.html", {"request": request})
-
-@app.post("/generate_excel")
-async def generate_excel(
-    request: Request,
-    datum: str = Form(...),
-    bau: str = Form(...),
-    basf_beauftragter: str = Form(""),
-    geraet: str = Form(""),
-    beschreibung: str = Form(""),
-    break_minutes: int = Form(60),
-    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
-    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
-    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
-    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
-):
-    if not _is_authed(request):
-        return RedirectResponse("/login?next=/", status_code=303)
-
+# ---- shared: workbook fill ----
+def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers):
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- Felső mezők ---
+    # Felső mezők
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
         date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
-
     set_text_addr(ws, "B2", date_text, horizontal="left")
     set_text_addr(ws, "B3", bau,        horizontal="left")
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung blokk ---
+    # Beschreibung blokk
     r1, c1, r2, c2 = find_description_block(ws)
-
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
@@ -408,29 +351,18 @@ async def generate_excel(
     text_in = (beschreibung or "").strip()
     if text_in:
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
-
     if not inserted:
         set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)
 
-    # --- Dolgozók és órák + Vorhaltung oszlop ---
+    # Dolgozók
     pos = find_header_positions(ws)
     row = pos["data_start_row"]
     vorhaltung_col = pos.get("vorhaltung_col", None)
 
-    workers = []
-    for i in range(1, 6):
-        vn = locals().get(f"vorname{i}", "") or ""
-        nn = locals().get(f"nachname{i}", "") or ""
-        aw = locals().get(f"ausweis{i}", "") or ""
-        bg = locals().get(f"beginn{i}", "") or ""
-        en = locals().get(f"ende{i}", "") or ""
-        vh = locals().get(f"vorhaltung{i}", "") or ""
-        if not (vn or nn or aw or bg or en or vh):
-            continue
-        workers.append((vn, nn, aw, bg, en, vh))
-
     total_hours = 0.0
     for (vn, nn, aw, bg, en, vh) in workers:
+        if not any([vn, nn, aw, bg, en, vh]):
+            continue
         set_text(ws, row, pos["name_col"], nn, wrap=False, align_left=True)
         set_text(ws, row, pos["vorname_col"], vn, wrap=False, align_left=True)
         set_text(ws, row, pos["ausweis_col"], aw, wrap=False, align_left=True)
@@ -455,10 +387,10 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---------- Nyomtatási beállítások ----------
+    # Nyomtatási beállítások
     try:
         ws.page_setup.orientation = 'landscape'
-        ws.page_setup.paperSize = 9            # A4
+        ws.page_setup.paperSize = 9
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 0
         ws.sheet_properties.pageSetUpPr.fitToPage = True
@@ -471,32 +403,29 @@ async def generate_excel(
     except Exception as e:
         print("PRINT SETUP WARN:", repr(e))
 
-    # ---- Excel válasz ----
-    bio = BytesIO()
-    wb.save(bio)
-    data = bio.getvalue()
-    fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
-        "Content-Length": str(len(data)),
-        "Cache-Control": "no-store",
-    }
-    return Response(
-        content=data,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers,
-    )
+    return wb
 
-# ---------- PDF VORSCHAU ----------
-@app.post("/generate_pdf")
-async def generate_pdf(
+# ---------- routes ----------
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/", status_code=303)
+    return templates.TemplateResponse("index.html", {"request": request})
+
+def _collect_workers(formdict):
+    def g(key): return (formdict.get(key) or "").strip()
+    workers = []
+    for i in range(1, 6):
+        workers.append((g(f"vorname{i}"), g(f"nachname{i}"), g(f"ausweis{i}"),
+                        g(f"beginn{i}"), g(f"ende{i}"), g(f"vorhaltung{i}")))
+    return workers
+
+@app.post("/generate_excel")
+async def generate_excel(
     request: Request,
-    datum: str = Form(...),
-    bau: str = Form(...),
-    basf_beauftragter: str = Form(""),
-    geraet: str = Form(""),
-    beschreibung: str = Form(""),
-    break_minutes: int = Form(60),
+    datum: str = Form(...), bau: str = Form(...),
+    basf_beauftragter: str = Form(""), geraet: str = Form(""),
+    beschreibung: str = Form(""), break_minutes: int = Form(60),
     vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
     vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
@@ -506,11 +435,27 @@ async def generate_pdf(
     if not _is_authed(request):
         return RedirectResponse("/login?next=/", status_code=303)
 
-    # nagyobb, fix margók
+    workers = _collect_workers(locals())
+    wb = build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
+
+    bio = BytesIO()
+    wb.save(bio)
+    data = bio.getvalue()
+    fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Length": str(len(data)),
+        "Cache-Control": "no-store",
+    }
+    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+
+def _has_soffice() -> bool:
+    return shutil.which("soffice") is not None
+
+def _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers) -> bytes:
     pagesize = landscape(A4)
     W, H = pagesize
     margin = 18 * mm
-
     bio = BytesIO()
     c = canvas.Canvas(bio, pagesize=pagesize)
 
@@ -519,7 +464,7 @@ async def generate_pdf(
     c.setFillColor(colors.black)
     c.drawString(margin, H - margin, "Leistungsnachweis – PDF Vorschau")
 
-    # Dátum formázás
+    # Dátum
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -527,7 +472,6 @@ async def generate_pdf(
     except Exception:
         pass
 
-    # Alap adatok
     c.setFont("Helvetica", 11)
     y = H - margin - 10*mm
     c.drawString(margin, y, f"Datum: {date_text}")
@@ -540,7 +484,7 @@ async def generate_pdf(
     else:
         y -= 2 * mm
 
-    # Beschreibung doboz (fix terület)
+    # Beschreibung doboz
     box_x = margin
     box_w = W - 2*margin
     box_h = 52 * mm
@@ -586,44 +530,71 @@ async def generate_pdf(
             x += w
 
     def hhmm(t): return parse_hhmm(t) if t else None
-    workers = [
-        (nachname1, vorname1, ausweis1, beginn1, ende1, vorhaltung1),
-        (nachname2, vorname2, ausweis2, beginn2, ende2, vorhaltung2),
-        (nachname3, vorname3, ausweis3, beginn3, ende3, vorhaltung3),
-        (nachname4, vorname4, ausweis4, beginn4, ende4, vorhaltung4),
-        (nachname5, vorname5, ausweis5, beginn5, ende5, vorhaltung5),
-    ]
 
     total_hours = 0.0
     y_tab -= 6*mm
-    for (nn, vn, aw, bg, en, vh) in workers:
-        if not any([nn, vn, aw, bg, en, vh]):
+    for (vn, nn, aw, bg, en, vh) in workers:
+        if not any([vn, nn, aw, bg, en, vh]):
             continue
-        hb = hhmm(bg)
-        he = hhmm(en)
+        hb = hhmm(bg); he = hhmm(en)
         h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
         total_hours += h
         row([nn, vn, aw, bg, en, h, vh], y_tab)
         y_tab -= 6*mm
 
-    # Összesítés
     y_tab -= 4 * mm
     c.setFont("Helvetica-Bold", 11)
     c.drawString(margin, y_tab, f"Gesamtstunden: {round(total_hours, 2)}")
 
-    # Lábjegyzet
     c.setFont("Helvetica", 8)
     c.setFillColor(colors.grey)
-    c.drawRightString(W - margin, margin - 2*mm, "PDF Vorschau – tesztcél (ReportLab)")
+    c.drawRightString(W - margin, margin - 2*mm, "PDF Vorschau – (ReportLab Fallback)")
 
-    c.showPage()
-    c.save()
+    c.showPage(); c.save()
+    return bio.getvalue()
 
-    data = bio.getvalue()
+@app.post("/generate_pdf")
+async def generate_pdf(
+    request: Request,
+    datum: str = Form(...), bau: str = Form(...),
+    basf_beauftragter: str = Form(""), geraet: str = Form(""),
+    beschreibung: str = Form(""), break_minutes: int = Form(60),
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
+):
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/", status_code=303)
+
+    workers = _collect_workers(locals())
+    wb = build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
+
+    # Ha van LibreOffice: igazi nyomtatási kép
+    if _has_soffice():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xlsx_path = os.path.join(tmpdir, f"ln_{uuid.uuid4().hex[:8]}.xlsx")
+            pdf_outdir = tmpdir
+            wb.save(xlsx_path)
+            cmd = [
+                "soffice","--headless","--nologo","--nodefault","--nolockcheck","--nofirststartwizard",
+                "--convert-to","pdf","--outdir", pdf_outdir, xlsx_path
+            ]
+            try:
+                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+                pdf_path = xlsx_path[:-5] + ".pdf"
+                with open(pdf_path, "rb") as f:
+                    pdf_bytes = f.read()
+            except Exception as e:
+                # Ha elbukik, essünk vissza ReportLab-ra
+                print("LibreOffice conversion failed ->", repr(e))
+                pdf_bytes = _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
+    else:
+        # Fallback
+        pdf_bytes = _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
+
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:6]}.pdf"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
-        "Content-Length": str(len(data)),
-        "Cache-Control": "no-store",
-    }
-    return Response(content=data, media_type="application/pdf", headers=headers)
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"',
+               "Content-Length": str(len(pdf_bytes)), "Cache-Control": "no-store"}
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
