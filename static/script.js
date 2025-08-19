@@ -564,91 +564,85 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 })();
 
-// --- Vezérelt letöltés (fetch + blob) ---
+// --- Vezérelt letöltés (fetch + blob) — a kattintott gomb szerint ---
 (function () {
   const form = document.getElementById("ln-form");
   if (!form) return;
 
-  const submitBtn = form.querySelector('button[type="submit"]');
-
-  function setBusy(busy) {
-    if (!submitBtn) return;
+  function setBusy(btn, busy) {
+    if (!btn) return;
     if (busy) {
-      submitBtn.dataset._label = submitBtn.textContent || submitBtn.value || "Generieren";
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Wird generiert...";
+      btn.dataset._label = btn.textContent || btn.value || "Generieren";
+      btn.disabled = true;
+      btn.textContent = "Wird generiert...";
     } else {
-      submitBtn.disabled = false;
-      const lbl = submitBtn.dataset._label;
-      if (lbl) submitBtn.textContent = lbl;
+      btn.disabled = false;
+      const lbl = btn.dataset._label;
+      if (lbl) btn.textContent = lbl;
     }
   }
 
   function filenameFromDisposition(h) {
     if (!h) return null;
-    // pl.: attachment; filename="leistungsnachweis_abcd1234.xlsx"
     const m = /filename\*?=(?:UTF-8''|")?([^\";]+)"/i.exec(h) || /filename=([^;]+)/i.exec(h);
     if (!m) return null;
     try { return decodeURIComponent(m[1].replace(/"/g, "").trim()); }
     catch { return m[1].replace(/"/g, "").trim(); }
   }
 
-  async function downloadOnce(fd) {
-    const res = await fetch("/generate_excel", {
-      method: "POST",
-      body: fd,
-    });
-
+  async function fetchAndHandle(fd, url, openInNewTab, fallbackName) {
+    const res = await fetch(url, { method: "POST", body: fd });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
 
-    const ct = res.headers.get("content-type") || "";
-    if (!ct.includes("spreadsheet")) {
-      // Ha nem fájl jön (pl. hiba oldal), próbáljuk szövegként kiolvasni és megjeleníteni
-      const txt = await res.text().catch(() => "");
-      throw new Error(txt || "Ismeretlen hiba (nem érkezett fájl).");
+    const dispo = res.headers.get("content-disposition") || "";
+    const name  = filenameFromDisposition(dispo) || fallbackName;
+
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    const objURL = URL.createObjectURL(blob);
+
+    // ha PDF és új fülre kérjük → megnyitás új fülön
+    if (openInNewTab && ct.includes("pdf")) {
+      window.open(objURL, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(objURL), 4000);
+      return;
     }
 
-    const blob = await res.blob();
-    const name =
-      filenameFromDisposition(res.headers.get("content-disposition")) ||
-      "leistungsnachweis.xlsx";
-
-    const url = URL.createObjectURL(blob);
+    // különben letöltés
     const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
+    a.href = objURL;
+    a.download = name || "download";
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setTimeout(() => URL.revokeObjectURL(objURL), 2000);
   }
 
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
   form.addEventListener("submit", async (e) => {
-    // Ha a korábbi validáció megállította, ne csináljunk semmit
     if (e.defaultPrevented) return;
-
-    // Innentől átveszünk mindent: nem navigálunk el, hanem fetch + blob
     e.preventDefault();
 
-    const fd = new FormData(form);
-    setBusy(true);
+    // melyik gomb indította?
+    const btn = e.submitter || form.querySelector('button[type="submit"]');
+    const endpoint =
+      (btn && btn.getAttribute("formaction")) ||
+      form.getAttribute("action") ||
+      "/generate_excel";
 
+    const openInNewTab = (btn && btn.getAttribute("formtarget") === "_blank");
+    const isPdf = endpoint.endsWith("/generate_pdf");
+
+    const fallbackName = isPdf ? "leistungsnachweis_preview.pdf" : "leistungsnachweis.xlsx";
+
+    const fd = new FormData(form);
+    setBusy(btn, true);
     try {
-      // 1. próbálkozás
-      await downloadOnce(fd);
-    } catch (err1) {
-      // egyszeri automatikus retry kis várakozás után (pl. Render ébredés, hálózati ingadozás)
-      try {
-        await sleep(1200);
-        await downloadOnce(fd);
-      } catch (err2) {
-        console.error(err1, err2);
-        alert("A fájl generálása most nem sikerült. Kérlek próbáld újra pár másodperc múlva.");
-      }
+      await fetchAndHandle(fd, endpoint, openInNewTab, fallbackName);
+    } catch (err) {
+      console.error(err);
+      alert("A fájl generálása most nem sikerült. Kérlek próbáld meg újra.");
     } finally {
-      setBusy(false);
+      setBusy(btn, false);
     }
   }, false);
 })();
