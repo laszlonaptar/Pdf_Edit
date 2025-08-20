@@ -233,7 +233,7 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     for r in range(r1, r2 + 1):
         rd = ws.row_dimensions.get(r)
         h_px += _excel_row_height_to_pixels(getattr(rd, "height", None))
-    w_px = max(40, w_px)
+    w_px = max(40, w_px - LEFT_INSET_PX - RIGHT_INSET_PX)
     h_px = max(40, h_px)
     return w_px, h_px
 
