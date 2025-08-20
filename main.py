@@ -262,6 +262,7 @@ def _set_column_widths_for_print(ws, pos):
 # ---------- image (Beschreibung) ----------
 LEFT_INSET_PX = 25
 BOTTOM_CROP   = 0.92
+RIGHT_INSET_PX = 25  # új: ugyanakkora belső margó jobbra is
 
 def _make_description_image(text, w_px, h_px):
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
