@@ -277,7 +277,7 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 0, 10
+    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 12, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
 
