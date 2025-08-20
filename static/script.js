@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const totalOut = document.getElementById("gesamtstunden_auto");
   const breakHalf = document.getElementById("break_half");
   const breakHidden = document.getElementById("break_minutes");
+  const form = document.getElementById("ln-form");
   const MAX_WORKERS = 5;
 
   // ===== AUTOCOMPLETE: dolgozói lista betöltése CSV-ből =====
@@ -485,54 +486,49 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   loadWorkers();
-});
 
-// --- Beschreibung karakterszámláló ---
-(function () {
+  // ===== Beschreibung karakterszámláló =====
   const besch = document.getElementById('beschreibung');
-  const out   = document.getElementById('besch-count');
-  if (!besch || !out) return;
-  const max = parseInt(besch.getAttribute('maxlength') || '1000', 10);
-  function updateBeschCount() {
-    const len = besch.value.length || 0;
-    out.textContent = `${len} / ${max}`;
+  const beschOut = document.getElementById('besch-count');
+  if (besch && beschOut) {
+    const max = parseInt(besch.getAttribute('maxlength') || '1000', 10);
+    function updateBeschCount() {
+      const len = besch.value.length || 0;
+      beschOut.textContent = `${len} / ${max}`;
+    }
+    updateBeschCount();
+    besch.addEventListener('input', updateBeschCount);
+    besch.addEventListener('change', updateBeschCount);
   }
-  updateBeschCount();
-  besch.addEventListener('input', updateBeschCount);
-  besch.addEventListener('change', updateBeschCount);
-})();
 
-// ==== Zusätzliche Validierung beim Absenden ====
-(function () {
-  const form = document.getElementById("ln-form");
-  if (!form) return;
-  function trim(v) { return (v || "").toString().trim(); }
-  function readWorker(fs) {
-    const idx = fs.getAttribute("data-index") || "";
-    const q = (sel) => fs.querySelector(sel);
-    return {
-      idx,
-      vorname: trim((q(`input[name="vorname${idx}"]`) || {}).value),
-      nachname: trim((q(`input[name="nachname${idx}"]`) || {}).value),
-      ausweis: trim((q(`input[name="ausweis${idx}"]`) || {}).value),
-      beginn: trim((q(`input[name="beginn${idx}"]`) || {}).value),
-      ende: trim((q(`input[name="ende${idx}"]`) || {}).value),
-    };
-  }
-  form.addEventListener("submit", function (e) {
+  // ===== Zusätzliche Validierung beim Absenden =====
+  function hardValidateForm() {
+    function trim(v) { return (v || "").toString().trim(); }
+    function readWorker(fs) {
+      const idx = fs.getAttribute("data-index") || "";
+      const q = (sel) => fs.querySelector(sel);
+      return {
+        idx,
+        vorname: trim((q(`input[name="vorname${idx}"]`) || {}).value),
+        nachname: trim((q(`input[name="nachname${idx}"]`) || {}).value),
+        ausweis: trim((q(`input[name="ausweis${idx}"]`) || {}).value),
+        beginn: trim((q(`input[name="beginn${idx}"]`) || {}).value),
+        ende: trim((q(`input[name="ende${idx}"]`) || {}).value),
+      };
+    }
+
     const errors = [];
     const datum = trim((document.getElementById("datum") || {}).value);
     const bau   = trim((document.getElementById("bau") || {}).value);
     const bf    = trim((document.getElementById("basf_beauftragter") || {}).value);
-    const besch = trim((document.getElementById("beschreibung") || {}).value);
+    const beschr= trim((document.getElementById("beschreibung") || {}).value);
 
     if (!datum) errors.push("Bitte das Datum der Leistungsausführung angeben.");
     if (!bau) errors.push("Bitte Bau und Ausführungsort ausfüllen.");
     if (!bf) errors.push("Bitte den BASF-Beauftragten (Org.-Code) ausfüllen.");
-    if (!besch) errors.push("Bitte die Beschreibung der ausgeführten Arbeiten ausfüllen.");
+    if (!beschr) errors.push("Bitte die Beschreibung der ausgeführten Arbeiten ausfüllen.");
 
-    const list = document.getElementById("worker-list");
-    const sets = Array.from(list.querySelectorAll(".worker"));
+    const sets = Array.from(document.querySelectorAll("#worker-list .worker"));
     let validWorkers = 0;
 
     sets.forEach((fs) => {
@@ -555,94 +551,98 @@ document.addEventListener("DOMContentLoaded", () => {
       errors.push("Bitte mindestens einen Mitarbeiter vollständig angeben (Vorname, Nachname, Ausweis-Nr., Beginn, Ende).");
     }
 
-    if (errors.length) {
-      e.preventDefault();
-      alert(errors.join("\n"));
-      return false;
-    }
-    return true;
-  });
-})();
+    return errors;
+  }
 
-// --- Vezérelt letöltés (fetch + blob) — a kattintott gomb szerint ---
-(function () {
-  const form = document.getElementById("ln-form");
-  if (!form) return;
-
-  function setBusy(btn, busy) {
+  // ====== Segéd: gomb „busy” állapot ======
+  function setBusy(btn, busy, labelWhenBusy) {
     if (!btn) return;
     if (busy) {
-      btn.dataset._label = btn.textContent || btn.value || "Generieren";
+      btn.dataset._label = btn.textContent || btn.value || "";
       btn.disabled = true;
-      btn.textContent = "Wird generiert...";
+      if (labelWhenBusy) {
+        btn.textContent = labelWhenBusy;
+      } else {
+        btn.textContent = "Wird generiert...";
+      }
     } else {
       btn.disabled = false;
       const lbl = btn.dataset._label;
-      if (lbl) btn.textContent = lbl;
+      if (lbl != null) btn.textContent = lbl;
     }
   }
 
-  function filenameFromDisposition(h) {
-    if (!h) return null;
-    const m = /filename\*?=(?:UTF-8''|")?([^\";]+)"/i.exec(h) || /filename=([^;]+)/i.exec(h);
-    if (!m) return null;
-    try { return decodeURIComponent(m[1].replace(/"/g, "").trim()); }
-    catch { return m[1].replace(/"/g, "").trim(); }
-  }
-
-  async function fetchAndHandle(fd, url, openInNewTab, fallbackName) {
-    const res = await fetch(url, { method: "POST", body: fd });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-
-    const dispo = res.headers.get("content-disposition") || "";
-    const name  = filenameFromDisposition(dispo) || fallbackName;
-
-    const ct = (res.headers.get("content-type") || "").toLowerCase();
-    const objURL = URL.createObjectURL(blob);
-
-    // ha PDF és új fülre kérjük → megnyitás új fülön
-    if (openInNewTab && ct.includes("pdf")) {
-      window.open(objURL, "_blank", "noopener");
-      setTimeout(() => URL.revokeObjectURL(objURL), 4000);
-      return;
-    }
-
-    // különben letöltés
-    const a = document.createElement("a");
-    a.href = objURL;
-    a.download = name || "download";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(objURL), 2000);
-  }
-
-  form.addEventListener("submit", async (e) => {
+  // ====== Vezérelt beküldés: Excel letöltés VAGY PDF új fülön ======
+  form?.addEventListener("submit", async (e) => {
+    // ha korábbi validáció megállította, ne csináljunk semmit
     if (e.defaultPrevented) return;
+
     e.preventDefault();
 
     // melyik gomb indította?
     const btn = e.submitter || form.querySelector('button[type="submit"]');
-    const endpoint =
-      (btn && btn.getAttribute("formaction")) ||
-      form.getAttribute("action") ||
-      "/generate_excel";
+    const isPdf = !!btn?.getAttribute("formaction"); // PDF gombnak van formaction="/generate_pdf"
+    const actionUrl = btn?.getAttribute("formaction") || form.getAttribute("action") || "/generate_excel";
 
-    const openInNewTab = (btn && btn.getAttribute("formtarget") === "_blank");
-    const isPdf = endpoint.endsWith("/generate_pdf");
-
-    const fallbackName = isPdf ? "leistungsnachweis_preview.pdf" : "leistungsnachweis.xlsx";
+    // kemény validáció mindkettőre
+    const errs = hardValidateForm();
+    if (errs.length) {
+      alert(errs.join("\n"));
+      return;
+    }
 
     const fd = new FormData(form);
-    setBusy(btn, true);
+
+    // Szünetszabály rejtett mező (checkbox alapján) – biztos ami biztos
+    if (breakHidden) {
+      breakHidden.value = breakHalf?.checked ? "30" : "60";
+    }
+
     try {
-      await fetchAndHandle(fd, endpoint, openInNewTab, fallbackName);
+      setBusy(btn, true, isPdf ? "PDF wird generiert..." : "Wird generiert...");
+
+      const res = await fetch(actionUrl, { method: "POST", body: fd });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      const disp = res.headers.get("content-disposition") || "";
+
+      // Fájlnév a headerből (ha van)
+      const filename = (() => {
+        const m = /filename\*?=(?:UTF-8''|")?([^\";]+)"/i.exec(disp) || /filename=([^;]+)/i.exec(disp);
+        if (!m) return null;
+        try { return decodeURIComponent(m[1].replace(/"/g, "").trim()); }
+        catch { return (m[1] || "").replace(/"/g, "").trim(); }
+      })();
+
+      const blob = await res.blob();
+
+      if (isPdf || ct.includes("application/pdf")) {
+        // PDF → új fülön nyitjuk
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank", "noopener,noreferrer");
+        // később felszabadítjuk
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } else {
+        // Excel → letöltés
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename || "leistungsnachweis.xlsx";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      }
     } catch (err) {
       console.error(err);
-      alert("A fájl generálása most nem sikerült. Kérlek próbáld meg újra.");
+      alert("A fájl generálása most nem sikerült. Kérlek próbáld újra rövidesen.");
     } finally {
       setBusy(btn, false);
     }
   }, false);
-})();
+});
