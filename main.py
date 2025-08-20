@@ -313,6 +313,9 @@ def _xlimage_from_pil(pil_img):
     buf.seek(0)
     return XLImage(buf)
 
+# extra biztonsági jobb oldali ráhagyás (QuickLook/Excel kerekítések ellen)
+RIGHT_SAFE = 14  # px
+
 def insert_description_as_image(ws, r1, c1, r2, c2, text):
     if not PIL_AVAILABLE:
         print("IMG: PIL not available at runtime")
@@ -321,20 +324,31 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         text_s = (text or "")
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
 
+        # Teljes A..G blokk mérete (px)
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+        # A oszlop (bal keret) szélessége (px)
         colA_w_px = _get_col_pixel_width(ws, 1)
 
-        anchor_col = c1 + 1  # B6
-        anchor = f"{get_column_letter(anchor_col)}{r1}"
+        # Rendelkezésre álló terület a képnek (px) – bal insett + jobb biztonsági ráhagyás levonva
+        avail_w = block_w_px - colA_w_px - LEFT_INSET_PX - RIGHT_SAFE
+        avail_h = int(block_h_px * BOTTOM_CROP)
 
-        new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
-        new_h_px = int(block_h_px * BOTTOM_CROP)
+        # Alsó korlátok
+        avail_w = max(60, avail_w)
+        avail_h = max(40, avail_h)
 
-        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
-        pil_img = _make_description_image(text_s, new_w_px, new_h_px)
+        # Kép generálása PONTOSAN ekkora méretre
+        pil_img = _make_description_image(text_s, avail_w, avail_h)
         xlimg = _xlimage_from_pil(pil_img)
+        # (dupla biztosítás) – rögzítjük a méretet px-ben
+        xlimg.width = avail_w
+        xlimg.height = avail_h
 
+        # Anchor a B6-ba (így a bal oldali keretet nem fedi le)
+        anchor = f"{get_column_letter(c1 + 1)}{r1}"  # B6
         ws.add_image(xlimg, anchor)
+
+        # A6 cellát ürítjük, ne legyen átfedés
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception as e:
