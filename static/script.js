@@ -1,3 +1,12 @@
+/* static/script.js
+   - Autocomplete dolgozók CSV-ből
+   - Időválasztó (óra/perc) UI
+   - Óraszámítás (szünetlevonással)
+   - Validáció elküldés előtt
+   - Excel letöltés: fetch + blob
+   - PDF Vorschau: új lap + IFRAME (fetch + blob)
+*/
+
 document.addEventListener("DOMContentLoaded", () => {
   const addBtn = document.getElementById("add-worker");
   const workerList = document.getElementById("worker-list");
@@ -7,10 +16,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("ln-form");
   const MAX_WORKERS = 5;
 
-  // ===== AUTOCOMPLETE (CSV) =====
+  // ===== AUTOCOMPLETE: dolgozói lista betöltése CSV-ből =====
   let WORKERS = [];
   let byAusweis = new Map();
-  let byFullName = new Map();
+  let byFullName = new Map(); // "nachname|vorname" (lowercase, trimmed)
 
   function norm(s) { return (s || "").toString().trim(); }
   function keyName(nach, vor) { return `${norm(nach).toLowerCase()}|${norm(vor).toLowerCase()}`; }
@@ -24,6 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (_) {}
   }
 
+  // --- CSV parser ---
   function parseCSV(text) {
     if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     const linesRaw = text.split(/\r?\n/).filter(l => l.trim().length);
@@ -68,9 +78,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (w.ausweis) byAusweis.set(w.ausweis, w);
       byFullName.set(keyName(w.nachname, w.vorname), w);
     }
+
+    // már kirakott inputok automatikus frissítése
     refreshAllAutocompletes();
   }
 
+  // ===== Egyedi lenyíló autocomplete =====
   function makeAutocomplete(input, getOptions, onPick) {
     const dd = document.createElement("div");
     dd.style.position = "absolute";
@@ -133,6 +146,7 @@ document.addEventListener("DOMContentLoaded", () => {
     input.addEventListener("input", filterOptions);
     input.addEventListener("focus", () => { position(); filterOptions(); });
     input.addEventListener("blur",  () => setTimeout(hide, 120));
+
     window.addEventListener("scroll", position, true);
     window.addEventListener("resize", position);
   }
@@ -148,6 +162,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const inpAus  = fs.querySelector(`input[name="ausweis${idx}"]`);
     if (!inpNach || !inpVor || !inpAus) return;
 
+    // Vorname
     makeAutocomplete(
       inpVor,
       () => WORKERS.map(w => ({
@@ -168,6 +183,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     );
 
+    // Nachname
     makeAutocomplete(
       inpNach,
       () => WORKERS.map(w => ({
@@ -188,6 +204,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     );
 
+    // Ausweis
     makeAutocomplete(
       inpAus,
       () => WORKERS.map(w => ({ value: w.ausweis, label: `${w.ausweis} — ${w.nachname} ${w.vorname}` })),
@@ -197,6 +214,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     );
 
+    // kézi módosításokból következtetés
     inpAus.addEventListener("change", () => {
       const w = byAusweis.get(norm(inpAus.value));
       if (w) { inpNach.value = w.nachname; inpVor.value = w.vorname; }
@@ -208,8 +226,9 @@ document.addEventListener("DOMContentLoaded", () => {
     inpNach.addEventListener("change", tryNames);
     inpVor.addEventListener("change",  tryNames);
   }
+  // ===========================================================
 
-  // ===== TIME PICKER =====
+  // --- TIME PICKER ---
   function enhanceTimePicker(inp) {
     if (!inp || inp.dataset.enhanced === "1") return;
     inp.dataset.enhanced = "1";
@@ -222,12 +241,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const selH = document.createElement("select");
     selH.style.minWidth = "5.2rem";
-    selH.add(new Option("--", ""));
-    for (let h = 0; h < 24; h++) selH.add(new Option(String(h).padStart(2,"0"), String(h).padStart(2,"0")));
+    const optH0 = new Option("--", "");
+    selH.add(optH0);
+    for (let h = 0; h < 24; h++) {
+      const v = String(h).padStart(2, "0");
+      selH.add(new Option(v, v));
+    }
 
     const selM = document.createElement("select");
     selM.style.minWidth = "5.2rem";
-    selM.add(new Option("--", ""));
+    const optM0 = new Option("--", "");
+    selM.add(optM0);
     ["00","15","30","45"].forEach(m => selM.add(new Option(m, m)));
 
     inp.insertAdjacentElement("afterend", box);
@@ -238,11 +262,15 @@ document.addEventListener("DOMContentLoaded", () => {
       inp.dispatchEvent(new Event("input", { bubbles: true }));
       inp.dispatchEvent(new Event("change", { bubbles: true }));
     }
+
     function composeFromSelects() {
-      const h = selH.value, m = selM.value, prev = inp.value;
+      const h = selH.value;
+      const m = selM.value;
+      const prev = inp.value;
       inp.value = (h && m) ? `${h}:${m}` : "";
       if (inp.value !== prev) dispatchBoth();
     }
+
     inp._setFromValue = (v) => {
       const mm = /^\d{2}:\d{2}$/.test(v) ? v.split(":") : ["",""];
       selH.value = mm[0] || "";
@@ -251,12 +279,13 @@ document.addEventListener("DOMContentLoaded", () => {
       selM.value = allowed.includes(m) ? m : (m ? String(Math.round(parseInt(m,10)/15)*15).padStart(2,"0") : "");
       composeFromSelects();
     };
+
     inp._setFromValue(inp.value || "");
     selH.addEventListener("change", composeFromSelects);
     selM.addEventListener("change", composeFromSelects);
   }
 
-  // ===== helpers =====
+  // --- helpers (óra-számítás, stb.) ---
   function toTime(s) {
     if (!s || !/^\d{2}:\d{2}$/.test(s)) return null;
     const [hh, mm] = s.split(":").map(Number);
@@ -264,31 +293,47 @@ document.addEventListener("DOMContentLoaded", () => {
     return { hh, mm };
   }
   function minutes(t) { return t.hh * 60 + t.mm; }
+
+  // átfedés percekben
   function overlap(a1, a2, b1, b2) {
-    const s = Math.max(a1, b1), e = Math.min(a2, b2);
+    const s = Math.max(a1, b1);
+    const e = Math.min(a2, b2);
     return Math.max(0, e - s);
   }
+
   function hoursWithBreaks(begStr, endStr) {
-    const bt = toTime(begStr), et = toTime(endStr);
+    const bt = toTime(begStr);
+    const et = toTime(endStr);
     if (!bt || !et) return 0;
     const b = minutes(bt), e = minutes(et);
     if (e <= b) return 0;
+
     let total = e - b;
+
+    // „fél óra szünet” pipa → fix 30 perc levonás
     const bm = parseInt((breakHidden?.value || "60"), 10);
     const isHalfHour = !isNaN(bm) && bm === 30;
+
     if (isHalfHour) {
       total = Math.max(0, total - 30);
     } else {
-      const br1s = 9*60+0, br1e = 9*60+15;
-      const br2s = 12*60+0, br2e = 12*60+45;
+      // Alapértelmezés: CSAK a tényleges átfedés a két fix szüneti sávval
+      const br1s = 9 * 60 + 0,  br1e = 9 * 60 + 15;  // 09:00–09:15
+      const br2s = 12 * 60 + 0, br2e = 12 * 60 + 45; // 12:00–12:45
       const minus = overlap(b, e, br1s, br1e) + overlap(b, e, br2s, br2e);
       total = Math.max(0, total - minus);
     }
-    return Math.max(0, total)/60;
+
+    return Math.max(0, total) / 60;
   }
-  function formatHours(h){ return (Math.round(h*100)/100).toFixed(2); }
-  function digitsOnly(input){ input.addEventListener("input", () => input.value = input.value.replace(/\D/g,"")); }
-  function enforceNumericKeyboard(input){ input.setAttribute("inputmode","numeric"); input.setAttribute("pattern","[0-9]*"); digitsOnly(input); }
+
+  function formatHours(h) { return (Math.round(h * 100) / 100).toFixed(2); }
+  function digitsOnly(input) { input.addEventListener("input", () => { input.value = input.value.replace(/\D/g, ""); }); }
+  function enforceNumericKeyboard(input) {
+    input.setAttribute("inputmode", "numeric");
+    input.setAttribute("pattern", "[0-9]*");
+    digitsOnly(input);
+  }
 
   function recalcWorker(workerEl) {
     const beg = workerEl.querySelector('input[name^="beginn"]')?.value || "";
@@ -304,6 +349,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (totalOut) totalOut.value = sum ? formatHours(sum) : "";
   }
 
+  // Globális szünet checkbox kezelése
   function updateBreakAndRecalc() {
     if (!breakHidden) return;
     breakHidden.value = breakHalf?.checked ? "30" : "60";
@@ -312,42 +358,63 @@ document.addEventListener("DOMContentLoaded", () => {
   breakHalf?.addEventListener("change", updateBreakAndRecalc);
   updateBreakAndRecalc();
 
-  function markSynced(inp, isSynced){ if (!inp) return; isSynced ? inp.dataset.synced="1" : delete inp.dataset.synced; }
-  function isSynced(inp){ return !!(inp && inp.dataset.synced==="1"); }
-  function setupManualEditUnsync(inp){
+  // ---- SYNC: első dolgozó ideje többiekhez ----
+  function markSynced(inp, isSynced) { if (!inp) return; isSynced ? inp.dataset.synced = "1" : delete inp.dataset.synced; }
+  function isSynced(inp) { return !!(inp && inp.dataset.synced === "1"); }
+  function setupManualEditUnsync(inp) {
     if (!inp) return;
-    const unsync = () => markSynced(inp,false);
-    inp.addEventListener("input",  (e)=>{ if (e.isTrusted) unsync(); });
-    inp.addEventListener("change", (e)=>{ if (e.isTrusted) unsync(); });
+    const unsync = () => markSynced(inp, false);
+    inp.addEventListener("input", (e) => { if (e.isTrusted) unsync(); });
+    inp.addEventListener("change", (e) => { if (e.isTrusted) unsync(); });
   }
-  function syncFromFirst(){
+  function syncFromFirst() {
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
     const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
     if (!firstBeg && !firstEnd) return;
     const workers = Array.from(workerList.querySelectorAll(".worker"));
-    for (let i=1;i<workers.length;i++){
+    for (let i = 1; i < workers.length; i++) {
       const fs = workers[i];
       const beg = fs.querySelector('input[name^="beginn"]');
       const end = fs.querySelector('input[name^="ende"]');
-      if (beg && (isSynced(beg) || !beg.value)) { beg.value = firstBeg; beg._setFromValue?.(firstBeg); markSynced(beg,true); }
-      if (end && (isSynced(end) || !end.value)) { end.value = firstEnd; end._setFromValue?.(firstEnd); markSynced(end,true); }
+      if (beg && (isSynced(beg) || !beg.value)) {
+        beg.value = firstBeg;
+        if (beg._setFromValue) beg._setFromValue(firstBeg);
+        markSynced(beg, true);
+      }
+      if (end && (isSynced(end) || !end.value)) {
+        end.value = firstEnd;
+        if (end._setFromValue) end._setFromValue(firstEnd);
+        markSynced(end, true);
+      }
     }
     recalcAll();
   }
 
-  function wireWorker(workerEl){
+  function wireWorker(workerEl) {
     const idx = workerEl.getAttribute("data-index");
+
+    // autocomplete
     setupAutocomplete(workerEl);
+
+    // Ausweis numerikus
     const ausweis = workerEl.querySelector(`input[name="ausweis${idx}"]`);
     if (ausweis) enforceNumericKeyboard(ausweis);
-    ["beginn","ende"].forEach(prefix=>{
+
+    // idő mezők
+    ["beginn", "ende"].forEach(prefix => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
-      if (inp){ enhanceTimePicker(inp); inp.addEventListener("change", recalcAll); inp.addEventListener("input", recalcAll); }
+      if (inp) {
+        enhanceTimePicker(inp);
+        inp.addEventListener("change", recalcAll);
+        inp.addEventListener("input",  recalcAll);
+      }
     });
+
     const b = workerEl.querySelector(`input[name="beginn${idx}"]`);
     const e = workerEl.querySelector(`input[name="ende${idx}"]`);
-    if (idx === "1"){
-      markSynced(b,false); markSynced(e,false);
+
+    if (idx === "1") {
+      markSynced(b, false); markSynced(e, false);
       b?.addEventListener("input",  syncFromFirst);
       e?.addEventListener("input",  syncFromFirst);
       b?.addEventListener("change", syncFromFirst);
@@ -358,9 +425,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // első dolgozó bekötése + számítás
   wireWorker(workerList.querySelector(".worker"));
   recalcAll();
 
+  // új dolgozó (Vorhaltung mezővel)
   addBtn?.addEventListener("click", () => {
     const current = workerList.querySelectorAll(".worker").length;
     if (current >= MAX_WORKERS) return;
@@ -372,177 +441,315 @@ document.addEventListener("DOMContentLoaded", () => {
     tpl.innerHTML = `
       <legend>Mitarbeiter ${idx}</legend>
       <div class="grid grid-3">
-        <div class="field"><label>Vorname</label><input name="vorname${idx}" type="text" /></div>
-        <div class="field"><label>Nachname</label><input name="nachname${idx}" type="text" /></div>
-        <div class="field"><label>Ausweis-Nr. / Kennzeichen</label><input name="ausweis${idx}" type="text" /></div>
+        <div class="field">
+          <label>Vorname</label>
+          <input name="vorname${idx}" type="text" />
+        </div>
+        <div class="field">
+          <label>Nachname</label>
+          <input name="nachname${idx}" type="text" />
+        </div>
+        <div class="field">
+          <label>Ausweis-Nr. / Kennzeichen</label>
+          <input name="ausweis${idx}" type="text" />
+        </div>
       </div>
-      <div class="grid"><div class="field"><label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label><input name="vorhaltung${idx}" type="text" /></div></div>
+      <div class="grid">
+        <div class="field">
+          <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+          <input name="vorhaltung${idx}" type="text" />
+        </div>
+      </div>
       <div class="grid grid-3">
-        <div class="field"><label>Beginn</label><input name="beginn${idx}" type="time" /></div>
-        <div class="field"><label>Ende</label><input name="ende${idx}" type="time" /></div>
-        <div class="field"><label>Stunden (auto)</label><input class="stunden-display" type="text" value="" readonly /></div>
-      </div>`;
+        <div class="field">
+          <label>Beginn</label>
+          <input name="beginn${idx}" type="time" />
+        </div>
+        <div class="field">
+          <label>Ende</label>
+          <input name="ende${idx}" type="time" />
+        </div>
+        <div class="field">
+          <label>Stunden (auto)</label>
+          <input class="stunden-display" type="text" value="" readonly />
+        </div>
+      </div>
+    `;
     workerList.appendChild(tpl);
 
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
     const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
     const begNew = tpl.querySelector(`input[name="beginn${idx}"]`);
     const endNew = tpl.querySelector(`input[name="ende${idx}"]`);
-    if (firstBeg && begNew) begNew.value = firstBeg;
-    if (firstEnd && endNew) endNew.value = firstEnd;
+    if (firstBeg && begNew) { begNew.value = firstBeg; }
+    if (firstEnd && endNew) { endNew.value = firstEnd; }
 
     wireWorker(tpl);
-    begNew?._setFromValue?.(begNew.value || "");
-    endNew?._setFromValue?.(endNew.value || "");
-    if (begNew?.value) markSynced(begNew,true);
-    if (endNew?.value) markSynced(endNew,true);
+    if (begNew && begNew._setFromValue) begNew._setFromValue(begNew.value || "");
+    if (endNew && endNew._setFromValue) endNew._setFromValue(endNew.value || "");
+
+    if (begNew && begNew.value) markSynced(begNew, true);
+    if (endNew && endNew.value) markSynced(endNew, true);
+
     recalcAll();
   });
 
   loadWorkers();
 
-  // ==== Beschreibungszámláló ====
-  const besch = document.getElementById('beschreibung');
-  const beschOut = document.getElementById('besch-count');
-  if (besch && beschOut) {
+  // --- Beschreibung karakterszámláló ---
+  (function () {
+    const besch = document.getElementById('beschreibung');
+    const out   = document.getElementById('besch-count');
+    if (!besch || !out) return;
     const max = parseInt(besch.getAttribute('maxlength') || '1000', 10);
-    function upd(){ beschOut.textContent = `${besch.value.length||0} / ${max}`; }
-    upd(); besch.addEventListener('input',upd); besch.addEventListener('change',upd);
-  }
+    function updateBeschCount() {
+      const len = besch.value.length || 0;
+      out.textContent = `${len} / ${max}`;
+    }
+    updateBeschCount();
+    besch.addEventListener('input', updateBeschCount);
+    besch.addEventListener('change', updateBeschCount);
+  })();
 
-  // ===== kemény validáció =====
-  function hardValidateForm() {
-    function trim(v){ return (v||"").toString().trim(); }
-    function readWorker(fs){
+  // ==== Zusätzliche Validierung beim Absenden ====
+  (function () {
+    if (!form) return;
+    function trim(v) { return (v || "").toString().trim(); }
+    function readWorker(fs) {
       const idx = fs.getAttribute("data-index") || "";
-      const q = (sel)=>fs.querySelector(sel);
+      const q = (sel) => fs.querySelector(sel);
       return {
         idx,
-        vorname: trim((q(`input[name="vorname${idx}"]`)||{}).value),
-        nachname:trim((q(`input[name="nachname${idx}"]`)||{}).value),
-        ausweis: trim((q(`input[name="ausweis${idx}"]`) ||{}).value),
-        beginn:  trim((q(`input[name="beginn${idx}"]`) ||{}).value),
-        ende:    trim((q(`input[name="ende${idx}"]`)   ||{}).value),
+        vorname: trim((q(`input[name="vorname${idx}"]`) || {}).value),
+        nachname: trim((q(`input[name="nachname${idx}"]`) || {}).value),
+        ausweis: trim((q(`input[name="ausweis${idx}"]`) || {}).value),
+        beginn: trim((q(`input[name="beginn${idx}"]`) || {}).value),
+        ende: trim((q(`input[name="ende${idx}"]`) || {}).value),
       };
     }
 
-    const errs = [];
-    const datum = trim((document.getElementById("datum")||{}).value);
-    const bau   = trim((document.getElementById("bau")||{}).value);
-    const bf    = trim((document.getElementById("basf_beauftragter")||{}).value);
-    const beschr= trim((document.getElementById("beschreibung")||{}).value);
+    form.addEventListener("submit", function (e) {
+      // ⬇️ FONTOS: ha a PDF gomb indítja a submitot, ezt a validáló+Excel ágat NE futtassuk.
+      if (e.submitter && e.submitter.getAttribute("formaction") === "/generate_pdf") {
+        return; // a PDF-click handler intézi
+      }
 
-    if (!datum) errs.push("Bitte das Datum der Leistungsausführung angeben.");
-    if (!bau)   errs.push("Bitte Bau und Ausführungsort ausfüllen.");
-    if (!bf)    errs.push("Bitte den BASF-Beauftragten (Org.-Code) ausfüllen.");
-    if (!beschr)errs.push("Bitte die Beschreibung der ausgeführten Arbeiten ausfüllen.");
+      const errors = [];
+      const datum = trim((document.getElementById("datum") || {}).value);
+      const bau   = trim((document.getElementById("bau") || {}).value);
+      const bf    = trim((document.getElementById("basf_beauftragter") || {}).value);
+      const besch = trim((document.getElementById("beschreibung") || {}).value);
 
-    const sets = Array.from(document.querySelectorAll("#worker-list .worker"));
-    let ok = 0;
-    sets.forEach(fs=>{
-      const w = readWorker(fs);
-      const any = !!(w.vorname||w.nachname||w.ausweis||w.beginn||w.ende);
-      const full= !!(w.vorname&&w.nachname&&w.ausweis&&w.beginn&&w.ende);
-      if (full) ok++;
-      else if (any){
-        const missing=[];
-        if (!w.vorname) missing.push("Vorname");
-        if (!w.nachname) missing.push("Nachname");
-        if (!w.ausweis)  missing.push("Ausweis-Nr.");
-        if (!w.beginn)   missing.push("Beginn");
-        if (!w.ende)     missing.push("Ende");
-        errs.push(`Bitte Mitarbeiter ${w.idx}: ${missing.join(", ")} ausfüllen.`);
+      if (!datum) errors.push("Bitte das Datum der Leistungsausführung angeben.");
+      if (!bau) errors.push("Bitte Bau und Ausführungsort ausfüllen.");
+      if (!bf) errors.push("Bitte den BASF-Beauftragten (Org.-Code) ausfüllen.");
+      if (!besch) errors.push("Bitte die Beschreibung der ausgeführten Arbeiten ausfüllen.");
+
+      const list = document.getElementById("worker-list");
+      const sets = Array.from(list.querySelectorAll(".worker"));
+      let validWorkers = 0;
+
+      sets.forEach((fs) => {
+        const w = readWorker(fs);
+        const anyFilled = !!(w.vorname || w.nachname || w.ausweis || w.beginn || w.ende);
+        const allCore   = !!(w.vorname && w.nachname && w.ausweis && w.beginn && w.ende);
+        if (allCore) validWorkers += 1;
+        else if (anyFilled) {
+          const missing = [];
+          if (!w.vorname) missing.push("Vorname");
+          if (!w.nachname) missing.push("Nachname");
+          if (!w.ausweis) missing.push("Ausweis-Nr.");
+          if (!w.beginn) missing.push("Beginn");
+          if (!w.ende) missing.push("Ende");
+          errors.push(`Bitte Mitarbeiter ${w.idx}: ${missing.join(", ")} ausfüllen.`);
+        }
+      });
+
+      if (validWorkers === 0) {
+        errors.push("Bitte mindestens einen Mitarbeiter vollständig angeben (Vorname, Nachname, Ausweis-Nr., Beginn, Ende).");
+      }
+
+      if (errors.length) {
+        e.preventDefault();
+        alert(errors.join("\n"));
+        return false;
+      }
+      return true;
+    });
+  })();
+
+  // --- Vezérelt letöltés (fetch + blob) az Excel gombra ---
+  (function () {
+    if (!form) return;
+
+    const submitBtn = form.querySelector('button[type="submit"]:not([formaction])');
+
+    function setBusy(busy) {
+      if (!submitBtn) return;
+      if (busy) {
+        submitBtn.dataset._label = submitBtn.textContent || submitBtn.value || "Generieren";
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Wird generiert...";
+      } else {
+        submitBtn.disabled = false;
+        const lbl = submitBtn.dataset._label;
+        if (lbl) submitBtn.textContent = lbl;
+      }
+    }
+
+    function filenameFromDisposition(h) {
+      if (!h) return null;
+      // pl.: attachment; filename="leistungsnachweis_abcd1234.xlsx"
+      const m = /filename\*?=(?:UTF-8''|")?([^\";]+)"/i.exec(h) || /filename=([^;]+)/i.exec(h);
+      if (!m) return null;
+      try { return decodeURIComponent(m[1].replace(/"/g, "").trim()); }
+      catch { return m[1].replace(/"/g, "").trim(); }
+    }
+
+    async function downloadOnce(fd) {
+      const res = await fetch("/generate_excel", {
+        method: "POST",
+        body: fd,
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("spreadsheet")) {
+        // Ha nem fájl jön (pl. hiba oldal), próbáljuk szövegként kiolvasni és megjeleníteni
+        const txt = await res.text().catch(() => "");
+        throw new Error(txt || "Ismeretlen hiba (nem érkezett fájl).");
+      }
+
+      const blob = await res.blob();
+      const name =
+        filenameFromDisposition(res.headers.get("content-disposition")) ||
+        "leistungsnachweis.xlsx";
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    form.addEventListener("submit", async (e) => {
+      // Ha a PDF gomb indít, ezt a blokkot ne futtassuk
+      if (e.submitter && e.submitter.getAttribute("formaction") === "/generate_pdf") {
+        return;
+      }
+      // Ha a validáció megállította, ne csináljunk semmit
+      if (e.defaultPrevented) return;
+
+      // Innentől átveszünk mindent: nem navigálunk el, hanem fetch + blob
+      e.preventDefault();
+
+      const fd = new FormData(form);
+      setBusy(true);
+
+      try {
+        // 1. próbálkozás
+        await downloadOnce(fd);
+      } catch (err1) {
+        // egyszeri automatikus retry kis várakozás után (pl. Render ébredés, hálózati ingadozás)
+        try {
+          await sleep(1200);
+          await downloadOnce(fd);
+        } catch (err2) {
+          console.error(err1, err2);
+          alert("A fájl generálása most nem sikerült. Kérlek próbáld újra pár másodperc múlva.");
+        }
+      } finally {
+        setBusy(false);
+      }
+    }, false);
+  })();
+
+  // === PDF Vorschau gomb: új lapon generálás és megjelenítés ===
+  (function () {
+    if (!form) return;
+
+    const pdfBtn = form.querySelector('button[formaction="/generate_pdf"]');
+    if (!pdfBtn) return;
+
+    function filenameFromDisposition(h) {
+      if (!h) return null;
+      const m = /filename\*?=(?:UTF-8''|")?([^\";]+)"/i.exec(h) || /filename=([^;]+)/i.exec(h);
+      if (!m) return null;
+      try { return decodeURIComponent(m[1].replace(/"/g, "").trim()); }
+      catch { return m[1].replace(/"/g, "").trim(); }
+    }
+
+    pdfBtn.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      // Új lap azonnal (különben popup-blocker megeszi)
+      const win = window.open("", "_blank");
+      if (!win) {
+        alert("A böngésző letiltotta a felugró ablakot. Engedélyezd, kérlek.");
+        return;
+      }
+
+      // Betöltés közbeni státusz
+      win.document.open();
+      win.document.write(`
+        <!doctype html>
+        <html><head><meta charset="utf-8"><title>PDF Vorschau</title>
+        <style>
+          html,body{height:100%;margin:0}
+          .box{font:15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial; padding:24px}
+        </style></head>
+        <body><div class="box">PDF wird generiert…</div></body></html>
+      `);
+      win.document.close();
+
+      try {
+        const fd = new FormData(form);
+        const res = await fetch("/generate_pdf", { method: "POST", body: fd });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("pdf")) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || "Unerwartete Antwort – kein PDF.");
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const name =
+          filenameFromDisposition(res.headers.get("content-disposition")) ||
+          "leistungsnachweis_preview.pdf";
+
+        // PDF beágyazása IFRAME-be (stabilabb, mint location.href blob-ra)
+        win.document.open();
+        win.document.write(`
+          <!doctype html>
+          <html><head><meta charset="utf-8"><title>${name}</title>
+          <style>html,body,iframe{height:100%;width:100%;margin:0;border:0}</style>
+          </head>
+          <body><iframe src="${url}" title="${name}" frameborder="0"></iframe></body></html>
+        `);
+        win.document.close();
+
+        // 2 perc múlva felszabadítjuk az URL-t
+        setTimeout(() => URL.revokeObjectURL(url), 120000);
+      } catch (err) {
+        win.document.open();
+        win.document.write(`
+          <!doctype html>
+          <html><head><meta charset="utf-8"><title>Fehler</title>
+          <style>body{font:14px/1.5 monospace; white-space:pre-wrap; padding:24px}</style>
+          </head><body>PDF-Erzeugung fehlgeschlagen:\n${(err && err.message) || err}</body></html>
+        `);
+        win.document.close();
       }
     });
-    if (ok===0) errs.push("Bitte mindestens einen Mitarbeiter vollständig angeben (Vorname, Nachname, Ausweis-Nr., Beginn, Ende).");
-    return errs;
-  }
+  })();
 
-  // ===== Busy UI =====
-  function setBusy(btn, busy, labelWhenBusy) {
-    if (!btn) return;
-    if (busy) {
-      btn.dataset._label = btn.textContent || btn.value || "";
-      btn.disabled = true;
-      btn.textContent = labelWhenBusy || "Wird generiert...";
-    } else {
-      btn.disabled = false;
-      const lbl = btn.dataset._label;
-      if (lbl != null) btn.textContent = lbl;
-    }
-  }
-
-  // ===== Központi submit-kezelés =====
-  form?.addEventListener("submit", async (e) => {
-    if (e.defaultPrevented) return;
-    e.preventDefault();
-
-    const btn = e.submitter || form.querySelector('button[type="submit"]');
-    const isPdf = !!btn?.getAttribute("formaction");
-    const actionUrl = btn?.getAttribute("formaction") || form.getAttribute("action") || "/generate_excel";
-
-    const errs = hardValidateForm();
-    if (errs.length){ alert(errs.join("\n")); return; }
-
-    const fd = new FormData(form);
-    if (breakHidden) breakHidden.value = breakHalf?.checked ? "30" : "60";
-
-    // --- Popup-blokkoló kerülése: azonnal nyissuk az ablakot, ha PDF-et kérünk
-    let previewWin = null;
-    if (isPdf) {
-      previewWin = window.open("", "_blank", "noopener,noreferrer");
-      // Ha valamiért nem engedi, previewWin null marad, ilyenkor letöltésre esünk vissza később
-    }
-
-    try {
-      setBusy(btn, true, isPdf ? "PDF wird generiert..." : "Wird generiert...");
-
-      const res = await fetch(actionUrl, { method: "POST", body: fd });
-      if (!res.ok) {
-        const txt = await res.text().catch(()=>"");
-        throw new Error(txt || `HTTP ${res.status}`);
-      }
-
-      const ct = (res.headers.get("content-type") || "").toLowerCase();
-      const disp = res.headers.get("content-disposition") || "";
-      const blob = await res.blob();
-
-      // fájlnév (ha van)
-      const filename = (() => {
-        const m = /filename\*?=(?:UTF-8''|")?([^\";]+)"/i.exec(disp) || /filename=([^;]+)/i.exec(disp);
-        if (!m) return null;
-        try { return decodeURIComponent(m[1].replace(/"/g,"").trim()); }
-        catch { return (m[1]||"").replace(/"/g,"").trim(); }
-      })();
-
-      if (isPdf || ct.includes("application/pdf")) {
-        const url = URL.createObjectURL(blob);
-        if (previewWin) {
-          // ha sikerült előre megnyitni az ablakot, abba töltsük a PDF-et
-          previewWin.location.href = url;
-        } else {
-          // ha nem engedte a popup, legalább ugyanitt nyissuk meg
-          window.open(url, "_blank", "noopener,noreferrer");
-        }
-        setTimeout(()=>URL.revokeObjectURL(url), 60000);
-      } else {
-        // Excel → letöltés
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename || "leistungsnachweis.xlsx";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(()=>URL.revokeObjectURL(url), 2000);
-      }
-    } catch (err) {
-      console.error(err);
-      // ha volt előre nyitott tab, zárjuk be, hogy ne maradjon üres
-      try { if (previewWin && !previewWin.closed) previewWin.close(); } catch {}
-      alert("A fájl generálása most nem sikerült. Kérlek próbáld újra rövidesen.");
-    } finally {
-      setBusy(btn, false);
-    }
-  }, false);
 });
