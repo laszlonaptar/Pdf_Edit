@@ -244,10 +244,6 @@ def _get_col_pixel_width(ws, col_index):
 
 # ---------- (ÚJ) oszlopszélességek a teljes A4 kitöltéséhez ----------
 def _set_column_widths_for_print(ws, pos):
-    """
-    Oszlopszélességek beállítása úgy, hogy A4 fekvőben a rács szépen kitöltse a lapot.
-    Igény szerint később finomhangolható.
-    """
     widths = {
         pos["name_col"]:     18.0,  # Name
         pos["vorname_col"]:  14.0,  # Vorname
@@ -379,7 +375,7 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
     # Dolgozók
     pos = find_header_positions(ws)
 
-    # (ÚJ) oszlopszélességek a szebb A4 kitöltéshez
+    # Oszlopszélességek A4-hez
     try:
         _set_column_widths_for_print(ws, pos)
     except Exception as _e:
@@ -426,9 +422,11 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         ws.page_setup.scale = None
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 1
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        # fitToPage jelölés (openpyxl külön property-n)
+        if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
+            ws.sheet_properties.pageSetUpPr.fitToPage = True
 
-        # Margók minimalizálása
+        # Margók minimalizálása (inch)
         ws.page_margins.left   = 0.2
         ws.page_margins.right  = 0.2
         ws.page_margins.top    = 0.2
@@ -436,11 +434,16 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         ws.page_margins.header = 0
         ws.page_margins.footer = 0
 
-        # Header/Footer letiltása
-        ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
-        ws.oddFooter.left.text = ws.oddFooter.center.text = ws.oddFooter.right.text = ""
-        ws.header_footer.differentFirst = False
-        ws.header_footer.differentOddEven = False
+        # Header/Footer letiltása – kompatibilisen (régi openpyxl esetén se dobjon hibát)
+        try:
+            if hasattr(ws, "oddHeader") and hasattr(ws, "oddFooter"):
+                ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
+                ws.oddFooter.left.text = ws.oddFooter.center.text = ws.oddFooter.right.text = ""
+            if hasattr(ws, "header_footer"):
+                ws.header_footer.differentFirst = False
+                ws.header_footer.differentOddEven = False
+        except Exception:
+            pass  # nem kritikus
 
         # Nyomtatási terület: ténylegesen használt utolsó sorig
         last_data_row = 1
@@ -451,7 +454,7 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         last_col = ws.max_column
         ws.print_area = f"A1:{get_column_letter(last_col)}{last_data_row}"
 
-        # Ne középre igazítsuk
+        # Ne középre igazítsuk (különben optikailag kisebbnek hat)
         ws.print_options.horizontalCentered = False
         ws.print_options.verticalCentered = False
     except Exception as e:
@@ -503,6 +506,7 @@ async def generate_excel(
     }
     return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
+# --- PDF előnézet route megmarad (gomb nélkül nem zavar), LO-val a lapbeállításokat követi ---
 def _has_soffice() -> bool:
     return shutil.which("soffice") is not None
 
@@ -513,12 +517,10 @@ def _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_mi
     bio = BytesIO()
     c = canvas.Canvas(bio, pagesize=pagesize)
 
-    # Fejléc
     c.setFont("Helvetica-Bold", 14)
     c.setFillColor(colors.black)
     c.drawString(margin, H - margin, "Leistungsnachweis – PDF Vorschau")
 
-    # Dátum
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -538,7 +540,6 @@ def _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_mi
     else:
         y -= 2 * mm
 
-    # Beschreibung doboz
     box_x = margin
     box_w = W - 2*margin
     box_h = 52 * mm
@@ -565,7 +566,6 @@ def _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_mi
                   box_w - 16*mm, box_h - 16*mm, showBoundary=0)
     frame.addFromList([para], c)
 
-    # Dolgozói táblázat
     y_tab = box_y - 12*mm
     c.setFont("Helvetica-Bold", 10)
     headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Anzahl Stunden", "Vorhaltung"]
@@ -575,7 +575,6 @@ def _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_mi
         c.drawString(x, y_tab, htxt)
         x += w
 
-    # Sorok
     c.setFont("Helvetica", 10)
     def row(values, yrow):
         x = margin
@@ -625,14 +624,12 @@ async def generate_pdf(
     workers = _collect_workers(locals())
     wb = build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
 
-    # Ha van LibreOffice: igazi nyomtatási kép az Excelből
     if _has_soffice():
         with tempfile.TemporaryDirectory() as tmpdir:
             xlsx_path = os.path.join(tmpdir, f"ln_{uuid.uuid4().hex[:8]}.xlsx")
             pdf_outdir = tmpdir
             wb.save(xlsx_path)
 
-            # Fontos: a Calc export a lapbeállításokat kövesse és 1×1 oldalra skálázzon.
             filter_data = '{"UsePageSettings":true,"ScaleToPagesX":1,"ScaleToPagesY":1}'
             cmd = [
                 "soffice","--headless","--nologo","--nodefault","--nolockcheck","--nofirststartwizard",
@@ -649,7 +646,6 @@ async def generate_pdf(
                 print("LibreOffice conversion failed ->", repr(e))
                 pdf_bytes = _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
     else:
-        # Fallback: ReportLab (nem Excel, csak vizuális előnézet)
         pdf_bytes = _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
 
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:6]}.pdf"
