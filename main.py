@@ -243,9 +243,9 @@ def _get_col_pixel_width(ws, col_index):
 
 # ---------- konstansok ----------
 LEFT_INSET_PX  = 25      # belső bal behúzás a képhez
-RIGHT_INSET_PX = 25      # belső jobb behúzás a képhez (szimmetria)
+RIGHT_INSET_PX = 30      # belső jobb behúzás a képhez (szimmetria)
 BOTTOM_CROP    = 0.92    # leírás-blokk alján kis vágás
-RIGHT_SAFE     = 14      # extra jobboldali ráhagyás (kerekítési eltérés ellen)
+RIGHT_SAFE     = 80      # extra jobboldali ráhagyás (kerekítési eltérés ellen)
 
 # ---------- image (Beschreibung) ----------
 def _make_description_image(text, w_px, h_px):
