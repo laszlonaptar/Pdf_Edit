@@ -224,7 +224,6 @@ def _excel_row_height_to_pixels(height):
     return int(round(height * 96 / 72))
 
 def _get_block_pixel_size(ws, r1, c1, r2, c2):
-    """Nyers blokk pixelméret (margólevonás nélkül)."""
     w_px = 0
     for c in range(c1, c2 + 1):
         letter = get_column_letter(c)
@@ -234,20 +233,39 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     for r in range(r1, r2 + 1):
         rd = ws.row_dimensions.get(r)
         h_px += _excel_row_height_to_pixels(getattr(rd, "height", None))
-    return max(40, w_px), max(40, h_px)
+    # fontos: a kép hasznos szélességéből levonjuk a belső insett + a jobb oldali biztonsági ráhagyást
+    w_px = max(40, w_px - LEFT_INSET_PX - RIGHT_INSET_PX)
+    h_px = max(40, h_px)
+    return w_px, h_px
 
 def _get_col_pixel_width(ws, col_index):
     letter = get_column_letter(col_index)
     cd = ws.column_dimensions.get(letter)
     return _excel_col_width_to_pixels(getattr(cd, "width", None))
 
-# ---------- konstansok ----------
-LEFT_INSET_PX  = 25      # belső bal behúzás a képhez
-RIGHT_INSET_PX = 40      # belső jobb behúzás a képhez (szimmetria)
-BOTTOM_CROP    = 0.92    # leírás-blokk alján kis vágás
-RIGHT_SAFE     = 150      # extra jobboldali ráhagyás (kerekítési eltérés ellen)
+# ---------- oszlopszélességek a teljes A4-hez ----------
+def _set_column_widths_for_print(ws, pos):
+    widths = {
+        pos["name_col"]:     18.0,  # Name
+        pos["vorname_col"]:  14.0,  # Vorname
+        pos["ausweis_col"]:  14.0,  # Ausweis/Kennzeichen
+        pos["beginn_col"]:   10.0,  # Beginn
+        pos["ende_col"]:     10.0,  # Ende
+        pos["stunden_col"]:  12.0,  # Anzahl Stunden
+    }
+    if "vorhaltung_col" in pos and pos["vorhaltung_col"]:
+        widths[pos["vorhaltung_col"]] = 28.0  # Vorhaltung / Gerät
+
+    for col_idx, width in widths.items():
+        letter = get_column_letter(col_idx)
+        ws.column_dimensions[letter].width = width
 
 # ---------- image (Beschreibung) ----------
+LEFT_INSET_PX   = 25
+BOTTOM_CROP     = 0.92
+RIGHT_INSET_PX  = 25      # belső jobb oldali insett a blokkon belül
+RIGHT_SAFE      = 30      # **új**: plusz biztonsági ráhagyás (px), hogy biztosan ne lógjon ki
+
 def _make_description_image(text, w_px, h_px):
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
@@ -261,7 +279,6 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # szöveg belső padding (bal=jobb=12)
     pad_left, pad_top, pad_right, pad_bottom = 12, 10, 12, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
@@ -312,26 +329,25 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         # A oszlop (bal keret) szélessége (px)
         colA_w_px = _get_col_pixel_width(ws, 1)
 
-        # Rendelkezésre álló terület a képnek (px):
-        # egész blokk – A oszlop – bal és jobb inset – extra jobb "safe"
-        avail_w = block_w_px - colA_w_px - LEFT_INSET_PX - RIGHT_INSET_PX - RIGHT_SAFE
+        # rendelkezésre álló tér a képnek (px) – bal insett + jobb biztonsági ráhagyás levonva
+        avail_w = block_w_px - colA_w_px - LEFT_INSET_PX - RIGHT_SAFE
         avail_h = int(block_h_px * BOTTOM_CROP)
 
-        # Alsó korlátok
         avail_w = max(60, avail_w)
         avail_h = max(40, avail_h)
 
-        # Kép generálása pontosan ekkora méretre
         pil_img = _make_description_image(text_s, avail_w, avail_h)
         xlimg = _xlimage_from_pil(pil_img)
+
+        # rögzítjük a méretet – némelyik néző hajlamos „nyújtani”
         xlimg.width = avail_w
         xlimg.height = avail_h
 
-        # Anchor: B6 (bal oldali keretet nem fedi le)
+        # Anchor marad B6 – a bal oldali keretet nem fedi le
         anchor = f"{get_column_letter(c1 + 1)}{r1}"  # B6
         ws.add_image(xlimg, anchor)
 
-        # A6 cellát ürítjük, ne zavarjon be
+        # A6 cellát ürítjük, ne legyen átfedés
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception as e:
@@ -374,19 +390,7 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
 
     # Oszlopszélességek A4-hez
     try:
-        widths = {
-            pos["name_col"]:     18.0,  # Name
-            pos["vorname_col"]:  14.0,  # Vorname
-            pos["ausweis_col"]:  14.0,  # Ausweis/Kennzeichen
-            pos["beginn_col"]:   10.0,  # Beginn
-            pos["ende_col"]:     10.0,  # Ende
-            pos["stunden_col"]:  12.0,  # Anzahl Stunden
-        }
-        if "vorhaltung_col" in pos and pos["vorhaltung_col"]:
-            widths[pos["vorhaltung_col"]] = 28.0  # Vorhaltung / Gerät
-        for col_idx, width in widths.items():
-            letter = get_column_letter(col_idx)
-            ws.column_dimensions[letter].width = width
+        _set_column_widths_for_print(ws, pos)
     except Exception as _e:
         print("WIDTH SET WARN:", repr(_e))
 
@@ -427,7 +431,7 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         ws.page_setup.orientation = 'landscape'
         ws.page_setup.paperSize = 9  # A4
 
-        # Skálázás: 1 oldal széles × 1 oldal magas
+        # Skálázás: pontosan 1 oldal széles × 1 oldal magas
         ws.page_setup.scale = None
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 1
@@ -442,7 +446,7 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         ws.page_margins.header = 0
         ws.page_margins.footer = 0
 
-        # Header/Footer letiltása (kompatibilisen)
+        # Header/Footer letiltása – kompatibilisen
         try:
             if hasattr(ws, "oddHeader") and hasattr(ws, "oddFooter"):
                 ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
@@ -458,11 +462,9 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         for r in range(1, ws.max_row + 1):
             if any(ws.cell(row=r, column=c).value not in (None, "") for c in range(1, ws.max_column + 1)):
                 last_data_row = r
-
         last_col = ws.max_column
         ws.print_area = f"A1:{get_column_letter(last_col)}{last_data_row}"
 
-        # Ne középre igazítsuk
         ws.print_options.horizontalCentered = False
         ws.print_options.verticalCentered = False
     except Exception as e:
