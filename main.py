@@ -208,7 +208,7 @@ def find_total_cells(ws, stunden_col):
         stunden_total = (rr, cc)
     return right_of_label, stunden_total
 
-# --- Fix Beschreibung-blokk: A6–G15 ---
+# --- Beschreibung (A6–G15) blokk helye ---
 def find_description_block(ws):
     return (6, 1, 15, 7)  # A6..G15
 
@@ -233,8 +233,8 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     for r in range(r1, r2 + 1):
         rd = ws.row_dimensions.get(r)
         h_px += _excel_row_height_to_pixels(getattr(rd, "height", None))
-    # fontos: a kép hasznos szélességéből levonjuk a belső insett + a jobb oldali biztonsági ráhagyást
-    w_px = max(40, w_px - LEFT_INSET_PX - RIGHT_INSET_PX)
+    # A képet majd külön jobbra/balra ráhagyással számoljuk
+    w_px = max(40, w_px)
     h_px = max(40, h_px)
     return w_px, h_px
 
@@ -243,7 +243,7 @@ def _get_col_pixel_width(ws, col_index):
     cd = ws.column_dimensions.get(letter)
     return _excel_col_width_to_pixels(getattr(cd, "width", None))
 
-# ---------- oszlopszélességek a teljes A4-hez ----------
+# ---------- oszlopszélességek A4-hez ----------
 def _set_column_widths_for_print(ws, pos):
     widths = {
         pos["name_col"]:     18.0,  # Name
@@ -261,12 +261,13 @@ def _set_column_widths_for_print(ws, pos):
         ws.column_dimensions[letter].width = width
 
 # ---------- image (Beschreibung) ----------
-LEFT_INSET_PX   = 25
-BOTTOM_CROP     = 0.92
-RIGHT_INSET_PX  = 25      # belső jobb oldali insett a blokkon belül
-RIGHT_SAFE      = 30      # **új**: plusz biztonsági ráhagyás (px), hogy biztosan ne lógjon ki
+LEFT_INSET_PX  = 25   # belső bal margó a szöveg körül
+RIGHT_SAFE     = 30   # jobb oldali biztonsági ráhagyás (ne lógjon ki)
+BOTTOM_CROP    = 0.92
+SHIFT_LEFT_PX  = 30   # ennyivel húzzuk balra a TELJES képet (nem csak keskenyítünk)
 
-def _make_description_image(text, w_px, h_px):
+def _make_description_image(text, w_px, h_px, *, extra_left_pad=0):
+    """Kép generálása a megadott méretre. extra_left_pad: plusz fehér margó a bal oldalon (px)."""
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     font = None
@@ -279,7 +280,7 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 12, 10
+    pad_left, pad_top, pad_right, pad_bottom = 12 + int(extra_left_pad), 10, 12, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
 
@@ -317,6 +318,10 @@ def _xlimage_from_pil(pil_img):
     return XLImage(buf)
 
 def insert_description_as_image(ws, r1, c1, r2, c2, text):
+    """
+    Egész képet balra toljuk (~SHIFT_LEFT_PX), és jobbra 30 px ráhagyás,
+    hogy sem Excel, sem Numbers, sem QuickLook ne vágja le.
+    """
     if not PIL_AVAILABLE:
         print("IMG: PIL not available at runtime")
         return False
@@ -326,25 +331,35 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
 
         # Teljes A..G blokk mérete (px)
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
-        # A oszlop (bal keret) szélessége (px)
+        # A oszlop szélessége (px)
         colA_w_px = _get_col_pixel_width(ws, 1)
 
-        # rendelkezésre álló tér a képnek (px) – bal insett + jobb biztonsági ráhagyás levonva
-        avail_w = block_w_px - colA_w_px - LEFT_INSET_PX - RIGHT_SAFE
-        avail_h = int(block_h_px * BOTTOM_CROP)
+        # A kép tartalmi szélessége (szövegterület + belső paddingok) úgy,
+        # hogy a jobb szélén maradjon RIGHT_SAFE, az alján BOTTOM_CROP.
+        content_w = block_w_px - colA_w_px - RIGHT_SAFE
+        content_h = int(block_h_px * BOTTOM_CROP)
 
-        avail_w = max(60, avail_w)
-        avail_h = max(40, avail_h)
+        # Méret alsó korlát
+        content_w = max(60, content_w)
+        content_h = max(40, content_h)
 
-        pil_img = _make_description_image(text_s, avail_w, avail_h)
+        # Balra húzás úgy, hogy az ANCHOR **A6** legyen,
+        # és a bal oldali fehér „gutter” legyen:
+        #   gutter = (A oszlop szélesség) - (normál bal inset) - (SHIFT_LEFT_PX)
+        # Így a teljes kép balra mozdul ~SHIFT_LEFT_PX-szel a korábbi B6-hoz képest.
+        extra_gutter = max(0, colA_w_px - LEFT_INSET_PX - SHIFT_LEFT_PX)
+
+        # Teljes kép szélessége = bal gutter + tartalom
+        total_w = extra_gutter + content_w
+        total_h = content_h
+
+        pil_img = _make_description_image(text_s, total_w, total_h, extra_left_pad=extra_gutter)
         xlimg = _xlimage_from_pil(pil_img)
+        xlimg.width = total_w
+        xlimg.height = total_h
 
-        # rögzítjük a méretet – némelyik néző hajlamos „nyújtani”
-        xlimg.width = avail_w
-        xlimg.height = avail_h
-
-        # Anchor marad B6 – a bal oldali keretet nem fedi le
-        anchor = f"{get_column_letter(c1 + 1)}{r1}"  # B6
+        # ANCHOR: most A6 (egész képet balra húzzuk)
+        anchor = f"{get_column_letter(c1)}{r1}"  # A6
         ws.add_image(xlimg, anchor)
 
         # A6 cellát ürítjük, ne legyen átfedés
@@ -427,18 +442,15 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
 
     # ---------- Nyomtatási beállítások (A4, teljes oldal, 1×1 oldalra illesztés) ----------
     try:
-        # A4 fekvő
         ws.page_setup.orientation = 'landscape'
         ws.page_setup.paperSize = 9  # A4
 
-        # Skálázás: pontosan 1 oldal széles × 1 oldal magas
         ws.page_setup.scale = None
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 1
         if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
             ws.sheet_properties.pageSetUpPr.fitToPage = True
 
-        # Margók minimalizálása (inch)
         ws.page_margins.left   = 0.2
         ws.page_margins.right  = 0.2
         ws.page_margins.top    = 0.2
@@ -446,7 +458,7 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         ws.page_margins.header = 0
         ws.page_margins.footer = 0
 
-        # Header/Footer letiltása – kompatibilisen
+        # Header/Footer off – kompatibilisen
         try:
             if hasattr(ws, "oddHeader") and hasattr(ws, "oddFooter"):
                 ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
@@ -457,12 +469,17 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         except Exception:
             pass
 
-        # Nyomtatási terület: ténylegesen használt utolsó sorig
+        # Nyomtatási terület: csak a ténylegesen használt tartomány (hogy tuti 1 oldal maradjon)
         last_data_row = 1
+        last_col = 1
         for r in range(1, ws.max_row + 1):
-            if any(ws.cell(row=r, column=c).value not in (None, "") for c in range(1, ws.max_column + 1)):
+            row_has = False
+            for c in range(1, ws.max_column + 1):
+                if ws.cell(row=r, column=c).value not in (None, ""):
+                    row_has = True
+                    last_col = max(last_col, c)
+            if row_has:
                 last_data_row = r
-        last_col = ws.max_column
         ws.print_area = f"A1:{get_column_letter(last_col)}{last_data_row}"
 
         ws.print_options.horizontalCentered = False
@@ -516,7 +533,7 @@ async def generate_excel(
     }
     return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
-# --- PDF előnézet route megmarad (gomb nélkül nem zavar), LO-val a lapbeállításokat követi ---
+# --- PDF előnézet route megmarad (gomb nélkül nem zavar) ---
 def _has_soffice() -> bool:
     return shutil.which("soffice") is not None
 
