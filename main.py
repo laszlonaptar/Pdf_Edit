@@ -1,14 +1,15 @@
 # main.py
 from fastapi import FastAPI, Request, Form, Response
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.page import PageMargins  # <-- új
+from openpyxl.worksheet.page import PageMargins
 
 from datetime import datetime, time
 from io import BytesIO
@@ -17,7 +18,7 @@ import uuid
 import textwrap
 import traceback
 
-# ---- PDF (ReportLab) - opcionális ----
+# ---- PDF (ReportLab) - opcionális előnézet iPhone-hoz ----
 REPORTLAB_AVAILABLE = False
 try:
     from reportlab.pdfgen import canvas
@@ -29,7 +30,7 @@ except Exception as e:
     REPORTLAB_AVAILABLE = False
     print("PDF: ReportLab not available ->", repr(e))
 
-# Képgeneráláshoz
+# ---- Képgenerálás (Pillow) ----
 try:
     from PIL import Image as PILImage, ImageDraw, ImageFont
     PIL_AVAILABLE = True
@@ -37,9 +38,19 @@ except Exception as e:
     PIL_AVAILABLE = False
     print("IMG: PIL not available ->", repr(e))
 
+# ---- App / statikus / sablonok ----
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+# ---- Egyszerű login (környezeti változókból) ----
+APP_USERNAME = os.getenv("APP_USERNAME", "admin")
+APP_PASSWORD = os.getenv("APP_PASSWORD", "admin")
+SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-dev-secret")
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
+
+def _is_authed(request: Request) -> bool:
+    return bool(request.session.get("auth_ok") is True)
 
 # ---------- helpers for merged cells ----------
 def merged_ranges(ws):
@@ -196,8 +207,8 @@ def _get_col_pixel_width(ws, col_index):
     return _excel_col_width_to_pixels(getattr(cd, "width", None))
 
 # ---------- image (Beschreibung) ----------
-LEFT_INSET_PX = 25      # a teljes képet ennyivel hozzuk beljebb
-BOTTOM_CROP   = 0.92    # 8% levágás alul
+LEFT_INSET_PX = 25      # a teljes képet ennyivel húzzuk beljebb (jobbszél ne lógjon ki)
+BOTTOM_CROP   = 0.92    # kb. 8% levágás alul (sorok vastagsága miatt)
 
 def _make_description_image(text, w_px, h_px):
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
@@ -212,7 +223,7 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # belső margók: bal=12, jobb=0, fent=10, lent=10
+    # belső margók: bal=12, jobb=0, fent=10, lent=10 (a szélességet már kívül INSET-tel korlátozzuk)
     pad_left, pad_top, pad_right, pad_bottom = 12, 10, 0, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
@@ -228,12 +239,16 @@ def _make_description_image(text, w_px, h_px):
         if not para:
             lines.append("")
             continue
-        lines.extend(textwrap.wrap(para, width=max_chars_per_line, replace_whitespace=False, break_long_words=False))
+        lines.extend(textwrap.wrap(
+            para,
+            width=max_chars_per_line,
+            replace_whitespace=False,
+            break_long_words=False
+        ))
 
     ascent, descent = font.getmetrics()
     line_h = ascent + descent + 4
     max_lines = max(1, int(avail_h // line_h))
-
     if len(lines) > max_lines:
         lines = lines[:max_lines - 1] + ["…"]
 
@@ -259,12 +274,13 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
 
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
-        colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop
+        colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop szélessége
 
-        # horgony: B6 (ne fedje az A oszlopot)
+        # Horgony: B6 (ne fedje az A oszlop szélsávját)
         anchor_col = c1 + 1
         anchor = f"{get_column_letter(anchor_col)}{r1}"
 
+        # Kép szélessége: teljes blokk - A oszlop - bal oldali beljebb húzás
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
@@ -273,6 +289,8 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         xlimg = _xlimage_from_pil(pil_img)
 
         ws.add_image(xlimg, anchor)
+
+        # A6 cellát kiürítjük, hogy ne zavarjon rá a kép szélén
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception as e:
@@ -280,31 +298,31 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# ---------- Nyomtatási beállítások (A4, 1×1, kis margók) ----------
+# ---------- Nyomtatási beállítások (A4 fekvő, Szélesség=Automatikus, Magasság=1 oldal) ----------
 def set_print_defaults(ws):
     """
-    A4 landscape, 1x1 oldalra illesztés, kis margókkal,
-    fejléc/lábléc nélkül, nyomtatási terület az utolsó adat sorig.
+    A4 landscape, "Szélesség: Automatikus" (fitToWidth=0), "Magasság: 1 oldal" (fitToHeight=1),
+    kis margókkal, fejléc/lábléc nélkül, és a használt tartományra szűkített nyomtatási területtel.
     """
     # Oldalbeállítás
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
 
-    # 1x1 oldalra skálázás
+    # "Szélesség: Automatikus", "Magasság: 1 oldal"
     ws.page_setup.scale = None
-    ws.page_setup.fitToWidth = 0
-    ws.page_setup.fitToHeight = 1
+    ws.page_setup.fitToWidth = 0   # <= EZ az "Automatikus" szélesség
+    ws.page_setup.fitToHeight = 1  # 1 oldal magas
     if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
         ws.sheet_properties.pageSetUpPr.fitToPage = True
 
-    # Margók
+    # Margók (inch)
     ws.page_margins = PageMargins(
         left=0.2, right=0.2,
         top=0.2, bottom=0.2,
         header=0, footer=0
     )
 
-    # Fejléc/lábléc kikapcsolása
+    # Fejléc/lábléc kikapcsolása (ha elérhető)
     try:
         if hasattr(ws, "oddHeader"):
             ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
@@ -320,20 +338,16 @@ def set_print_defaults(ws):
     last_col_letter = get_column_letter(ws.max_column)
     ws.print_area = f"A1:{last_col_letter}{last_data_row}"
 
+    # Ne középre igazítsuk (opcionális)
     ws.print_options.horizontalCentered = False
     ws.print_options.verticalCentered = False
 
 # ---------- PDF előnézet (ReportLab) ----------
 def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
-    """
-    Gyors PDF-előnézet A4 landscape-ben: fejlécek, Beschreibung képként, majd dolgozói táblázat.
-    Nem cél a 100%-os vizuális azonosság, hanem a nyomtatási kép ellenőrzése iPhone-on.
-    """
     if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
         raise RuntimeError("ReportLab vagy PIL nincs telepítve.")
 
-    # Oldalméret
-    pw, ph = landscape(A4)  # pontokban
+    pw, ph = landscape(A4)  # pontok
     margin_left = 12 * mm
     margin_right = 12 * mm
     margin_top = 12 * mm
@@ -354,34 +368,31 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     if (basf_beauftragter or "").strip():
         c.drawString(margin_left, y, f"BASF Beauftragter: {basf_beauftragter}")
         y -= 10
-
     y -= 6
 
-    # Beschreibung képként (ugyanazzal a szélességgel/magassággal, mint Excelben)
+    # Beschreibung képként ugyanazzal a szélességgel/magassággal (Excel-számítás alapján)
     block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
     colA_w_px = _get_col_pixel_width(ws, 1)
     new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
     new_h_px = int(block_h_px * BOTTOM_CROP)
-
     pil_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
 
-    # px -> pt (96 dpi feltételezéssel: 1 px ~ 0.75 pt)
+    # px -> pt (kb. 96 dpi feltételezés: 1 px ~ 0.75 pt)
     w_pt = new_w_px * 0.75
     h_pt = new_h_px * 0.75
 
-    # Ha túl széles, skálázzuk be a margók közé
+    # Biztonság: ne lépje túl a hasznos szélességet
     max_w_pt = pw - margin_left - margin_right
     if w_pt > max_w_pt:
         scale = max_w_pt / w_pt
         w_pt *= scale
         h_pt *= scale
 
-    # Rajzolás
     y -= h_pt
     c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto')
     y -= 12
 
-    # Dolgozói táblázat (egyszerű, előnézetre)
+    # Dolgozói táblázat (egyszerű előnézet)
     c.setFont("Helvetica-Bold", 11)
     headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
     col_widths = [70, 70, 90, 60, 60, 60, 100]  # pt
@@ -417,9 +428,31 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     buf.seek(0)
     return buf.read()
 
+# ---------- Login / Logout ----------
+@app.get("/login", response_class=HTMLResponse)
+async def login_form(request: Request, next: str = "/"):
+    if _is_authed(request):
+        return RedirectResponse(next or "/", status_code=303)
+    # a login.html sablonod "error" változót vár; next-et nem használja, de átadjuk
+    return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
+    if username == APP_USERNAME and password == APP_PASSWORD:
+        request.session["auth_ok"] = True
+        return RedirectResponse(next or "/", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
+
 # ---------- routes ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/generate_excel")
@@ -437,6 +470,10 @@ async def generate_excel(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
 ):
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/", status_code=303)
+
+    # Sablon betöltése
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
@@ -447,7 +484,6 @@ async def generate_excel(
         date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
-
     set_text_addr(ws, "B2", date_text, horizontal="left")
     set_text_addr(ws, "B3", bau,        horizontal="left")
     if (basf_beauftragter or "").strip():
@@ -455,7 +491,6 @@ async def generate_excel(
 
     # --- Beschreibung blokk ---
     r1, c1, r2, c2 = find_description_block(ws)
-
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
@@ -464,7 +499,6 @@ async def generate_excel(
     text_in = (beschreibung or "").strip()
     if text_in:
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
-
     if not inserted:
         set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)  # fallback B oszloptól
 
@@ -533,7 +567,7 @@ async def generate_excel(
         headers=headers,
     )
 
-# ÚJ: PDF előnézet ugyanazzal a formmal
+# PDF előnézet ugyanazzal a formmal (opcionális; gomb nélkül nem zavar)
 @app.post("/generate_pdf")
 async def generate_pdf(
     request: Request,
@@ -549,6 +583,9 @@ async def generate_pdf(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
 ):
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/", status_code=303)
+
     if not REPORTLAB_AVAILABLE or not PIL_AVAILABLE:
         return PlainTextResponse(
             "PDF előállítás nem elérhető: telepítsd a 'reportlab' csomagot (és a PIL-t). "
@@ -556,11 +593,9 @@ async def generate_pdf(
             status_code=501
         )
 
-    # Excel betöltése csak a méretezési adatok miatt (oszlopszélesség/sormagasság)
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # Dátum formázása
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -568,10 +603,8 @@ async def generate_pdf(
     except Exception:
         pass
 
-    # Beschreibung blokk helye
     r1, c1, r2, c2 = find_description_block(ws)
 
-    # Dolgozói adatok + órák összegyűjtése
     workers = []
     for i in range(1, 6):
         vn = locals().get(f"vorname{i}", "") or ""
