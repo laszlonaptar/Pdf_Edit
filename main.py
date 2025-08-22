@@ -292,7 +292,7 @@ def set_print_defaults(ws):
 
     # 1x1 oldalra skálázás
     ws.page_setup.scale = None
-    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToWidth = 0
     ws.page_setup.fitToHeight = 1
     if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
         ws.sheet_properties.pageSetUpPr.fitToPage = True
