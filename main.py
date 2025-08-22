@@ -1,10 +1,8 @@
-# main.py — FastAPI app with Excel export and true print-preview PDF via LibreOffice (fallback to ReportLab)
-
+# main.py
 from fastapi import FastAPI, Request, Form, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
-from starlette.middleware.sessions import SessionMiddleware
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
@@ -13,16 +11,22 @@ from openpyxl.utils import get_column_letter
 
 from datetime import datetime, time
 from io import BytesIO
-import os, uuid, textwrap, traceback, subprocess, tempfile, shutil
+import os
+import uuid
+import textwrap
+import traceback
 
-# --- ReportLab for PDF fallback ---
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.units import mm
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import Paragraph, Frame
-from reportlab.lib.enums import TA_LEFT
-from reportlab.lib import colors
+# ---- PDF (ReportLab) - opcionális ----
+REPORTLAB_AVAILABLE = False
+try:
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    REPORTLAB_AVAILABLE = True
+except Exception as e:
+    REPORTLAB_AVAILABLE = False
+    print("PDF: ReportLab not available ->", repr(e))
 
 # Képgeneráláshoz
 try:
@@ -32,62 +36,9 @@ except Exception as e:
     PIL_AVAILABLE = False
     print("IMG: PIL not available ->", repr(e))
 
-# -------- App + statikusok, sablonok --------
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-
-# -------- Egyszerű jelszóvédelem (Render env var-okkal) --------
-APP_USERNAME = os.getenv("APP_USERNAME", "")
-APP_PASSWORD = os.getenv("APP_PASSWORD", "")
-SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-secret-change-me")
-
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
-
-def _is_authed(request: Request) -> bool:
-    return bool(request.session.get("auth_ok") is True)
-
-def _login_page(msg: str = "", next_path: str = "/") -> str:
-    return f"""<!doctype html>
-    <html lang="de"><head>
-    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Login</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <style>.login-card{{max-width:420px;margin:4rem auto;padding:1.25rem}}
-    .muted{{color:#666;font-size:.9rem}}.err{{color:#b00020;margin:.5rem 0}}</style>
-    </head><body><main class="container"><section class="card login-card">
-      <h1>Anmeldung</h1>{("<div class='err'>"+msg+"</div>" if msg else "")}
-      <form method="post" action="/login">
-        <input type="hidden" name="next" value="{next_path}">
-        <div class="field"><label for="u">Benutzername</label>
-        <input id="u" name="username" type="text" required></div>
-        <div class="field"><label for="p">Passwort</label>
-        <input id="p" name="password" type="password" required></div>
-        <div class="actions"><button class="btn primary" type="submit">Anmelden</button></div>
-      </form><p class="muted">Zugriff ist passwortgeschützt.</p></section></main></body></html>"""
-
-@app.get("/login", response_class=HTMLResponse)
-async def login_form(request: Request, next: str = "/"):
-    if _is_authed(request):
-        return RedirectResponse(next or "/", status_code=303)
-    return HTMLResponse(_login_page(next_path=next))
-
-@app.post("/login", response_class=HTMLResponse)
-async def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
-    if APP_USERNAME and APP_PASSWORD:
-        if username == APP_USERNAME and password == APP_PASSWORD:
-            request.session["auth_ok"] = True
-            return RedirectResponse(next or "/", status_code=303)
-        else:
-            return HTMLResponse(_login_page("Falscher Benutzername oder Passwort.", next), status_code=401)
-    else:
-        request.session["auth_ok"] = True
-        return RedirectResponse(next or "/", status_code=303)
-
-@app.get("/logout")
-async def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse("/login", status_code=303)
 
 # ---------- helpers for merged cells ----------
 def merged_ranges(ws):
@@ -154,7 +105,8 @@ def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -
         return 0.0
     total_min = int((finish - start).total_seconds() // 60)
     if pause_min >= 60:
-        minus = overlap_minutes(beg, end, time(9,0), time(9,15)) + overlap_minutes(beg, end, time(12,0), time(12,45))
+        minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
+              + overlap_minutes(beg, end, time(12,0), time(12,45))
     else:
         minus = min(total_min, 30)
     return max(0.0, (total_min - minus) / 60.0)
@@ -208,7 +160,7 @@ def find_total_cells(ws, stunden_col):
         stunden_total = (rr, cc)
     return right_of_label, stunden_total
 
-# --- Beschreibung (A6–G15) blokk helye ---
+# --- Fix Beschreibung-blokk: A6–G15 ---
 def find_description_block(ws):
     return (6, 1, 15, 7)  # A6..G15
 
@@ -233,7 +185,6 @@ def _get_block_pixel_size(ws, r1, c1, r2, c2):
     for r in range(r1, r2 + 1):
         rd = ws.row_dimensions.get(r)
         h_px += _excel_row_height_to_pixels(getattr(rd, "height", None))
-    # A képet majd külön jobbra/balra ráhagyással számoljuk
     w_px = max(40, w_px)
     h_px = max(40, h_px)
     return w_px, h_px
@@ -243,31 +194,11 @@ def _get_col_pixel_width(ws, col_index):
     cd = ws.column_dimensions.get(letter)
     return _excel_col_width_to_pixels(getattr(cd, "width", None))
 
-# ---------- oszlopszélességek A4-hez ----------
-def _set_column_widths_for_print(ws, pos):
-    widths = {
-        pos["name_col"]:     18.0,  # Name
-        pos["vorname_col"]:  14.0,  # Vorname
-        pos["ausweis_col"]:  14.0,  # Ausweis/Kennzeichen
-        pos["beginn_col"]:   10.0,  # Beginn
-        pos["ende_col"]:     10.0,  # Ende
-        pos["stunden_col"]:  12.0,  # Anzahl Stunden
-    }
-    if "vorhaltung_col" in pos and pos["vorhaltung_col"]:
-        widths[pos["vorhaltung_col"]] = 28.0  # Vorhaltung / Gerät
-
-    for col_idx, width in widths.items():
-        letter = get_column_letter(col_idx)
-        ws.column_dimensions[letter].width = width
-
 # ---------- image (Beschreibung) ----------
-LEFT_INSET_PX  = 25   # belső bal margó a szöveg körül
-RIGHT_SAFE     = 30   # jobb oldali biztonsági ráhagyás (ne lógjon ki)
-BOTTOM_CROP    = 0.92
-SHIFT_LEFT_PX  = 30   # ennyivel húzzuk balra a TELJES képet (nem csak keskenyítünk)
+LEFT_INSET_PX = 25      # a teljes képet ennyivel hozzuk beljebb
+BOTTOM_CROP   = 0.92    # 8% levágás alul
 
-def _make_description_image(text, w_px, h_px, *, extra_left_pad=0):
-    """Kép generálása a megadott méretre. extra_left_pad: plusz fehér margó a bal oldalon (px)."""
+def _make_description_image(text, w_px, h_px):
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     font = None
@@ -280,7 +211,8 @@ def _make_description_image(text, w_px, h_px, *, extra_left_pad=0):
     if font is None:
         font = ImageFont.load_default()
 
-    pad_left, pad_top, pad_right, pad_bottom = 12 + int(extra_left_pad), 10, 12, 10
+    # belső margók: bal=12, jobb=0, fent=10, lent=10
+    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 0, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
 
@@ -318,10 +250,6 @@ def _xlimage_from_pil(pil_img):
     return XLImage(buf)
 
 def insert_description_as_image(ws, r1, c1, r2, c2, text):
-    """
-    Egész képet balra toljuk (~SHIFT_LEFT_PX), és jobbra 30 px ráhagyás,
-    hogy sem Excel, sem Numbers, sem QuickLook ne vágja le.
-    """
     if not PIL_AVAILABLE:
         print("IMG: PIL not available at runtime")
         return False
@@ -329,40 +257,21 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         text_s = (text or "")
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
 
-        # Teljes A..G blokk mérete (px)
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
-        # A oszlop szélessége (px)
-        colA_w_px = _get_col_pixel_width(ws, 1)
+        colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop
 
-        # A kép tartalmi szélessége (szövegterület + belső paddingok) úgy,
-        # hogy a jobb szélén maradjon RIGHT_SAFE, az alján BOTTOM_CROP.
-        content_w = block_w_px - colA_w_px - RIGHT_SAFE
-        content_h = int(block_h_px * BOTTOM_CROP)
+        # új horgony: B6
+        anchor_col = c1 + 1  # A->B
+        anchor = f"{get_column_letter(anchor_col)}{r1}"
 
-        # Méret alsó korlát
-        content_w = max(60, content_w)
-        content_h = max(40, content_h)
+        new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
+        new_h_px = int(block_h_px * BOTTOM_CROP)
 
-        # Balra húzás úgy, hogy az ANCHOR **A6** legyen,
-        # és a bal oldali fehér „gutter” legyen:
-        #   gutter = (A oszlop szélesség) - (normál bal inset) - (SHIFT_LEFT_PX)
-        # Így a teljes kép balra mozdul ~SHIFT_LEFT_PX-szel a korábbi B6-hoz képest.
-        extra_gutter = max(0, colA_w_px - LEFT_INSET_PX - SHIFT_LEFT_PX)
-
-        # Teljes kép szélessége = bal gutter + tartalom
-        total_w = extra_gutter + content_w
-        total_h = content_h
-
-        pil_img = _make_description_image(text_s, total_w, total_h, extra_left_pad=extra_gutter)
+        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
+        pil_img = _make_description_image(text_s, new_w_px, new_h_px)
         xlimg = _xlimage_from_pil(pil_img)
-        xlimg.width = total_w
-        xlimg.height = total_h
 
-        # ANCHOR: most A6 (egész képet balra húzzuk)
-        anchor = f"{get_column_letter(c1)}{r1}"  # A6
         ws.add_image(xlimg, anchor)
-
-        # A6 cellát ürítjük, ne legyen átfedés
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception as e:
@@ -370,25 +279,139 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# ---- shared: workbook fill ----
-def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers):
+# ---------- PDF előnézet (ReportLab) ----------
+def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
+    """
+    Gyors PDF-előnézet A4 landscape-ben: fejlécek, Beschreibung képként, majd dolgozói táblázat.
+    Nem cél a 100%-os vizuális azonosság, hanem a nyomtatási kép ellenőrzése iPhone-on.
+    """
+    if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
+        raise RuntimeError("ReportLab vagy PIL nincs telepítve.")
+
+    # Oldalméret
+    pw, ph = landscape(A4)  # pontokban
+    margin_left = 12 * mm
+    margin_right = 12 * mm
+    margin_top = 12 * mm
+    margin_bottom = 12 * mm
+
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=(pw, ph))
+
+    y = ph - margin_top
+
+    # Fejlécek
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin_left, y, f"Datum: {date_text}")
+    y -= 16
+    c.setFont("Helvetica", 12)
+    c.drawString(margin_left, y, f"Bau: {bau}")
+    y -= 16
+    if (basf_beauftragter or "").strip():
+        c.drawString(margin_left, y, f"BASF Beauftragter: {basf_beauftragter}")
+        y -= 10
+
+    y -= 6
+
+    # Beschreibung képként (ugyanazzal a szélességgel/magassággal, mint Excelben)
+    block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+    colA_w_px = _get_col_pixel_width(ws, 1)
+    new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
+    new_h_px = int(block_h_px * BOTTOM_CROP)
+
+    pil_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
+
+    # px -> pt (96 dpi feltételezéssel: 1 px ~ 0.75 pt)
+    w_pt = new_w_px * 0.75
+    h_pt = new_h_px * 0.75
+
+    # Ha túl széles, skálázzuk be a margók közé
+    max_w_pt = pw - margin_left - margin_right
+    if w_pt > max_w_pt:
+        scale = max_w_pt / w_pt
+        w_pt *= scale
+        h_pt *= scale
+
+    # Rajzolás
+    y -= h_pt
+    c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto')
+    y -= 12
+
+    # Dolgozói táblázat (egyszerű, előnézetre)
+    c.setFont("Helvetica-Bold", 11)
+    headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
+    col_widths = [70, 70, 90, 60, 60, 60, 100]  # pt
+    x = margin_left
+    for hdr, w in zip(headers, col_widths):
+        c.drawString(x, y, hdr)
+        x += w
+    y -= 14
+    c.setLineWidth(0.3)
+    c.line(margin_left, y, margin_left + sum(col_widths), y)
+    y -= 6
+
+    c.setFont("Helvetica", 10)
+    for (vn, nn, aw, bg, en, vh) in workers:
+        x = margin_left
+        vals = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}", vh]
+        for val, w in zip(vals, col_widths):
+            c.drawString(x, y, str(val or ""))
+            x += w
+        y -= 14
+        if y < margin_bottom + 40:
+            c.showPage()
+            y = ph - margin_top
+            c.setFont("Helvetica", 10)
+
+    # Összes óraszám
+    y -= 6
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+# ---------- routes ----------
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.post("/generate_excel")
+async def generate_excel(
+    request: Request,
+    datum: str = Form(...),
+    bau: str = Form(...),
+    basf_beauftragter: str = Form(""),
+    geraet: str = Form(""),
+    beschreibung: str = Form(""),
+    break_minutes: int = Form(60),
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
+):
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # Felső mezők
+    # --- Felső mezők ---
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
         date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
+
     set_text_addr(ws, "B2", date_text, horizontal="left")
     set_text_addr(ws, "B3", bau,        horizontal="left")
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # Beschreibung blokk
+    # --- Beschreibung blokk ---
     r1, c1, r2, c2 = find_description_block(ws)
+
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
@@ -397,25 +420,29 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
     text_in = (beschreibung or "").strip()
     if text_in:
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
+
     if not inserted:
-        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)
+        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)  # fallback B oszloptól
 
-    # Dolgozók
+    # --- Dolgozók és órák + Vorhaltung oszlop ---
     pos = find_header_positions(ws)
-
-    # Oszlopszélességek A4-hez
-    try:
-        _set_column_widths_for_print(ws, pos)
-    except Exception as _e:
-        print("WIDTH SET WARN:", repr(_e))
-
     row = pos["data_start_row"]
     vorhaltung_col = pos.get("vorhaltung_col", None)
 
+    workers = []
+    for i in range(1, 6):
+        vn = locals().get(f"vorname{i}", "") or ""
+        nn = locals().get(f"nachname{i}", "") or ""
+        aw = locals().get(f"ausweis{i}", "") or ""
+        bg = locals().get(f"beginn{i}", "") or ""
+        en = locals().get(f"ende{i}", "") or ""
+        vh = locals().get(f"vorhaltung{i}", "") or ""
+        if not (vn or nn or aw or bg or en or vh):
+            continue
+        workers.append((vn, nn, aw, bg, en, vh))
+
     total_hours = 0.0
     for (vn, nn, aw, bg, en, vh) in workers:
-        if not any([vn, nn, aw, bg, en, vh]):
-            continue
         set_text(ws, row, pos["name_col"], nn, wrap=False, align_left=True)
         set_text(ws, row, pos["vorname_col"], vn, wrap=False, align_left=True)
         set_text(ws, row, pos["ausweis_col"], aw, wrap=False, align_left=True)
@@ -440,88 +467,23 @@ def build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, w
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---------- Nyomtatási beállítások (A4, teljes oldal, 1×1 oldalra illesztés) ----------
+    # ---------- Nyomtatási beállítások ----------
     try:
         ws.page_setup.orientation = 'landscape'
-        ws.page_setup.paperSize = 9  # A4
-
-        ws.page_setup.scale = None
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 1
-        if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
-            ws.sheet_properties.pageSetUpPr.fitToPage = True
-
+        ws.page_setup.paperSize = 9            # A4
+        ws.page_setup.fitToWidth = 1           # 1 oldal szélesség
+        ws.page_setup.fitToHeight = 0          # magasság tetszőleges
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.page_margins.left   = 0.2
         ws.page_margins.right  = 0.2
-        ws.page_margins.top    = 0.2
-        ws.page_margins.bottom = 0.2
-        ws.page_margins.header = 0
-        ws.page_margins.footer = 0
-
-        # Header/Footer off – kompatibilisen
-        try:
-            if hasattr(ws, "oddHeader") and hasattr(ws, "oddFooter"):
-                ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
-                ws.oddFooter.left.text = ws.oddFooter.center.text = ws.oddFooter.right.text = ""
-            if hasattr(ws, "header_footer"):
-                ws.header_footer.differentFirst = False
-                ws.header_footer.differentOddEven = False
-        except Exception:
-            pass
-
-        # Nyomtatási terület: csak a ténylegesen használt tartomány (hogy tuti 1 oldal maradjon)
-        last_data_row = 1
-        last_col = 1
-        for r in range(1, ws.max_row + 1):
-            row_has = False
-            for c in range(1, ws.max_column + 1):
-                if ws.cell(row=r, column=c).value not in (None, ""):
-                    row_has = True
-                    last_col = max(last_col, c)
-            if row_has:
-                last_data_row = r
-        ws.print_area = f"A1:{get_column_letter(last_col)}{last_data_row}"
-
-        ws.print_options.horizontalCentered = False
-        ws.print_options.verticalCentered = False
+        ws.page_margins.top    = 0.3
+        ws.page_margins.bottom = 0.3
+        ws.print_area = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+        ws.print_options.horizontalCentered = True
     except Exception as e:
         print("PRINT SETUP WARN:", repr(e))
 
-    return wb
-
-# ---------- routes ----------
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    if not _is_authed(request):
-        return RedirectResponse("/login?next=/", status_code=303)
-    return templates.TemplateResponse("index.html", {"request": request})
-
-def _collect_workers(formdict):
-    def g(key): return (formdict.get(key) or "").strip()
-    workers = []
-    for i in range(1, 6):
-        workers.append((g(f"vorname{i}"), g(f"nachname{i}"), g(f"ausweis{i}"),
-                        g(f"beginn{i}"), g(f"ende{i}"), g(f"vorhaltung{i}")))
-    return workers
-
-@app.post("/generate_excel")
-async def generate_excel(
-    request: Request,
-    datum: str = Form(...), bau: str = Form(...),
-    basf_beauftragter: str = Form(""), geraet: str = Form(""),
-    beschreibung: str = Form(""), break_minutes: int = Form(60),
-    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
-    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
-    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
-    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
-):
-    if not _is_authed(request):
-        return RedirectResponse("/login?next=/", status_code=303)
-
-    workers = _collect_workers(locals())
-    wb = build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
-
+    # ---- Válasz (Excel) ----
     bio = BytesIO()
     wb.save(bio)
     data = bio.getvalue()
@@ -531,23 +493,40 @@ async def generate_excel(
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
-    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
-# --- PDF előnézet route megmarad (gomb nélkül nem zavar) ---
-def _has_soffice() -> bool:
-    return shutil.which("soffice") is not None
+# ÚJ: PDF előnézet ugyanazzal a formmal
+@app.post("/generate_pdf")
+async def generate_pdf(
+    request: Request,
+    datum: str = Form(...),
+    bau: str = Form(...),
+    basf_beauftragter: str = Form(""),
+    geraet: str = Form(""),
+    beschreibung: str = Form(""),
+    break_minutes: int = Form(60),
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
+):
+    if not REPORTLAB_AVAILABLE or not PIL_AVAILABLE:
+        return PlainTextResponse(
+            "PDF előállítás nem elérhető: telepítsd a 'reportlab' csomagot (és a PIL-t). "
+            "Add hozzá a requirements.txt-hez: reportlab",
+            status_code=501
+        )
 
-def _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers) -> bytes:
-    pagesize = landscape(A4)
-    W, H = pagesize
-    margin = 18 * mm
-    bio = BytesIO()
-    c = canvas.Canvas(bio, pagesize=pagesize)
+    # Excel betöltése csak a méretezési adatok miatt (oszlopszélesség/sormagasság)
+    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
+    ws = wb.active
 
-    c.setFont("Helvetica-Bold", 14)
-    c.setFillColor(colors.black)
-    c.drawString(margin, H - margin, "Leistungsnachweis – PDF Vorschau")
-
+    # Dátum formázása
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -555,127 +534,39 @@ def _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_mi
     except Exception:
         pass
 
-    c.setFont("Helvetica", 11)
-    y = H - margin - 10*mm
-    c.drawString(margin, y, f"Datum: {date_text}")
-    y -= 6 * mm
-    c.drawString(margin, y, f"Bau: {bau}")
-    y -= 6 * mm
-    if (basf_beauftragter or "").strip():
-        c.drawString(margin, y, f"BASF-Beauftragter: {basf_beauftragter}")
-        y -= 8 * mm
-    else:
-        y -= 2 * mm
+    # Beschreibung blokk helye
+    r1, c1, r2, c2 = find_description_block(ws)
 
-    box_x = margin
-    box_w = W - 2*margin
-    box_h = 52 * mm
-    box_y = H - margin - 40*mm
-
-    c.setStrokeColor(colors.black)
-    c.rect(box_x, box_y - box_h, box_w, box_h, stroke=1, fill=0)
-
-    styles = getSampleStyleSheet()
-    style = ParagraphStyle(
-        "Besch",
-        parent=styles["Normal"],
-        fontName="Helvetica",
-        fontSize=11,
-        leading=13.5,
-        alignment=TA_LEFT,
-    )
-
-    beschr = (beschreibung or "").replace("\r\n", "\n").replace("\r", "\n")
-    beschr_html = "<br/>".join(beschr.split("\n"))
-    para = Paragraph(beschr_html, style)
-
-    frame = Frame(box_x + 8*mm, (box_y - box_h) + 8*mm,
-                  box_w - 16*mm, box_h - 16*mm, showBoundary=0)
-    frame.addFromList([para], c)
-
-    y_tab = box_y - 12*mm
-    c.setFont("Helvetica-Bold", 10)
-    headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Anzahl Stunden", "Vorhaltung"]
-    col_widths = [35*mm, 35*mm, 28*mm, 20*mm, 20*mm, 28*mm, 40*mm]
-    x = margin
-    for htxt, w in zip(headers, col_widths):
-        c.drawString(x, y_tab, htxt)
-        x += w
-
-    c.setFont("Helvetica", 10)
-    def row(values, yrow):
-        x = margin
-        for val, w in zip(values, col_widths):
-            c.drawString(x, yrow, str(val or ""))
-            x += w
-
-    def hhmm(t): return parse_hhmm(t) if t else None
+    # Dolgozói adatok + órák összegyűjtése
+    workers = []
+    for i in range(1, 6):
+        vn = locals().get(f"vorname{i}", "") or ""
+        nn = locals().get(f"nachname{i}", "") or ""
+        aw = locals().get(f"ausweis{i}", "") or ""
+        bg = locals().get(f"beginn{i}", "") or ""
+        en = locals().get(f"ende{i}", "") or ""
+        vh = locals().get(f"vorhaltung{i}", "") or ""
+        if not (vn or nn or aw or bg or en or vh):
+            continue
+        workers.append((vn, nn, aw, bg, en, vh))
 
     total_hours = 0.0
-    y_tab -= 6*mm
-    for (vn, nn, aw, bg, en, vh) in workers:
-        if not any([vn, nn, aw, bg, en, vh]):
-            continue
-        hb = hhmm(bg); he = hhmm(en)
-        h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
-        total_hours += h
-        row([nn, vn, aw, bg, en, h, vh], y_tab)
-        y_tab -= 6*mm
+    for (_, _, _, bg, en, _) in workers:
+        hb = parse_hhmm(bg)
+        he = parse_hhmm(en)
+        total_hours += hours_with_breaks(hb, he, int(break_minutes))
 
-    y_tab -= 4 * mm
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(margin, y_tab, f"Gesamtstunden: {round(total_hours, 2)}")
+    pdf_bytes = _build_pdf_preview(
+        date_text=date_text,
+        bau=bau,
+        basf_beauftragter=basf_beauftragter,
+        beschreibung=beschreibung,
+        ws=ws, r1=r1, c1=c1, r2=r2, c2=c2,
+        workers=workers,
+        total_hours=total_hours
+    )
 
-    c.setFont("Helvetica", 8)
-    c.setFillColor(colors.grey)
-    c.drawRightString(W - margin, margin - 2*mm, "PDF Vorschau – (ReportLab Fallback)")
-
-    c.showPage(); c.save()
-    return bio.getvalue()
-
-@app.post("/generate_pdf")
-async def generate_pdf(
-    request: Request,
-    datum: str = Form(...), bau: str = Form(...),
-    basf_beauftragter: str = Form(""), geraet: str = Form(""),
-    beschreibung: str = Form(""), break_minutes: int = Form(60),
-    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
-    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
-    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
-    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
-):
-    if not _is_authed(request):
-        return RedirectResponse("/login?next=/", status_code=303)
-
-    workers = _collect_workers(locals())
-    wb = build_workbook(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
-
-    if _has_soffice():
-        with tempfile.TemporaryDirectory() as tmpdir:
-            xlsx_path = os.path.join(tmpdir, f"ln_{uuid.uuid4().hex[:8]}.xlsx")
-            pdf_outdir = tmpdir
-            wb.save(xlsx_path)
-
-            filter_data = '{"UsePageSettings":true,"ScaleToPagesX":1,"ScaleToPagesY":1}'
-            cmd = [
-                "soffice","--headless","--nologo","--nodefault","--nolockcheck","--nofirststartwizard",
-                "--convert-to", f"pdf:calc_pdf_Export:{filter_data}",
-                "--outdir", pdf_outdir,
-                xlsx_path
-            ]
-            try:
-                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
-                pdf_path = xlsx_path[:-5] + ".pdf"
-                with open(pdf_path, "rb") as f:
-                    pdf_bytes = f.read()
-            except Exception as e:
-                print("LibreOffice conversion failed ->", repr(e))
-                pdf_bytes = _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
-    else:
-        pdf_bytes = _reportlab_preview_pdf(datum, bau, basf_beauftragter, beschreibung, break_minutes, workers)
-
-    fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:6]}.pdf"
+    fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
     headers = {
         "Content-Disposition": f'attachment; filename="{fname}"',
         "Content-Length": str(len(pdf_bytes)),
