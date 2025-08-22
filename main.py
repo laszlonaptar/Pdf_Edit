@@ -8,6 +8,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins  # <-- új
 
 from datetime import datetime, time
 from io import BytesIO
@@ -260,8 +261,8 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
         colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop
 
-        # új horgony: B6
-        anchor_col = c1 + 1  # A->B
+        # horgony: B6 (ne fedje az A oszlopot)
+        anchor_col = c1 + 1
         anchor = f"{get_column_letter(anchor_col)}{r1}"
 
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
@@ -278,6 +279,49 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         print("IMG: insert FAILED ->", repr(e))
         traceback.print_exc()
         return False
+
+# ---------- Nyomtatási beállítások (A4, 1×1, kis margók) ----------
+def set_print_defaults(ws):
+    """
+    A4 landscape, 1x1 oldalra illesztés, kis margókkal,
+    fejléc/lábléc nélkül, nyomtatási terület az utolsó adat sorig.
+    """
+    # Oldalbeállítás
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+
+    # 1x1 oldalra skálázás
+    ws.page_setup.scale = None
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+    # Margók
+    ws.page_margins = PageMargins(
+        left=0.2, right=0.2,
+        top=0.2, bottom=0.2,
+        header=0, footer=0
+    )
+
+    # Fejléc/lábléc kikapcsolása
+    try:
+        if hasattr(ws, "oddHeader"):
+            ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
+            ws.oddFooter.left.text = ws.oddFooter.center.text = ws.oddFooter.right.text = ""
+    except Exception:
+        pass
+
+    # Nyomtatási terület: A1-től az utolsó használt sorig
+    last_data_row = 1
+    for r in range(1, ws.max_row + 1):
+        if any(ws.cell(row=r, column=c).value not in (None, "") for c in range(1, ws.max_column + 1)):
+            last_data_row = r
+    last_col_letter = get_column_letter(ws.max_column)
+    ws.print_area = f"A1:{last_col_letter}{last_data_row}"
+
+    ws.print_options.horizontalCentered = False
+    ws.print_options.verticalCentered = False
 
 # ---------- PDF előnézet (ReportLab) ----------
 def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
@@ -467,19 +511,9 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---------- Nyomtatási beállítások ----------
+    # ---------- Nyomtatási beállítások (kényszerített, mint a kézi Excel) ----------
     try:
-        ws.page_setup.orientation = 'landscape'
-        ws.page_setup.paperSize = 9            # A4
-        ws.page_setup.fitToWidth = 1           # 1 oldal szélesség
-        ws.page_setup.fitToHeight = 0          # magasság tetszőleges
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.page_margins.left   = 0.2
-        ws.page_margins.right  = 0.2
-        ws.page_margins.top    = 0.3
-        ws.page_margins.bottom = 0.3
-        ws.print_area = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
-        ws.print_options.horizontalCentered = True
+        set_print_defaults(ws)
     except Exception as e:
         print("PRINT SETUP WARN:", repr(e))
 
