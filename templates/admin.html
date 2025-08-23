@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin – Leistungsnachweis</title>
+  <link rel="stylesheet" href="/static/style.css?v=12" />
+  <style>
+    .searchbar{display:flex;gap:1rem;align-items:flex-end;margin-bottom:1rem;}
+    table{width:100%;border-collapse:collapse;}
+    th,td{padding:.5rem;border-bottom:1px solid #ddd;text-align:left;}
+    .muted{color:#666;}
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>Admin</h1>
+
+    <form class="card searchbar" method="get" action="/admin">
+      <div class="field">
+        <label for="q_bau">Bau</label>
+        <input id="q_bau" name="q_bau" type="text" value="{{ q_bau }}" placeholder="pl. G725" />
+      </div>
+      <div class="field">
+        <label for="q_date">Datum</label>
+        <input id="q_date" name="q_date" type="text" value="{{ q_date }}" placeholder="YYYY-MM-DD" />
+      </div>
+      <div class="actions">
+        <button class="btn primary" type="submit">Keresés</button>
+        <a class="btn" href="/admin">Összes (max 200)</a>
+        <a class="btn secondary" href="/">← Űrlap</a>
+      </div>
+    </form>
+
+    <section class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Id</th>
+            <th>Dátum</th>
+            <th>Bau</th>
+            <th>BASF-Beauftragter</th>
+            <th>Létrehozva (UTC)</th>
+            <th>Excel</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td><a href="/admin/view/{{ r['id'] }}">#{{ r['id'] }}</a></td>
+            <td>{{ r['datum'] }}</td>
+            <td>{{ r['bau'] }}</td>
+            <td class="muted">{{ r['basf_beauftragter'] or '' }}</td>
+            <td class="muted">{{ r['created_at'] }}</td>
+            <td>
+              {% if r['excel_filename'] %}
+                <a href="/download/{{ r['excel_filename'] }}">Letöltés</a>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="muted">Nincs találat.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>
