@@ -6,21 +6,21 @@
   <title>Leistungsnachweis</title>
   <link rel="stylesheet" href="/static/style.css?v=12" />
   <style>
+    /* Checkbox ne nézzen ki szövegmezőnek a globális input-stílus miatt */
     input[type="checkbox"]{
       width:auto; height:auto; padding:0; margin:0;
       border:none; background:transparent; box-shadow:none;
       appearance:auto; -webkit-appearance:auto;
     }
     .ck-row{ display:flex; align-items:center; gap:.5rem; font-weight:600; }
-    .actions { display:flex; gap:1rem; }
+    .actions{ display:flex; gap:1rem; }
   </style>
 </head>
 <body>
   <main class="container">
     <h1>Leistungsnachweis</h1>
 
-    <!-- CSAK PDF-et kínálunk; a backendben az Excel logika megmaradt -->
-    <form id="ln-form" method="post" action="/generate_pdf" novalidate>
+    <form id="ln-form" method="post" action="/generate_excel" novalidate>
       <!-- Kopf -->
       <section class="card">
         <div class="grid grid-2">
@@ -125,42 +125,11 @@
       </section>
 
       <div class="actions">
-        <button class="btn primary" type="submit">PDF generieren</button>
+        <button class="btn primary" type="submit">Excel generieren</button>
       </div>
     </form>
   </main>
 
-  <script>
-    // egyszerű számláló és „fél óra” beállítás
-    const besch = document.getElementById('beschreibung');
-    const cnt = document.getElementById('besch-count');
-    besch.addEventListener('input', () => cnt.textContent = `${besch.value.length} / 1000`);
-    const ck = document.getElementById('break_half');
-    const hidden = document.getElementById('break_minutes');
-    ck.addEventListener('change', () => hidden.value = ck.checked ? '30' : '60');
-
-    // + Munkatárs hozzáadása (minimál: 5 főig)
-    const list = document.getElementById('worker-list');
-    document.getElementById('add-worker').addEventListener('click', () => {
-      const count = list.querySelectorAll('.worker').length;
-      if (count >= 5) return;
-      const idx = count + 1;
-      const tpl = list.querySelector('.worker').cloneNode(true);
-      tpl.dataset.index = String(idx);
-      tpl.querySelector('legend').textContent = `Mitarbeiter ${idx}`;
-      tpl.querySelectorAll('input').forEach(inp => {
-        if (inp.name.startsWith('vorname')) inp.name = `vorname${idx}`;
-        if (inp.name.startsWith('nachname')) inp.name = `nachname${idx}`;
-        if (inp.name.startsWith('ausweis')) inp.name = `ausweis${idx}`;
-        if (inp.name.startsWith('vorhaltung')) inp.name = `vorhaltung${idx}`;
-        if (inp.name.startsWith('beginn')) inp.name = `beginn${idx}`;
-        if (inp.name.startsWith('ende')) inp.name = `ende${idx}`;
-        if (inp.classList.contains('stunden-display')) inp.value = '';
-        else if (inp.type !== 'hidden') inp.value = '';
-      });
-      list.appendChild(tpl);
-    });
-  </script>
   <script src="/static/script.js?v=validate1"></script>
 </body>
 </html>
