@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bejegyzés – Leistungsnachweis</title>
+  <link rel="stylesheet" href="/static/style.css?v=12" />
+  <style>
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
+    .copy{cursor:pointer;}
+    textarea{width:100%;min-height:140px;}
+    .muted{color:#666;}
+  </style>
+</head>
+<body>
+  <main class="container">
+    <div class="actions" style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;">
+      <a class="btn" href="/admin">← Vissza a listához</a>
+      {% if sub['excel_filename'] %}
+        <a class="btn secondary" href="/download/{{ sub['excel_filename'] }}">Excel letöltése</a>
+      {% endif %}
+    </div>
+
+    <h1>Bejegyzés #{{ sub['id'] }}</h1>
+    <div class="muted">Létrehozva (UTC): {{ sub['created_at'] }}</div>
+
+    <section class="card">
+      <div class="grid-2">
+        <div class="field">
+          <label>Datum</label>
+          <input type="text" value="{{ sub['datum'] or '' }}" readonly />
+        </div>
+        <div class="field">
+          <label>Bau</label>
+          <input type="text" value="{{ sub['bau'] or '' }}" readonly />
+        </div>
+        <div class="field">
+          <label>BASF-Beauftragter</label>
+          <input type="text" value="{{ sub['basf_beauftragter'] or '' }}" readonly />
+        </div>
+        <div class="field">
+          <label>Pause (Min)</label>
+          <input type="text" value="{{ sub['break_minutes'] or '' }}" readonly />
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="field">
+        <label>Beschreibung der ausgeführten Arbeiten</label>
+        <textarea readonly class="mono">{{ sub['beschreibung'] or '' }}</textarea>
+        <div class="muted small">Kijelölhető / másolható.</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Mitarbeiter</h2>
+      {% for i in range(1,6) %}
+        {% set v = sub['vorname' ~ i] %}
+        {% set n = sub['nachname' ~ i] %}
+        {% set a = sub['ausweis' ~ i] %}
+        {% set b = sub['beginn' ~ i] %}
+        {% set e = sub['ende' ~ i] %}
+        {% set vh = sub['vorhaltung' ~ i] %}
+        {% if v or n or a or b or e or vh %}
+        <fieldset class="worker">
+          <legend>Mitarbeiter {{ i }}</legend>
+          <div class="grid-2">
+            <div class="field"><label>Vorname</label><input type="text" value="{{ v or '' }}" readonly /></div>
+            <div class="field"><label>Nachname</label><input type="text" value="{{ n or '' }}" readonly /></div>
+            <div class="field"><label>Ausweis/Kennzeichen</label><input type="text" value="{{ a or '' }}" readonly /></div>
+            <div class="field"><label>Vorhaltung/Gerät</label><input type="text" value="{{ vh or '' }}" readonly /></div>
+            <div class="field"><label>Beginn</label><input type="text" value="{{ b or '' }}" readonly /></div>
+            <div class="field"><label>Ende</label><input type="text" value="{{ e or '' }}" readonly /></div>
+          </div>
+        </fieldset>
+        {% endif %}
+      {% endfor %}
+    </section>
+
+    <section class="card">
+      <h2>Nyers payload (debug / jövőbeni bővítéshez)</h2>
+      <textarea readonly class="mono">{{ payload | tojson(indent=2) }}</textarea>
+    </section>
+  </main>
+</body>
+</html>
