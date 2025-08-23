@@ -6,7 +6,6 @@
   <title>Leistungsnachweis</title>
   <link rel="stylesheet" href="/static/style.css?v=12" />
   <style>
-    /* Checkbox ne nézzen ki szövegmezőnek a globális input-stílus miatt */
     input[type="checkbox"]{
       width:auto; height:auto; padding:0; margin:0;
       border:none; background:transparent; box-shadow:none;
@@ -19,7 +18,7 @@
   <main class="container">
     <h1>Leistungsnachweis</h1>
 
-    <form id="ln-form" method="post" action="/generate_excel" novalidate>
+    <form id="ln-form" method="post" novalidate>
       <!-- Kopf -->
       <section class="card">
         <div class="grid grid-2">
@@ -124,9 +123,9 @@
       </section>
 
       <div class="actions" style="display:flex;gap:1rem;">
-        <button class="btn primary" type="submit">Excel generieren</button>
-        
-        </button>
+        <button class="btn primary" type="submit" formaction="/generate_excel">Excel generieren</button>
+        <button class="btn secondary" type="submit" formaction="/generate_pdf">PDF generieren</button>
+        <button class="btn secondary" type="submit" formaction="/generate_image">PNG (A4) generieren</button>
       </div>
     </form>
   </main>
