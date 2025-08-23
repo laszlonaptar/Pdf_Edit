@@ -6,10 +6,18 @@
   <title>Admin – Leistungsnachweis</title>
   <link rel="stylesheet" href="/static/style.css?v=12" />
   <style>
-    .searchbar{display:flex;gap:1rem;align-items:flex-end;margin-bottom:1rem;}
-    table{width:100%;border-collapse:collapse;}
-    th,td{padding:.5rem;border-bottom:1px solid #ddd;text-align:left;}
-    .muted{color:#666;}
+    .searchbar{display:flex;gap:1rem;align-items:flex-end;margin-bottom:1rem;flex-wrap:wrap}
+    .searchbar .field{min-width:220px;flex:1}
+    .searchbar .actions{display:flex;gap:.5rem;flex-wrap:wrap}
+    .table-wrap{overflow-x:auto}
+    table{width:100%;border-collapse:collapse;min-width:720px}
+    th,td{padding:.5rem;border-bottom:1px solid #ddd;text-align:left}
+    .muted{color:#666}
+    @media (max-width:720px){
+      .searchbar{align-items:stretch}
+      .searchbar .actions{width:100%}
+      .searchbar .actions .btn{flex:1}
+    }
   </style>
 </head>
 <body>
@@ -19,28 +27,28 @@
     <form class="card searchbar" method="get" action="/admin">
       <div class="field">
         <label for="q_bau">Bau</label>
-        <input id="q_bau" name="q_bau" type="text" value="{{ q_bau }}" placeholder="pl. G725" />
+        <input id="q_bau" name="q_bau" type="text" value="{{ q_bau }}" placeholder="z. B. G725" />
       </div>
       <div class="field">
         <label for="q_date">Datum</label>
-        <input id="q_date" name="q_date" type="text" value="{{ q_date }}" placeholder="YYYY-MM-DD" />
+        <input id="q_date" name="q_date" type="date" value="{{ q_date }}" />
       </div>
       <div class="actions">
-        <button class="btn primary" type="submit">Keresés</button>
-        <a class="btn" href="/admin">Összes (max 200)</a>
-        <a class="btn secondary" href="/">← Űrlap</a>
+        <button class="btn primary" type="submit">Suchen</button>
+        <a class="btn" href="/admin">Alle (max. 200)</a>
+        <a class="btn secondary" href="/">← Formular</a>
       </div>
     </form>
 
-    <section class="card">
+    <section class="card table-wrap">
       <table>
         <thead>
           <tr>
             <th>Id</th>
-            <th>Dátum</th>
+            <th>Datum</th>
             <th>Bau</th>
             <th>BASF-Beauftragter</th>
-            <th>Létrehozva (UTC)</th>
+            <th>Erstellt (UTC)</th>
             <th>Excel</th>
           </tr>
         </thead>
@@ -54,14 +62,14 @@
             <td class="muted">{{ r['created_at'] }}</td>
             <td>
               {% if r['excel_filename'] %}
-                <a href="/download/{{ r['excel_filename'] }}">Letöltés</a>
+                <a href="/download/{{ r['excel_filename'] }}">Download</a>
               {% else %}
                 <span class="muted">—</span>
               {% endif %}
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="muted">Nincs találat.</td></tr>
+          <tr><td colspan="6" class="muted">Keine Treffer.</td></tr>
           {% endfor %}
         </tbody>
       </table>
