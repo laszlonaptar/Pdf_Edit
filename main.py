@@ -612,9 +612,11 @@ async def generate_excel(
     data = bio.getvalue()
     fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
     headers = {
-        "Content-Disposition": f'attachment; filename=\"{fname}\"",
-        "Content-Length": str(len(data)),
-        "Cache-Control": "no-store",
+        
+    "Content-Disposition": f'attachment; filename="{fname}"',
+    "Content-Length": str(len(data_or_bytes)),
+    "Cache-Control": "no-store",
+
     }
     return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
