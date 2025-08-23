@@ -88,7 +88,10 @@ def init_db():
             payload_json TEXT
         )
         """)
-init_db()
+
+@app.on_event("startup")
+def _startup():
+    init_db()
 
 # ---------- helpers for merged cells ----------
 def merged_ranges(ws):
@@ -455,7 +458,7 @@ async def login_submit(request: Request, username: str = Form(...), password: st
 
 @app.get("/logout")
 async def logout(request: Request):
-    request.session.clear
+    request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
 # ---------- Főoldal (űrlap) ----------
@@ -567,7 +570,7 @@ async def generate_excel(
     excel_path = GEN_DIR / excel_name
     wb.save(excel_path.as_posix())
 
-    # DB mentés
+    # DB mentés (payload + egyszerű mezők)
     payload = {
         "datum": datum,
         "bau": bau,
@@ -603,24 +606,26 @@ async def generate_excel(
         """, (
             datetime.utcnow().isoformat(),
             datum, bau, basf_beauftragter, beschreibung, int(break_minutes),
-            vorname1, nachname1, ausweis1, beginn1, ende1, vorhaltung1,
-            vorname2, nachname2, ausweis2, beginn2, ende2, vorhaltung2,
-            vorname3, nachname3, ausweis3, beginn3, ende3, vorhaltung3,
-            vorname4, nachname4, ausweis4, beginn4, ende4, vorhaltung4,
-            vorname5, nachname5, ausweis5, beginn5, ende5, vorhaltung5,
+            locals().get("vorname1",""), locals().get("nachname1",""), locals().get("ausweis1",""), locals().get("beginn1",""), locals().get("ende1",""), locals().get("vorhaltung1",""),
+            locals().get("vorname2",""), locals().get("nachname2",""), locals().get("ausweis2",""), locals().get("beginn2",""), locals().get("ende2",""), locals().get("vorhaltung2",""),
+            locals().get("vorname3",""), locals().get("nachname3",""), locals().get("ausweis3",""), locals().get("beginn3",""), locals().get("ende3",""), locals().get("vorhaltung3",""),
+            locals().get("vorname4",""), locals().get("nachname4",""), locals().get("ausweis4",""), locals().get("beginn4",""), locals().get("ende4",""), locals().get("vorhaltung4",""),
+            locals().get("vorname5",""), locals().get("nachname5",""), locals().get("ausweis5",""), locals().get("beginn5",""), locals().get("ende5",""), locals().get("vorhaltung5",""),
             excel_name, json.dumps(payload, ensure_ascii=False)
         ))
 
-    # Fájlt letöltésre is visszaadjuk (megszoktad így használni)
-    with open(excel_path, "rb") as f:
-        data = f.read()
-    fname = excel_name
+    # Fájlt letöltésre is visszaadjuk
+    data = excel_path.read_bytes()
     headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Disposition": f'attachment; filename="{excel_name}"',
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
-    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers
+    )
 
 # ---------- PDF előnézet (nem kötelező használni) ----------
 @app.post("/generate_pdf")
@@ -708,16 +713,16 @@ async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
     params = []
 
     if q_bau.strip():
-        clauses.append("bau LIKE ?")
+        clauses.append("LOWER(bau) LIKE LOWER(?)")
         params.append(f"%{q_bau.strip()}%")
     if q_date.strip():
-        # q_date lehet 'YYYY-MM-DD' vagy '%..%' – egyszerű részleges illesztés most
-        clauses.append("datum LIKE ?")
-        params.append(f"%{q_date.strip()}%")
+        # YYYY-MM-DD pontos egyezés (az űrlap ezt küldi)
+        clauses.append("datum = ?")
+        params.append(q_date.strip())
 
     if clauses:
         sql += "WHERE " + " AND ".join(clauses) + " "
-    sql += "ORDER BY created_at DESC LIMIT 200"
+    sql += "ORDER BY datetime(created_at) DESC LIMIT 200"
 
     with db_conn() as c:
         rows = c.execute(sql, params).fetchall()
@@ -740,8 +745,6 @@ async def admin_view(request: Request, sid: int):
         if not row:
             return PlainTextResponse("Nincs ilyen bejegyzés.", status_code=404)
 
-    # payload_json-t is betöltjük (ha később bővülne)
-    payload = {}
     try:
         payload = json.loads(row["payload_json"] or "{}")
     except Exception:
@@ -753,7 +756,7 @@ async def admin_view(request: Request, sid: int):
         "payload": payload
     })
 
-# Excel fájl kiszolgálás (biztonság kedvéért csak bejelentkezve)
+# Excel fájl kiszolgálás (bejelentkezve)
 @app.get("/download/{fname}")
 async def download_file(request: Request, fname: str):
     if not _is_authed(request):
