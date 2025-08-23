@@ -17,8 +17,11 @@ import os
 import uuid
 import textwrap
 import traceback
+import json
+import sqlite3
+from pathlib import Path
 
-# ---- PDF (ReportLab) - opcionális előnézet iPhone-hoz ----
+# ---- PDF (ReportLab) - opcionális előnézet ----
 REPORTLAB_AVAILABLE = False
 try:
     from reportlab.pdfgen import canvas
@@ -51,6 +54,41 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax"
 
 def _is_authed(request: Request) -> bool:
     return bool(request.session.get("auth_ok") is True)
+
+# ---- Tárolók / DB init ----
+BASE_DIR = Path(os.getcwd())
+DATA_DIR = BASE_DIR / "data"
+GEN_DIR = BASE_DIR / "generated"
+DATA_DIR.mkdir(exist_ok=True)
+GEN_DIR.mkdir(exist_ok=True)
+DB_PATH = DATA_DIR / "app.db"
+
+def db_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    with db_conn() as c:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            datum TEXT,
+            bau TEXT,
+            basf_beauftragter TEXT,
+            beschreibung TEXT,
+            break_minutes INTEGER,
+            vorname1 TEXT, nachname1 TEXT, ausweis1 TEXT, beginn1 TEXT, ende1 TEXT, vorhaltung1 TEXT,
+            vorname2 TEXT, nachname2 TEXT, ausweis2 TEXT, beginn2 TEXT, ende2 TEXT, vorhaltung2 TEXT,
+            vorname3 TEXT, nachname3 TEXT, ausweis3 TEXT, beginn3 TEXT, ende3 TEXT, vorhaltung3 TEXT,
+            vorname4 TEXT, nachname4 TEXT, ausweis4 TEXT, beginn4 TEXT, ende4 TEXT, vorhaltung4 TEXT,
+            vorname5 TEXT, nachname5 TEXT, ausweis5 TEXT, beginn5 TEXT, ende5 TEXT, vorhaltung5 TEXT,
+            excel_filename TEXT,
+            payload_json TEXT
+        )
+        """)
+init_db()
 
 # ---------- helpers for merged cells ----------
 def merged_ranges(ws):
@@ -207,8 +245,8 @@ def _get_col_pixel_width(ws, col_index):
     return _excel_col_width_to_pixels(getattr(cd, "width", None))
 
 # ---------- image (Beschreibung) ----------
-LEFT_INSET_PX = 25      # a teljes képet ennyivel húzzuk beljebb (jobbszél ne lógjon ki)
-BOTTOM_CROP   = 0.92    # kb. 8% levágás alul (sorok vastagsága miatt)
+LEFT_INSET_PX = 25
+BOTTOM_CROP   = 0.92
 
 def _make_description_image(text, w_px, h_px):
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
@@ -223,7 +261,6 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # belső margók: bal=12, jobb=0, fent=10, lent=10 (a szélességet már kívül INSET-tel korlátozzuk)
     pad_left, pad_top, pad_right, pad_bottom = 12, 10, 0, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
@@ -274,13 +311,11 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
 
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
-        colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop szélessége
+        colA_w_px = _get_col_pixel_width(ws, 1)
 
-        # Horgony: B6 (ne fedje az A oszlop szélsávját)
-        anchor_col = c1 + 1
+        anchor_col = c1 + 1  # B6
         anchor = f"{get_column_letter(anchor_col)}{r1}"
 
-        # Kép szélessége: teljes blokk - A oszlop - bal oldali beljebb húzás
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
@@ -289,8 +324,6 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         xlimg = _xlimage_from_pil(pil_img)
 
         ws.add_image(xlimg, anchor)
-
-        # A6 cellát kiürítjük, hogy ne zavarjon rá a kép szélén
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception as e:
@@ -298,47 +331,31 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# ---------- Nyomtatási beállítások (A4 fekvő, Szélesség=Automatikus, Magasság=1 oldal) ----------
+# ---------- Nyomtatási beállítások (stabil skála + pontos print area) ----------
 def set_print_defaults(ws):
-    """
-    A4 landscape, "Szélesség: Automatikus" (fitToWidth=0), "Magasság: 1 oldal" (fitToHeight=1),
-    kis margókkal, fejléc/lábléc nélkül, és a használt tartományra szűkített nyomtatási területtel.
-    """
-    # Oldalbeállítás
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
 
-    # "Szélesség: Automatikus", "Magasság: 1 oldal"
-    ws.page_setup.scale = None
-    ws.page_setup.fitToWidth = 0   # <= EZ az "Automatikus" szélesség
-    ws.page_setup.fitToHeight = 1  # 1 oldal magas
+    ws.page_setup.fitToWidth = 0
+    ws.page_setup.fitToHeight = 0
+    ws.page_setup.scale = 95
     if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.sheet_properties.pageSetUpPr.fitToPage = False
 
-    # Margók (inch)
     ws.page_margins = PageMargins(
-        left=0.2, right=0.2,
-        top=0.2, bottom=0.2,
-        header=0, footer=0
+        left=0.2, right=0.2, top=0.2, bottom=0.2, header=0, footer=0
     )
 
-    # Fejléc/lábléc kikapcsolása (ha elérhető)
-    try:
-        if hasattr(ws, "oddHeader"):
-            ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
-            ws.oddFooter.left.text = ws.oddFooter.center.text = ws.oddFooter.right.text = ""
-    except Exception:
-        pass
-
-    # Nyomtatási terület: A1-től az utolsó használt sorig
     last_data_row = 1
+    last_data_col = 1
     for r in range(1, ws.max_row + 1):
-        if any(ws.cell(row=r, column=c).value not in (None, "") for c in range(1, ws.max_column + 1)):
-            last_data_row = r
-    last_col_letter = get_column_letter(ws.max_column)
+        for c in range(1, ws.max_column + 1):
+            if ws.cell(row=r, column=c).value not in (None, ""):
+                last_data_row = max(last_data_row, r)
+                last_data_col = max(last_data_col, c)
+    last_col_letter = get_column_letter(last_data_col)
     ws.print_area = f"A1:{last_col_letter}{last_data_row}"
 
-    # Ne középre igazítsuk (opcionális)
     ws.print_options.horizontalCentered = False
     ws.print_options.verticalCentered = False
 
@@ -347,7 +364,7 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
         raise RuntimeError("ReportLab vagy PIL nincs telepítve.")
 
-    pw, ph = landscape(A4)  # pontok
+    pw, ph = landscape(A4)
     margin_left = 12 * mm
     margin_right = 12 * mm
     margin_top = 12 * mm
@@ -358,7 +375,6 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
 
     y = ph - margin_top
 
-    # Fejlécek
     c.setFont("Helvetica-Bold", 12)
     c.drawString(margin_left, y, f"Datum: {date_text}")
     y -= 16
@@ -370,18 +386,15 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
         y -= 10
     y -= 6
 
-    # Beschreibung képként ugyanazzal a szélességgel/magassággal (Excel-számítás alapján)
     block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
     colA_w_px = _get_col_pixel_width(ws, 1)
     new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
     new_h_px = int(block_h_px * BOTTOM_CROP)
     pil_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
 
-    # px -> pt (kb. 96 dpi feltételezés: 1 px ~ 0.75 pt)
     w_pt = new_w_px * 0.75
     h_pt = new_h_px * 0.75
 
-    # Biztonság: ne lépje túl a hasznos szélességet
     max_w_pt = pw - margin_left - margin_right
     if w_pt > max_w_pt:
         scale = max_w_pt / w_pt
@@ -392,10 +405,9 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto')
     y -= 12
 
-    # Dolgozói táblázat (egyszerű előnézet)
     c.setFont("Helvetica-Bold", 11)
     headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
-    col_widths = [70, 70, 90, 60, 60, 60, 100]  # pt
+    col_widths = [70, 70, 90, 60, 60, 60, 100]
     x = margin_left
     for hdr, w in zip(headers, col_widths):
         c.drawString(x, y, hdr)
@@ -418,7 +430,6 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
             y = ph - margin_top
             c.setFont("Helvetica", 10)
 
-    # Összes óraszám
     y -= 6
     c.setFont("Helvetica-Bold", 11)
     c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
@@ -433,7 +444,6 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
 async def login_form(request: Request, next: str = "/"):
     if _is_authed(request):
         return RedirectResponse(next or "/", status_code=303)
-    # a login.html sablonod "error" változót vár; next-et nem használja, de átadjuk
     return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
 
 @app.post("/login", response_class=HTMLResponse)
@@ -445,16 +455,17 @@ async def login_submit(request: Request, username: str = Form(...), password: st
 
 @app.get("/logout")
 async def logout(request: Request):
-    request.session.clear()
+    request.session.clear
     return RedirectResponse("/login", status_code=303)
 
-# ---------- routes ----------
+# ---------- Főoldal (űrlap) ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     if not _is_authed(request):
         return RedirectResponse("/login?next=/", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request})
 
+# ---------- Excel generálás + DB mentés ----------
 @app.post("/generate_excel")
 async def generate_excel(
     request: Request,
@@ -468,16 +479,16 @@ async def generate_excel(
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
     vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
 ):
     if not _is_authed(request):
         return RedirectResponse("/login?next=/", status_code=303)
 
-    # Sablon betöltése
+    # Excel sablon
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- Felső mezők ---
+    # Felső mezők
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -489,7 +500,7 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung blokk ---
+    # Beschreibung blokk
     r1, c1, r2, c2 = find_description_block(ws)
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
@@ -500,9 +511,9 @@ async def generate_excel(
     if text_in:
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
     if not inserted:
-        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)  # fallback B oszloptól
+        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)
 
-    # --- Dolgozók és órák + Vorhaltung oszlop ---
+    # Dolgozók és órák + Vorhaltung
     pos = find_header_positions(ws)
     row = pos["data_start_row"]
     vorhaltung_col = pos.get("vorhaltung_col", None)
@@ -545,29 +556,73 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---------- Nyomtatási beállítások (kényszerített, mint a kézi Excel) ----------
+    # Nyomtatási beállítások
     try:
         set_print_defaults(ws)
     except Exception as e:
         print("PRINT SETUP WARN:", repr(e))
 
-    # ---- Válasz (Excel) ----
-    bio = BytesIO()
-    wb.save(bio)
-    data = bio.getvalue()
-    fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
+    # Excel fájl mentése a 'generated/' alá
+    excel_name = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
+    excel_path = GEN_DIR / excel_name
+    wb.save(excel_path.as_posix())
+
+    # DB mentés
+    payload = {
+        "datum": datum,
+        "bau": bau,
+        "basf_beauftragter": basf_beauftragter,
+        "beschreibung": beschreibung,
+        "break_minutes": int(break_minutes),
+        "workers": [
+            {"vorname": locals().get(f"vorname{i}", ""), "nachname": locals().get(f"nachname{i}", ""),
+             "ausweis": locals().get(f"ausweis{i}", ""), "beginn": locals().get(f"beginn{i}", ""),
+             "ende": locals().get(f"ende{i}", ""), "vorhaltung": locals().get(f"vorhaltung{i}", "")}
+            for i in range(1, 6)
+        ]
+    }
+    with db_conn() as c:
+        c.execute("""
+            INSERT INTO submissions (
+                created_at, datum, bau, basf_beauftragter, beschreibung, break_minutes,
+                vorname1, nachname1, ausweis1, beginn1, ende1, vorhaltung1,
+                vorname2, nachname2, ausweis2, beginn2, ende2, vorhaltung2,
+                vorname3, nachname3, ausweis3, beginn3, ende3, vorhaltung3,
+                vorname4, nachname4, ausweis4, beginn4, ende4, vorhaltung4,
+                vorname5, nachname5, ausweis5, beginn5, ende5, vorhaltung5,
+                excel_filename, payload_json
+            ) VALUES (
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?
+            )
+        """, (
+            datetime.utcnow().isoformat(),
+            datum, bau, basf_beauftragter, beschreibung, int(break_minutes),
+            vorname1, nachname1, ausweis1, beginn1, ende1, vorhaltung1,
+            vorname2, nachname2, ausweis2, beginn2, ende2, vorhaltung2,
+            vorname3, nachname3, ausweis3, beginn3, ende3, vorhaltung3,
+            vorname4, nachname4, ausweis4, beginn4, ende4, vorhaltung4,
+            vorname5, nachname5, ausweis5, beginn5, ende5, vorhaltung5,
+            excel_name, json.dumps(payload, ensure_ascii=False)
+        ))
+
+    # Fájlt letöltésre is visszaadjuk (megszoktad így használni)
+    with open(excel_path, "rb") as f:
+        data = f.read()
+    fname = excel_name
     headers = {
         "Content-Disposition": f'attachment; filename="{fname}"',
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
-    return Response(
-        content=data,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers,
-    )
+    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
-# PDF előnézet ugyanazzal a formmal (opcionális; gomb nélkül nem zavar)
+# ---------- PDF előnézet (nem kötelező használni) ----------
 @app.post("/generate_pdf")
 async def generate_pdf(
     request: Request,
@@ -588,8 +643,7 @@ async def generate_pdf(
 
     if not REPORTLAB_AVAILABLE or not PIL_AVAILABLE:
         return PlainTextResponse(
-            "PDF előállítás nem elérhető: telepítsd a 'reportlab' csomagot (és a PIL-t). "
-            "Add hozzá a requirements.txt-hez: reportlab",
+            "PDF előállítás nem elérhető: telepítsd a 'reportlab' csomagot (és a PIL-t). Add hozzá a requirements.txt-hez: reportlab",
             status_code=501
         )
 
@@ -640,3 +694,76 @@ async def generate_pdf(
         "Cache-Control": "no-store",
     }
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+# ===================== ADMIN =====================
+
+# Kereső oldal
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/admin", status_code=303)
+
+    sql = "SELECT id, created_at, datum, bau, basf_beauftragter, excel_filename FROM submissions "
+    clauses = []
+    params = []
+
+    if q_bau.strip():
+        clauses.append("bau LIKE ?")
+        params.append(f"%{q_bau.strip()}%")
+    if q_date.strip():
+        # q_date lehet 'YYYY-MM-DD' vagy '%..%' – egyszerű részleges illesztés most
+        clauses.append("datum LIKE ?")
+        params.append(f"%{q_date.strip()}%")
+
+    if clauses:
+        sql += "WHERE " + " AND ".join(clauses) + " "
+    sql += "ORDER BY created_at DESC LIMIT 200"
+
+    with db_conn() as c:
+        rows = c.execute(sql, params).fetchall()
+
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "rows": rows,
+        "q_bau": q_bau,
+        "q_date": q_date
+    })
+
+# Részletes nézet (read-only)
+@app.get("/admin/view/{sid}", response_class=HTMLResponse)
+async def admin_view(request: Request, sid: int):
+    if not _is_authed(request):
+        return RedirectResponse(f"/login?next=/admin/view/{sid}", status_code=303)
+
+    with db_conn() as c:
+        row = c.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
+        if not row:
+            return PlainTextResponse("Nincs ilyen bejegyzés.", status_code=404)
+
+    # payload_json-t is betöltjük (ha később bővülne)
+    payload = {}
+    try:
+        payload = json.loads(row["payload_json"] or "{}")
+    except Exception:
+        payload = {}
+
+    return templates.TemplateResponse("admin_detail.html", {
+        "request": request,
+        "sub": row,
+        "payload": payload
+    })
+
+# Excel fájl kiszolgálás (biztonság kedvéért csak bejelentkezve)
+@app.get("/download/{fname}")
+async def download_file(request: Request, fname: str):
+    if not _is_authed(request):
+        return RedirectResponse(f"/login?next=/download/{fname}", status_code=303)
+    fp = GEN_DIR / fname
+    if not fp.exists():
+        return PlainTextResponse("Fájl nem található.", status_code=404)
+    data = fp.read_bytes()
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+    )
