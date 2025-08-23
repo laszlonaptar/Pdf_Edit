@@ -9,7 +9,6 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.page import PageMargins
 
 from datetime import datetime, time
 from io import BytesIO
@@ -298,56 +297,22 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# ---------- Nyomtatási beállítások (A4 fekvő, iPhone fix: fix scale) ----------
-def set_print_defaults(ws):
+# ---------- Csak a nyomtatási terület szűkítése a használt tartományra ----------
+def tighten_print_area(ws):
     """
-    A4 landscape, fix SCALE (95%) az iPhone konzisztens nyomtatás miatt,
-    és a HASZNÁLT tartományra szűkített nyomtatási terület (ne legyen 2. „üres” oldal).
+    Nem piszkáljuk a sablon oldalbeállításait; csak a print_area-t állítjuk be
+    a ténylegesen használt cellákra, hogy ne legyen „üres” 2. oldal.
     """
-    # Oldalbeállítás
-    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
-    ws.page_setup.paperSize = ws.PAPERSIZE_A4
-
-    # iPhone fix: a fitToWidth/Height helyett fix skála (Excel és iOS alatt is stabil)
-    ws.page_setup.fitToWidth = 0
-    ws.page_setup.fitToHeight = 0
-    ws.page_setup.scale = 95  # <-- ha kell, 92..98 között finomhangolható
-
-    if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
-        ws.sheet_properties.pageSetUpPr.fitToPage = False  # skálázás mellett ne erőltesse
-
-    # Margók (inch)
-    ws.page_margins = PageMargins(
-        left=0.2, right=0.2,
-        top=0.2, bottom=0.2,
-        header=0, footer=0
-    )
-
-    # Fejléc/lábléc kikapcsolása (ha elérhető)
-    try:
-        if hasattr(ws, "oddHeader"):
-            ws.oddHeader.left.text = ws.oddHeader.center.text = ws.oddHeader.right.text = ""
-            ws.oddFooter.left.text = ws.oddFooter.center.text = ws.oddFooter.right.text = ""
-    except Exception:
-        pass
-
-    # Nyomtatási terület: a ténylegesen használt cellákig
-    last_data_row = 1
-    last_data_col = 1
+    last_row = 1
+    last_col = 1
     for r in range(1, ws.max_row + 1):
         for c in range(1, ws.max_column + 1):
             if ws.cell(row=r, column=c).value not in (None, ""):
-                if r > last_data_row:
-                    last_data_row = r
-                if c > last_data_col:
-                    last_data_col = c
-
-    last_col_letter = get_column_letter(last_data_col)
-    ws.print_area = f"A1:{last_col_letter}{last_data_row}"
-
-    # Ne középre igazítsuk
-    ws.print_options.horizontalCentered = False
-    ws.print_options.verticalCentered = False
+                if r > last_row:
+                    last_row = r
+                if c > last_col:
+                    last_col = c
+    ws.print_area = f"A1:{get_column_letter(last_col)}{last_row}"
 
 # ---------- PDF előnézet (ReportLab) ----------
 def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
@@ -440,7 +405,6 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
 async def login_form(request: Request, next: str = "/"):
     if _is_authed(request):
         return RedirectResponse(next or "/", status_code=303)
-    # a login.html sablon "error" változót vár; next-et átadjuk
     return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
 
 @app.post("/login", response_class=HTMLResponse)
@@ -552,11 +516,11 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---------- Nyomtatási beállítások ----------
+    # ---------- Nyomtatási terület: csak szűkítés (sablon beállításai érintetlenek) ----------
     try:
-        set_print_defaults(ws)
+        tighten_print_area(ws)
     except Exception as e:
-        print("PRINT SETUP WARN:", repr(e))
+        print("PRINT AREA WARN:", repr(e))
 
     # ---- Válasz (Excel) ----
     bio = BytesIO()
