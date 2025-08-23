@@ -13,17 +13,29 @@
       appearance:auto; -webkit-appearance:auto;
     }
     .ck-row{ display:flex; align-items:center; gap:.5rem; font-weight:600; }
-    .actions{ display:flex; gap:1rem; }
+    .actions-top{ display:flex; gap:.5rem; justify-content:flex-end; margin:.5rem 0 1rem; }
+    .small{ font-size:.875rem; }
+    .muted{ color:#666; }
+    .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+    .grid-3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; }
+    .stack{ display:flex; flex-direction:column; gap:1rem; }
+    fieldset.worker{ border:1px solid #e5e7eb; padding:1rem; border-radius:.5rem; }
+    fieldset.worker legend{ padding:0 .35rem; font-weight:600; }
   </style>
 </head>
 <body>
   <main class="container">
+    <div class="actions-top">
+      <a class="btn secondary" href="/admin">Admin</a>
+      <a class="btn" href="/logout">Abmelden</a>
+    </div>
+
     <h1>Leistungsnachweis</h1>
 
     <form id="ln-form" method="post" action="/generate_excel" novalidate>
       <!-- Kopf -->
       <section class="card">
-        <div class="grid grid-2">
+        <div class="grid-2">
           <div class="field">
             <label for="datum">Datum der Leistungsausführung</label>
             <input id="datum" name="datum" type="date" required />
@@ -45,7 +57,7 @@
           <label for="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
           <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" required
             placeholder="Max. 1000 Zeichen"></textarea>
-          <div class="muted" id="besch-count">0 / 1000</div>
+          <div class="muted small" id="besch-count">0 / 1000</div>
         </div>
       </section>
 
@@ -57,7 +69,7 @@
           <!-- Worker #1 -->
           <fieldset class="worker" data-index="1">
             <legend>Mitarbeiter 1</legend>
-            <div class="grid grid-3">
+            <div class="grid-3">
               <div class="field">
                 <label>Vorname</label>
                 <input name="vorname1" type="text" required />
@@ -90,7 +102,7 @@
               </div>
             </div>
 
-            <div class="grid grid-3">
+            <div class="grid-3">
               <div class="field">
                 <label>Beginn</label>
                 <input name="beginn1" type="time" step="60" required />
@@ -124,12 +136,29 @@
         </div>
       </section>
 
-      <div class="actions">
+      <div class="actions" style="display:flex;gap:1rem;">
         <button class="btn primary" type="submit">Excel generieren</button>
       </div>
     </form>
   </main>
 
   <script src="/static/script.js?v=validate1"></script>
+  <script>
+    // Apró UX: számláló a leírásnál + félórás szünet hidden mező
+    (function(){
+      const ta = document.getElementById('beschreibung');
+      const cnt = document.getElementById('besch-count');
+      if (ta && cnt){
+        const upd = () => { cnt.textContent = (ta.value.length || 0) + ' / 1000'; };
+        ta.addEventListener('input', upd); upd();
+      }
+      const half = document.getElementById('break_half');
+      const hid = document.getElementById('break_minutes');
+      if (half && hid){
+        const sync = () => { hid.value = half.checked ? '30' : '60'; };
+        half.addEventListener('change', sync); sync();
+      }
+    })();
+  </script>
 </body>
 </html>
