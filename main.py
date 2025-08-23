@@ -298,22 +298,23 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# ---------- Nyomtatási beállítások (A4 fekvő, Szélesség=Automatikus, Magasság=1 oldal) ----------
+# ---------- Nyomtatási beállítások (A4 fekvő, iPhone fix: fix scale) ----------
 def set_print_defaults(ws):
     """
-    A4 landscape, "Szélesség: Automatikus" (fitToWidth=0), "Magasság: 1 oldal" (fitToHeight=1),
-    kis margókkal, fejléc/lábléc nélkül, és a használt tartományra szűkített nyomtatási területtel.
+    A4 landscape, fix SCALE (95%) az iPhone konzisztens nyomtatás miatt,
+    és a HASZNÁLT tartományra szűkített nyomtatási terület (ne legyen 2. „üres” oldal).
     """
     # Oldalbeállítás
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
 
-    # "Szélesség: Automatikus", "Magasság: 1 oldal"
-    ws.page_setup.scale = None
-    ws.page_setup.fitToWidth = 0   # <= EZ az "Automatikus" szélesség
-    ws.page_setup.fitToHeight = 1  # 1 oldal magas
+    # iPhone fix: a fitToWidth/Height helyett fix skála (Excel és iOS alatt is stabil)
+    ws.page_setup.fitToWidth = 0
+    ws.page_setup.fitToHeight = 0
+    ws.page_setup.scale = 95  # <-- ha kell, 92..98 között finomhangolható
+
     if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.sheet_properties.pageSetUpPr.fitToPage = False  # skálázás mellett ne erőltesse
 
     # Margók (inch)
     ws.page_margins = PageMargins(
@@ -330,15 +331,21 @@ def set_print_defaults(ws):
     except Exception:
         pass
 
-    # Nyomtatási terület: A1-től az utolsó használt sorig
+    # Nyomtatási terület: a ténylegesen használt cellákig
     last_data_row = 1
+    last_data_col = 1
     for r in range(1, ws.max_row + 1):
-        if any(ws.cell(row=r, column=c).value not in (None, "") for c in range(1, ws.max_column + 1)):
-            last_data_row = r
-    last_col_letter = get_column_letter(ws.max_column)
+        for c in range(1, ws.max_column + 1):
+            if ws.cell(row=r, column=c).value not in (None, ""):
+                if r > last_data_row:
+                    last_data_row = r
+                if c > last_data_col:
+                    last_data_col = c
+
+    last_col_letter = get_column_letter(last_data_col)
     ws.print_area = f"A1:{last_col_letter}{last_data_row}"
 
-    # Ne középre igazítsuk (opcionális)
+    # Ne középre igazítsuk
     ws.print_options.horizontalCentered = False
     ws.print_options.verticalCentered = False
 
@@ -433,7 +440,7 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
 async def login_form(request: Request, next: str = "/"):
     if _is_authed(request):
         return RedirectResponse(next or "/", status_code=303)
-    # a login.html sablonod "error" változót vár; next-et nem használja, de átadjuk
+    # a login.html sablon "error" változót vár; next-et átadjuk
     return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
 
 @app.post("/login", response_class=HTMLResponse)
@@ -545,7 +552,7 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---------- Nyomtatási beállítások (kényszerített, mint a kézi Excel) ----------
+    # ---------- Nyomtatási beállítások ----------
     try:
         set_print_defaults(ws)
     except Exception as e:
