@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins
 
 from datetime import datetime, time
 from io import BytesIO
@@ -17,7 +18,7 @@ import uuid
 import textwrap
 import traceback
 
-# ---- PDF (ReportLab) - opcionális előnézet iPhone-hoz ----
+# ---- PDF (ReportLab) - opcionális előnézet ----
 REPORTLAB_AVAILABLE = False
 try:
     from reportlab.pdfgen import canvas
@@ -206,8 +207,8 @@ def _get_col_pixel_width(ws, col_index):
     return _excel_col_width_to_pixels(getattr(cd, "width", None))
 
 # ---------- image (Beschreibung) ----------
-LEFT_INSET_PX = 25      # a teljes képet ennyivel húzzuk beljebb (jobbszél ne lógjon ki)
-BOTTOM_CROP   = 0.92    # kb. 8% levágás alul (sorok vastagsága miatt)
+LEFT_INSET_PX = 25
+BOTTOM_CROP   = 0.92
 
 def _make_description_image(text, w_px, h_px):
     img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
@@ -222,7 +223,6 @@ def _make_description_image(text, w_px, h_px):
     if font is None:
         font = ImageFont.load_default()
 
-    # belső margók: bal=12, jobb=0, fent=10, lent=10 (a szélességet már kívül INSET-tel korlátozzuk)
     pad_left, pad_top, pad_right, pad_bottom = 12, 10, 0, 10
     avail_w = max(10, w_px - (pad_left + pad_right))
     avail_h = max(10, h_px - (pad_top + pad_bottom))
@@ -270,26 +270,19 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         return False
     try:
         text_s = (text or "")
-        print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
-
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
-        colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop szélessége
+        colA_w_px = _get_col_pixel_width(ws, 1)  # A oszlop
 
-        # Horgony: B6 (ne fedje az A oszlop szélsávját)
-        anchor_col = c1 + 1
+        anchor_col = c1 + 1  # B6
         anchor = f"{get_column_letter(anchor_col)}{r1}"
 
-        # Kép szélessége: teljes blokk - A oszlop - bal oldali beljebb húzás
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
-        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
         pil_img = _make_description_image(text_s, new_w_px, new_h_px)
         xlimg = _xlimage_from_pil(pil_img)
 
         ws.add_image(xlimg, anchor)
-
-        # A6 cellát kiürítjük, hogy ne zavarjon rá a kép szélén
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception as e:
@@ -297,22 +290,34 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# ---------- Csak a nyomtatási terület szűkítése a használt tartományra ----------
-def tighten_print_area(ws):
-    """
-    Nem piszkáljuk a sablon oldalbeállításait; csak a print_area-t állítjuk be
-    a ténylegesen használt cellákra, hogy ne legyen „üres” 2. oldal.
-    """
-    last_row = 1
-    last_col = 1
+# ---------- Nyomtatási beállítások (A4 + fix scale 95%) ----------
+def set_print_defaults(ws):
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 0
+    ws.page_setup.fitToHeight = 0
+    ws.page_setup.scale = 95
+    if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
+        ws.sheet_properties.pageSetUpPr.fitToPage = False
+
+    ws.page_margins = PageMargins(
+        left=0.2, right=0.2,
+        top=0.2, bottom=0.2,
+        header=0, footer=0
+    )
+
+    # pontos print area (ne legyen üres 2. oldal)
+    last_data_row = 1
+    last_data_col = 1
     for r in range(1, ws.max_row + 1):
         for c in range(1, ws.max_column + 1):
             if ws.cell(row=r, column=c).value not in (None, ""):
-                if r > last_row:
-                    last_row = r
-                if c > last_col:
-                    last_col = c
-    ws.print_area = f"A1:{get_column_letter(last_col)}{last_row}"
+                last_data_row = max(last_data_row, r)
+                last_data_col = max(last_data_col, c)
+    last_col_letter = get_column_letter(last_data_col)
+    ws.print_area = f"A1:{last_col_letter}{last_data_row}"
+    ws.print_options.horizontalCentered = False
+    ws.print_options.verticalCentered = False
 
 # ---------- PDF előnézet (ReportLab) ----------
 def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
@@ -342,18 +347,15 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
         y -= 10
     y -= 6
 
-    # Beschreibung képként ugyanazzal a szélességgel/magassággal (Excel-számítás alapján)
+    # Beschreibung (kép)
     block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
     colA_w_px = _get_col_pixel_width(ws, 1)
     new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
     new_h_px = int(block_h_px * BOTTOM_CROP)
     pil_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
 
-    # px -> pt (kb. 96 dpi feltételezés: 1 px ~ 0.75 pt)
     w_pt = new_w_px * 0.75
     h_pt = new_h_px * 0.75
-
-    # Biztonság: ne lépje túl a hasznos szélességet
     max_w_pt = pw - margin_left - margin_right
     if w_pt > max_w_pt:
         scale = max_w_pt / w_pt
@@ -364,14 +366,13 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto')
     y -= 12
 
-    # Dolgozói táblázat (egyszerű előnézet)
+    # Dolgozói táblázat (egyszerű)
     c.setFont("Helvetica-Bold", 11)
     headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
     col_widths = [70, 70, 90, 60, 60, 60, 100]  # pt
     x = margin_left
     for hdr, w in zip(headers, col_widths):
-        c.drawString(x, y, hdr)
-        x += w
+        c.drawString(x, y, hdr); x += w
     y -= 14
     c.setLineWidth(0.3)
     c.line(margin_left, y, margin_left + sum(col_widths), y)
@@ -382,22 +383,108 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
         x = margin_left
         vals = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}", vh]
         for val, w in zip(vals, col_widths):
-            c.drawString(x, y, str(val or ""))
-            x += w
+            c.drawString(x, y, str(val or "")); x += w
         y -= 14
-        if y < margin_bottom + 40:
-            c.showPage()
-            y = ph - margin_top
-            c.setFont("Helvetica", 10)
 
-    # Összes óraszám
     y -= 6
     c.setFont("Helvetica-Bold", 11)
     c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
 
-    c.showPage()
-    c.save()
-    buf.seek(0)
+    c.showPage(); c.save(); buf.seek(0)
+    return buf.read()
+
+# ---------- PNG (A4, 300 DPI) ----------
+def _build_png_a4(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
+    """
+    A4 landscape PNG (3508x2480 px @ 300 dpi). Egyszerű, egységes nyomtatási kép.
+    """
+    if not PIL_AVAILABLE:
+        raise RuntimeError("Pillow nincs telepítve.")
+
+    W, H = 3508, 2480  # A4 landscape @300dpi
+    img = PILImage.new("RGB", (W, H), "white")
+    drw = ImageDraw.Draw(img)
+
+    # betűk
+    font_b = None; font = None
+    for name in ["Arial.ttf", "arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"]:
+        try:
+            font_b = ImageFont.truetype(name, 38);  font = ImageFont.truetype(name, 30); break
+        except Exception:
+            pass
+    if font is None:
+        font = ImageFont.load_default()
+        font_b = ImageFont.load_default()
+
+    # margók
+    ml, mt, mr, mb = 120, 80, 120, 100
+    x = ml; y = mt
+
+    # címek
+    drw.text((x, y), f"Datum: {date_text}", fill="black", font=font_b); y += 48
+    drw.text((x, y), f"Bau: {bau}", fill="black", font=font); y += 42
+    if (basf_beauftragter or "").strip():
+        drw.text((x, y), f"BASF Beauftragter: {basf_beauftragter}", fill="black", font=font); y += 34
+    y += 10
+
+    # beschreibung kép beillesztése
+    block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+    colA_w_px = _get_col_pixel_width(ws, 1)
+    new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
+    new_h_px = int(block_h_px * BOTTOM_CROP)
+    desc_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
+
+    # ha túl széles a margókon belül, skálázás
+    max_w = W - ml - mr
+    if new_w_px > max_w:
+        scale = max_w / new_w_px
+        new_w_px = int(new_w_px * scale)
+        new_h_px = int(new_h_px * scale)
+        desc_img = desc_img.resize((new_w_px, new_h_px), PILImage.LANCZOS)
+
+    img.paste(desc_img, (ml, y))
+    y += new_h_px + 20
+
+    # táblázat: oszlopszélességek (px)
+    cols = [220, 220, 260, 180, 180, 200, 420]
+    table_w = sum(cols)
+    x0 = ml
+    x1 = x0 + table_w
+    row_h = 46
+
+    # fejléc
+    headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
+    drw.rectangle([x0, y, x1, y + row_h], outline="black", width=2)
+    cx = x0
+    for i, (hdr, w) in enumerate(zip(headers, cols)):
+        drw.line([(cx, y), (cx, y + row_h)], fill="black", width=2)
+        drw.text((cx + 8, y + 10), hdr, fill="black", font=font)
+        cx += w
+    drw.line([(x1, y), (x1, y + row_h)], fill="black", width=2)
+    y += row_h
+
+    # sorok (max 12)
+    max_rows = 12
+    for idx in range(max_rows):
+        drw.rectangle([x0, y, x1, y + row_h], outline="black", width=1)
+        if idx < len(workers):
+            vn, nn, aw, bg, en, vh = workers[idx]
+            vals = [nn, vn, aw, bg, en,
+                    f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}",
+                    vh]
+            cx = x0
+            for val, w in zip(vals, cols):
+                drw.text((cx + 8, y + 10), str(val or ""), fill="black", font=font)
+                cx += w
+        y += row_h
+
+    # összesítés
+    y += 8
+    drw.text((x0, y), f"Gesamtstunden: {total_hours:.2f}", fill="black", font=font_b)
+
+    # vissza
+    buf = BytesIO()
+    img.save(buf, format="PNG"); buf.seek(0)
     return buf.read()
 
 # ---------- Login / Logout ----------
@@ -444,11 +531,10 @@ async def generate_excel(
     if not _is_authed(request):
         return RedirectResponse("/login?next=/", status_code=303)
 
-    # Sablon betöltése
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # --- Felső mezők ---
+    # Felső mezők
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -460,7 +546,7 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # --- Beschreibung blokk ---
+    # Beschreibung blokk
     r1, c1, r2, c2 = find_description_block(ws)
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
@@ -471,9 +557,9 @@ async def generate_excel(
     if text_in:
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
     if not inserted:
-        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)  # fallback B oszloptól
+        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)
 
-    # --- Dolgozók és órák + Vorhaltung oszlop ---
+    # Dolgozók
     pos = find_header_positions(ws)
     row = pos["data_start_row"]
     vorhaltung_col = pos.get("vorhaltung_col", None)
@@ -501,8 +587,7 @@ async def generate_excel(
         if vorhaltung_col and (vh or "").strip():
             set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
 
-        hb = parse_hhmm(bg)
-        he = parse_hhmm(en)
+        hb = parse_hhmm(bg); he = parse_hhmm(en)
         h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
         total_hours += h
         set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
@@ -516,29 +601,24 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # ---------- Nyomtatási terület: csak szűkítés (sablon beállításai érintetlenek) ----------
+    # Nyomtatási beállítások
     try:
-        tighten_print_area(ws)
+        set_print_defaults(ws)
     except Exception as e:
-        print("PRINT AREA WARN:", repr(e))
+        print("PRINT SETUP WARN:", repr(e))
 
-    # ---- Válasz (Excel) ----
     bio = BytesIO()
     wb.save(bio)
     data = bio.getvalue()
     fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
     headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Disposition": f'attachment; filename=\"{fname}\"",
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
-    return Response(
-        content=data,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers,
-    )
+    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
-# PDF előnézet ugyanazzal a formmal (opcionális; gomb nélkül nem zavar)
+# PDF előnézet
 @app.post("/generate_pdf")
 async def generate_pdf(
     request: Request,
@@ -556,13 +636,8 @@ async def generate_pdf(
 ):
     if not _is_authed(request):
         return RedirectResponse("/login?next=/", status_code=303)
-
     if not REPORTLAB_AVAILABLE or not PIL_AVAILABLE:
-        return PlainTextResponse(
-            "PDF előállítás nem elérhető: telepítsd a 'reportlab' csomagot (és a PIL-t). "
-            "Add hozzá a requirements.txt-hez: reportlab",
-            status_code=501
-        )
+        return PlainTextResponse("PDF előállítás nem elérhető (reportlab/PIL).", status_code=501)
 
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
@@ -584,30 +659,81 @@ async def generate_pdf(
         bg = locals().get(f"beginn{i}", "") or ""
         en = locals().get(f"ende{i}", "") or ""
         vh = locals().get(f"vorhaltung{i}", "") or ""
-        if not (vn or nn or aw or bg or en or vh):
-            continue
-        workers.append((vn, nn, aw, bg, en, vh))
+        if (vn or nn or aw or bg or en or vh):
+            workers.append((vn, nn, aw, bg, en, vh))
 
     total_hours = 0.0
     for (_, _, _, bg, en, _) in workers:
-        hb = parse_hhmm(bg)
-        he = parse_hhmm(en)
+        hb = parse_hhmm(bg); he = parse_hhmm(en)
         total_hours += hours_with_breaks(hb, he, int(break_minutes))
 
     pdf_bytes = _build_pdf_preview(
-        date_text=date_text,
-        bau=bau,
-        basf_beauftragter=basf_beauftragter,
-        beschreibung=beschreibung,
-        ws=ws, r1=r1, c1=c1, r2=r2, c2=c2,
-        workers=workers,
-        total_hours=total_hours
+        date_text=date_text, bau=bau, basf_beauftragter=basf_beauftragter,
+        beschreibung=beschreibung, ws=ws, r1=r1, c1=c1, r2=r2, c2=c2,
+        workers=workers, total_hours=total_hours
     )
 
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
-        "Content-Length": str(len(pdf_bytes)),
-        "Cache-Control": "no-store",
-    }
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"',
+               "Content-Length": str(len(pdf_bytes)), "Cache-Control": "no-store"}
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+# PNG (A4) – stabil, pendrive-nyomtatáshoz
+@app.post("/generate_image")
+async def generate_image(
+    request: Request,
+    datum: str = Form(...),
+    bau: str = Form(...),
+    basf_beauftragter: str = Form(""),
+    geraet: str = Form(""),
+    beschreibung: str = Form(""),
+    break_minutes: int = Form(60),
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
+):
+    if not _is_authed(request):
+        return RedirectResponse("/login?next=/", status_code=303)
+    if not PIL_AVAILABLE:
+        return PlainTextResponse("PNG generálás nem elérhető (PIL).", status_code=501)
+
+    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
+    ws = wb.active
+
+    date_text = datum
+    try:
+        dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
+        date_text = dt.strftime("%d.%m.%Y")
+    except Exception:
+        pass
+
+    r1, c1, r2, c2 = find_description_block(ws)
+
+    workers = []
+    for i in range(1, 6):
+        vn = locals().get(f"vorname{i}", "") or ""
+        nn = locals().get(f"nachname{i}", "") or ""
+        aw = locals().get(f"ausweis{i}", "") or ""
+        bg = locals().get(f"beginn{i}", "") or ""
+        en = locals().get(f"ende{i}", "") or ""
+        vh = locals().get(f"vorhaltung{i}", "") or ""
+        if (vn or nn or aw or bg or en or vh):
+            workers.append((vn, nn, aw, bg, en, vh))
+
+    total_hours = 0.0
+    for (_, _, _, bg, en, _) in workers:
+        hb = parse_hhmm(bg); he = parse_hhmm(en)
+        total_hours += hours_with_breaks(hb, he, int(break_minutes))
+
+    png_bytes = _build_png_a4(
+        date_text=date_text, bau=bau, basf_beauftragter=basf_beauftragter,
+        beschreibung=beschreibung, ws=ws, r1=r1, c1=c1, r2=r2, c2=c2,
+        workers=workers, total_hours=total_hours
+    )
+
+    fname = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.png"
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"',
+               "Content-Length": str(len(png_bytes)), "Cache-Control": "no-store"}
+    return Response(content=png_bytes, media_type="image/png", headers=headers)
