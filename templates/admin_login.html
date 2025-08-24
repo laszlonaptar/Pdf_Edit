@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin Login – Leistungsnachweis</title>
+  <link rel="stylesheet" href="/static/style.css?v=12" />
+</head>
+<body>
+  <main class="container" style="max-width:420px">
+    <h1>Admin Login</h1>
+    {% if error %}
+      <div class="card" style="border-left:4px solid #dc2626;color:#b91c1c;">
+        Falscher Benutzername oder Passwort.
+      </div>
+    {% endif %}
+    <form class="card" method="post" action="/admin/login">
+      <div class="field">
+        <label for="username">Benutzername</label>
+        <input id="username" name="username" type="text" autocomplete="username" required />
+      </div>
+      <div class="field">
+        <label for="password">Passwort</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+      </div>
+      <div class="actions" style="display:flex;gap:.5rem;justify-content:flex-end;">
+        <a class="btn secondary" href="/">Zurück</a>
+        <button class="btn primary" type="submit">Anmelden</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>
