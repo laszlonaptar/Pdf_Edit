@@ -3,27 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Bejegyzés – Leistungsnachweis</title>
-  <link rel="stylesheet" href="/static/style.css?v=12" />
-  <style>
-    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
-    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
-    .copy{cursor:pointer;}
-    textarea{width:100%;min-height:140px;}
-    .muted{color:#666;}
-  </style>
+  <title>Beleg #{{ sub['id'] }}</title>
+  <link rel="stylesheet" href="/static/style.css?v=13" />
 </head>
 <body>
   <main class="container">
-    <div class="actions" style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;">
-      <a class="btn" href="/admin">← Vissza a listához</a>
+    <div class="actions-top">
+      <a class="btn secondary" href="/admin">← Zur Liste</a>
       {% if sub['excel_filename'] %}
-        <a class="btn secondary" href="/download/{{ sub['excel_filename'] }}">Excel letöltése</a>
+        <a class="btn" href="/download/{{ sub['excel_filename'] }}">Excel herunterladen</a>
       {% endif %}
     </div>
 
-    <h1>Bejegyzés #{{ sub['id'] }}</h1>
-    <div class="muted">Létrehozva (UTC): {{ sub['created_at'] }}</div>
+    <h1>Beleg #{{ sub['id'] }}</h1>
+    <p class="muted">Erstellt (UTC): {{ sub['created_at'] }}</p>
 
     <section class="card">
       <div class="grid-2">
@@ -41,7 +34,7 @@
         </div>
         <div class="field">
           <label>Pause (Min)</label>
-          <input type="text" value="{{ sub['break_minutes'] or '' }}" readonly />
+          <input type="text" value="{{ sub['break_minutes'] or 60 }}" readonly />
         </div>
       </div>
     </section>
@@ -49,39 +42,43 @@
     <section class="card">
       <div class="field">
         <label>Beschreibung der ausgeführten Arbeiten</label>
-        <textarea readonly class="mono">{{ sub['beschreibung'] or '' }}</textarea>
-        <div class="muted small">Kijelölhető / másolható.</div>
+        <textarea rows="8" readonly>{{ sub['beschreibung'] or '' }}</textarea>
+        <div class="muted small">Kopierbar.</div>
       </div>
     </section>
 
     <section class="card">
       <h2>Mitarbeiter</h2>
-      {% for i in range(1,6) %}
-        {% set v = sub['vorname' ~ i] %}
-        {% set n = sub['nachname' ~ i] %}
-        {% set a = sub['ausweis' ~ i] %}
-        {% set b = sub['beginn' ~ i] %}
-        {% set e = sub['ende' ~ i] %}
-        {% set vh = sub['vorhaltung' ~ i] %}
-        {% if v or n or a or b or e or vh %}
-        <fieldset class="worker">
-          <legend>Mitarbeiter {{ i }}</legend>
-          <div class="grid-2">
-            <div class="field"><label>Vorname</label><input type="text" value="{{ v or '' }}" readonly /></div>
-            <div class="field"><label>Nachname</label><input type="text" value="{{ n or '' }}" readonly /></div>
-            <div class="field"><label>Ausweis/Kennzeichen</label><input type="text" value="{{ a or '' }}" readonly /></div>
-            <div class="field"><label>Vorhaltung/Gerät</label><input type="text" value="{{ vh or '' }}" readonly /></div>
-            <div class="field"><label>Beginn</label><input type="text" value="{{ b or '' }}" readonly /></div>
-            <div class="field"><label>Ende</label><input type="text" value="{{ e or '' }}" readonly /></div>
-          </div>
-        </fieldset>
-        {% endif %}
-      {% endfor %}
-    </section>
-
-    <section class="card">
-      <h2>Nyers payload (debug / jövőbeni bővítéshez)</h2>
-      <textarea readonly class="mono">{{ payload | tojson(indent=2) }}</textarea>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Vorname</th><th>Nachname</th><th>Ausweis</th><th>Beginn</th><th>Ende</th><th>Vorhaltung</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for i in range(1,6) %}
+              {% set vn = sub['vorname' ~ i] %}
+              {% set nn = sub['nachname' ~ i] %}
+              {% set aw = sub['ausweis' ~ i] %}
+              {% set bg = sub['beginn' ~ i] %}
+              {% set en = sub['ende' ~ i] %}
+              {% set vh = sub['vorhaltung' ~ i] %}
+              {% if vn or nn or aw or bg or en or vh %}
+                <tr>
+                  <td>{{ i }}</td>
+                  <td>{{ vn }}</td>
+                  <td>{{ nn }}</td>
+                  <td>{{ aw }}</td>
+                  <td>{{ bg }}</td>
+                  <td>{{ en }}</td>
+                  <td>{{ vh }}</td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </section>
   </main>
 </body>
