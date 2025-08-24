@@ -150,3 +150,8 @@ input[type="checkbox"]{
   appearance:auto; -webkit-appearance:auto;
 }
 .ck-row{ display:flex; align-items:center; gap:.5rem; font-weight:600; }
+
+/* --- Admin login gyors fixek --- */
+.card { box-sizing: border-box; }
+.card .btn { min-height: 44px; }            /* nagyobb érintési cél */
+.field input, .field textarea, .field select { width: 100%; }  /* biztos ami biztos */
