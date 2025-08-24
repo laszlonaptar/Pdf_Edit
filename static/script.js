@@ -1,113 +1,163 @@
+// static/script.js  (v14)
+
+// --- Beschreibung karakter számláló ---
 (function () {
-  // Beschreibung counter
-  const ta = document.getElementById('beschreibung');
-  const cnt = document.getElementById('besch-count');
-  if (ta && cnt) {
-    const upd = () => { cnt.textContent = (ta.value.length || 0) + ' / 1000'; };
-    ta.addEventListener('input', upd); upd();
+  const ta = document.getElementById("beschreibung");
+  const out = document.getElementById("besch-count");
+  if (!ta || !out) return;
+  const update = () => {
+    const len = (ta.value || "").length;
+    out.textContent = `${len} / ${ta.maxLength || 1000}`;
+  };
+  ta.addEventListener("input", update);
+  update();
+})();
+
+// --- Idő -> óra számítás segédek ---
+function parseHHMM(s) {
+  if (!s || s.indexOf(":") < 0) return null;
+  const [hh, mm] = s.split(":").map((x) => parseInt(x, 10));
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return { hh, mm };
+}
+
+function toMinutes(t) {
+  return t.hh * 60 + t.mm;
+}
+
+function overlapMinutes(a1, a2, b1, b2) {
+  const start = Math.max(a1, b1);
+  const end = Math.min(a2, b2);
+  return Math.max(0, end - start);
+}
+
+function hoursWithBreaks(begStr, endStr, breakMin) {
+  const beg = parseHHMM(begStr);
+  const end = parseHHMM(endStr);
+  if (!beg || !end) return 0;
+  let total = toMinutes(end) - toMinutes(beg);
+  if (total <= 0) return 0;
+
+  let minus;
+  if (breakMin >= 60) {
+    // 09:00–09:15 és 12:00–12:45 automatikus levonás, ha belelóg
+    const s = toMinutes(beg);
+    const e = toMinutes(end);
+    minus = 0;
+    minus += overlapMinutes(s, e, 9 * 60 + 0, 9 * 60 + 15);
+    minus += overlapMinutes(s, e, 12 * 60 + 0, 12 * 60 + 45);
+  } else {
+    minus = Math.min(total, 30);
   }
+  return Math.max(0, (total - minus) / 60);
+}
 
-  // Break checkbox -> hidden minutes
-  const half = document.getElementById('break_half');
-  const hid = document.getElementById('break_minutes');
-  if (half && hid) {
-    const sync = () => { hid.value = half.checked ? '30' : '60'; recalcAll(); };
-    half.addEventListener('change', sync); sync();
-  }
+// --- Dinamikus dolgozó blokkok ---
+(function () {
+  const list = document.getElementById("worker-list");
+  const addBtn = document.getElementById("add-worker");
+  if (!list || !addBtn) return;
 
-  // Dinamikus dolgozó hozzáadás (max 5)
-  const list = document.getElementById('worker-list');
-  const addBtn = document.getElementById('add-worker');
+  const MAX_WORKERS = 5;
 
-  function tplWorker(i) {
-    return `
-    <fieldset class="worker" data-index="${i}">
-      <legend>Mitarbeiter ${i}</legend>
-
-      <div class="grid-3">
-        <div class="field"><label>Vorname</label><input name="vorname${i}" type="text" /></div>
-        <div class="field"><label>Nachname</label><input name="nachname${i}" type="text" /></div>
-        <div class="field"><label>Ausweis-Nr. / Kennzeichen</label><input name="ausweis${i}" type="text" /></div>
-      </div>
-      <div class="field">
-        <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
-        <input name="vorhaltung${i}" type="text" />
-      </div>
-
-      <div class="grid-3">
-        <div class="field"><label>Beginn</label><input name="beginn${i}" class="t-beginn" type="time" step="60" /></div>
-        <div class="field"><label>Ende</label><input name="ende${i}" class="t-ende" type="time" step="60" /></div>
-        <div class="field"><label>Stunden (auto)</label><input class="stunden-display" type="text" value="" readonly /></div>
-      </div>
-    </fieldset>`;
-  }
-
-  if (addBtn && list) {
-    addBtn.addEventListener('click', function () {
-      const current = list.querySelectorAll('fieldset.worker').length;
-      if (current >= 5) { addBtn.disabled = true; return; }
-      const i = current + 1;
-      list.insertAdjacentHTML('beforeend', tplWorker(i));
-      if (i >= 5) addBtn.disabled = true;
-      wireInputs();
+  function setTimeStep(fieldset) {
+    // biztos, ami biztos: 15 perces lépés
+    fieldset.querySelectorAll('input[type="time"]').forEach((el) => {
+      el.setAttribute("step", "900");
     });
   }
 
-  function parseHHMM(v) {
-    if (!v) return null;
-    const [h, m] = v.split(':').map(Number);
-    if (Number.isNaN(h) || Number.isNaN(m)) return null;
-    return h * 60 + m;
+  function recalcOne(fieldset) {
+    const beg = fieldset.querySelector(".t-beginn")?.value || "";
+    const end = fieldset.querySelector(".t-ende")?.value || "";
+    const breakHidden = document.getElementById("break_minutes");
+    const breakMin = breakHidden ? parseInt(breakHidden.value, 10) : 60;
+    const h = hoursWithBreaks(beg, end, breakMin);
+    const out = fieldset.querySelector(".stunden-display");
+    if (out) out.value = h ? h.toFixed(2) : "";
   }
-
-  function hoursWithBreaks(beginMin, endMin, pauseMin) {
-    if (beginMin === null || endMin === null || endMin <= beginMin) return 0;
-    const total = endMin - beginMin;
-    let minus = 0;
-    if (pauseMin >= 60) {
-      // 09:00–09:15 + 12:00–12:45
-      minus += overlap(beginMin, endMin, 9 * 60, 9 * 60 + 15);
-      minus += overlap(beginMin, endMin, 12 * 60, 12 * 60 + 45);
-    } else {
-      minus = Math.min(total, 30);
-    }
-    return Math.max(0, (total - minus) / 60);
-  }
-
-  function overlap(a1, a2, b1, b2) {
-    const s = Math.max(a1, b1);
-    const e = Math.min(a2, b2);
-    return Math.max(0, e - s);
-  }
-
-  function wireInputs() {
-    document.querySelectorAll('.t-beginn,.t-ende').forEach(el => {
-      el.removeEventListener('input', recalcAll);
-      el.addEventListener('input', recalcAll);
-    });
-  }
-  wireInputs();
 
   function recalcAll() {
-    const pauseMin = parseInt(hid ? hid.value : '60', 10) || 60;
     let sum = 0;
-
-    document.querySelectorAll('fieldset.worker').forEach(fs => {
-      const beg = fs.querySelector('.t-beginn')?.value || '';
-      const end = fs.querySelector('.t-ende')?.value || '';
-      const out = fs.querySelector('.stunden-display');
-
-      const bMin = parseHHMM(beg);
-      const eMin = parseHHMM(end);
-      const h = hoursWithBreaks(bMin, eMin, pauseMin);
-      sum += h;
-      if (out) out.value = h ? h.toFixed(2) : '';
+    list.querySelectorAll(".worker").forEach((fs) => {
+      const v = parseFloat(fs.querySelector(".stunden-display")?.value || "0");
+      if (!Number.isNaN(v)) sum += v;
     });
-
-    const tot = document.getElementById('gesamtstunden_auto');
-    if (tot) tot.value = sum ? sum.toFixed(2) : '';
+    const total = document.getElementById("gesamtstunden_auto");
+    if (total) total.value = sum ? sum.toFixed(2) : "";
   }
 
-  // első számítás
-  recalcAll();
+  function wireFieldset(fieldset) {
+    setTimeStep(fieldset);
+    fieldset.addEventListener("input", () => {
+      recalcOne(fieldset);
+      recalcAll();
+    });
+    recalcOne(fieldset);
+    recalcAll();
+  }
+
+  // első blokk bekötése
+  const first = list.querySelector(".worker");
+  if (first) wireFieldset(first);
+
+  // fél óra szünet checkbox
+  const ck = document.getElementById("break_half");
+  const breakHidden = document.getElementById("break_minutes");
+  if (ck && breakHidden) {
+    const syncBreak = () => {
+      breakHidden.value = ck.checked ? "30" : "60";
+      // váltáskor újraszámolunk mindent
+      list.querySelectorAll(".worker").forEach(recalcOne);
+      recalcAll();
+    };
+    ck.addEventListener("change", syncBreak);
+    syncBreak();
+  }
+
+  function cloneWorker() {
+    const count = list.querySelectorAll(".worker").length;
+    if (count >= MAX_WORKERS) return;
+
+    const tmpl = list.querySelector(".worker:last-of-type");
+    const copy = tmpl.cloneNode(true);
+
+    // új index
+    const idx = count + 1;
+    copy.setAttribute("data-index", String(idx));
+    const legend = copy.querySelector("legend");
+    if (legend) legend.textContent = `Mitarbeiter ${idx}`;
+
+    // inputok átnevezése/ürítése
+    copy.querySelectorAll("input").forEach((inp) => {
+      if (inp.type === "hidden") return;
+      if (inp.classList.contains("stunden-display")) {
+        inp.value = "";
+        return;
+      }
+      if (inp.classList.contains("t-beginn")) {
+        inp.name = `beginn${idx}`;
+        inp.value = "";
+        inp.setAttribute("step", "900");
+        return;
+      }
+      if (inp.classList.contains("t-ende")) {
+        inp.name = `ende${idx}`;
+        inp.value = "";
+        inp.setAttribute("step", "900");
+        return;
+      }
+      // szöveg típusok:
+      if (inp.name.startsWith("vorname")) inp.name = `vorname${idx}`;
+      if (inp.name.startsWith("nachname")) inp.name = `nachname${idx}`;
+      if (inp.name.startsWith("ausweis")) inp.name = `ausweis${idx}`;
+      if (inp.name.startsWith("vorhaltung")) inp.name = `vorhaltung${idx}`;
+      if (inp.type === "text") inp.value = "";
+    });
+
+    list.appendChild(copy);
+    wireFieldset(copy);
+  }
+
+  addBtn.addEventListener("click", cloneWorker);
 })();
