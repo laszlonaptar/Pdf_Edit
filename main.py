@@ -20,6 +20,41 @@ import traceback
 import json
 import sqlite3
 from pathlib import Path
+from typing import Tuple, Optional, List
+
+# ---- Google Drive (service account) ----
+GDRIVE_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON", "")
+GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID", "")
+
+DRIVE_ENABLED = bool(GDRIVE_JSON and GDRIVE_FOLDER_ID)
+drive_svc = None
+if DRIVE_ENABLED:
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseUpload
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(GDRIVE_JSON),
+            scopes=["https://www.googleapis.com/auth/drive.file"],
+        )
+        drive_svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+    except Exception as e:
+        print("Drive init failed:", repr(e))
+        DRIVE_ENABLED = False
+        drive_svc = None
+
+def drive_upload_bytes(filename: str, data: bytes, mime: str) -> Optional[str]:
+    """Feltölt egy fájlt a megadott Drive mappába. Visszaadja a fileId-t vagy None-t."""
+    if not (DRIVE_ENABLED and drive_svc):
+        return None
+    try:
+        media = MediaIoBaseUpload(BytesIO(data), mimetype=mime, resumable=False)
+        meta = {"name": filename, "parents": [GDRIVE_FOLDER_ID]}
+        file = drive_svc.files().create(body=meta, media_body=media, fields="id").execute()
+        return file.get("id")
+    except Exception as e:
+        print("Drive upload failed:", repr(e))
+        return None
 
 # ---- PDF (ReportLab) - opcionális előnézet ----
 REPORTLAB_AVAILABLE = False
@@ -132,7 +167,7 @@ def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="ce
     tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical)
 
 # ---------- time & hours ----------
-def parse_hhmm(s: str) -> time | None:
+def parse_hhmm(s: str) -> Optional[time]:
     s = (s or "").strip()
     if not s:
         return None
@@ -151,7 +186,7 @@ def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
         return 0
     return int((end - start).total_seconds() // 60)
 
-def hours_with_breaks(beg: time | None, end: time | None, pause_min: int = 60) -> float:
+def hours_with_breaks(beg: Optional[time], end: Optional[time], pause_min: int = 60) -> float:
     if not beg or not end:
         return 0.0
     dt = datetime(2000,1,1)
@@ -217,7 +252,7 @@ def find_total_cells(ws, stunden_col):
     return right_of_label, stunden_total
 
 # --- Fix Beschreibung-blokk: A6–G15 ---
-def find_description_block(ws):
+def find_description_block(ws) -> Tuple[int,int,int,int]:
     return (6, 1, 15, 7)  # A6..G15
 
 # ---------- pixel helpers ----------
@@ -337,7 +372,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         traceback.print_exc()
         return False
 
-# ---------- Nyomtatási beállítások (stabil skála + pontos print area) ----------
+# ---------- Nyomtatási beállítások ----------
 def set_print_defaults(ws):
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
@@ -365,7 +400,7 @@ def set_print_defaults(ws):
     ws.print_options.horizontalCentered = False
     ws.print_options.verticalCentered = False
 
-# ---------- PDF előnézet (ReportLab) ----------
+# ---------- PDF előnézet ----------
 def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
     if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
         raise RuntimeError("ReportLab vagy PIL nincs telepítve.")
@@ -470,7 +505,6 @@ async def logout(request: Request):
 async def admin_login_form(request: Request, next: str = "/admin"):
     if _is_admin(request):
         return RedirectResponse(next or "/admin", status_code=303)
-    # A meglévő login.html sablont használjuk
     return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
 
 @app.post("/admin/login", response_class=HTMLResponse)
@@ -493,7 +527,7 @@ async def index(request: Request):
         return RedirectResponse("/login?next=/", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request})
 
-# ---------- Excel generálás + DB mentés ----------
+# ---------- Excel generálás + DB mentés + Drive feltöltés ----------
 @app.post("/generate_excel")
 async def generate_excel(
     request: Request,
@@ -542,8 +576,8 @@ async def generate_excel(
     row = pos["data_start_row"]
     vorhaltung_col = pos.get("vorhaltung_col", None)
 
-    workers = []
-    for i in range(1, 5+1):
+    workers: List[Tuple[str,str,str,str,str,str]] = []
+    for i in range(1, 6):
         vn = locals().get(f"vorname{i}", "") or ""
         nn = locals().get(f"nachname{i}", "") or ""
         aw = locals().get(f"ausweis{i}", "") or ""
@@ -589,6 +623,16 @@ async def generate_excel(
     excel_path = GEN_DIR / excel_name
     wb.save(excel_path.as_posix())
 
+    # Olvasd be bytes-ba (helyi letöltés + Drive feltöltés is)
+    with open(excel_path, "rb") as f:
+        excel_bytes = f.read()
+
+    drive_file_id = drive_upload_bytes(
+        filename=excel_name,
+        data=excel_bytes,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
     payload = {
         "datum": datum,
         "bau": bau,
@@ -600,7 +644,8 @@ async def generate_excel(
              "ausweis": locals().get(f"ausweis{i}", ""), "beginn": locals().get(f"beginn{i}", ""),
              "ende": locals().get(f"ende{i}", ""), "vorhaltung": locals().get(f"vorhaltung{i}", "")}
             for i in range(1, 6)
-        ]
+        ],
+        "drive_file_id": drive_file_id
     }
     with db_conn() as c:
         c.execute("""
@@ -632,14 +677,12 @@ async def generate_excel(
             excel_name, json.dumps(payload, ensure_ascii=False)
         ))
 
-    with open(excel_path, "rb") as f:
-        data = f.read()
     headers = {
-        "Content-Disposition": f'attachment; filename=\"{excel_name}\"',
-        "Content-Length": str(len(data)),
+        "Content-Disposition": f'attachment; filename="{excel_name}"',
+        "Content-Length": str(len(excel_bytes)),
         "Cache-Control": "no-store",
     }
-    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+    return Response(content=excel_bytes, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
 # ---------- PDF előnézet (opcionális) ----------
 @app.post("/generate_pdf")
@@ -708,7 +751,7 @@ async def generate_pdf(
 
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
     headers = {
-        "Content-Disposition": f'attachment; filename=\"{fname}\"',
+        "Content-Disposition": f'attachment; filename="{fname}"',
         "Content-Length": str(len(pdf_bytes)),
         "Cache-Control": "no-store",
     }
@@ -769,7 +812,7 @@ async def admin_view(request: Request, sid: int):
         "payload": payload
     })
 
-# Excel fájl letöltés (csak admin)
+# Excel fájl letöltés (csak admin, helyi fájlról)
 @app.get("/download/{fname}")
 async def download_file(request: Request, fname: str):
     if not _is_admin(request):
@@ -781,5 +824,5 @@ async def download_file(request: Request, fname: str):
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename=\"{fname}\"'}
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
     )
