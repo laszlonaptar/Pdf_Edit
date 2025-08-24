@@ -4,75 +4,69 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Admin – Leistungsnachweis</title>
-  <link rel="stylesheet" href="/static/style.css?v=12" />
-  <style>
-    .searchbar{display:flex;gap:1rem;align-items:flex-end;margin-bottom:1rem;flex-wrap:wrap}
-    .searchbar .field{min-width:220px;flex:1}
-    .searchbar .actions{display:flex;gap:.5rem;flex-wrap:wrap}
-    .table-wrap{overflow-x:auto}
-    table{width:100%;border-collapse:collapse;min-width:720px}
-    th,td{padding:.5rem;border-bottom:1px solid #ddd;text-align:left}
-    .muted{color:#666}
-    @media (max-width:720px){
-      .searchbar{align-items:stretch}
-      .searchbar .actions{width:100%}
-      .searchbar .actions .btn{flex:1}
-    }
-  </style>
+  <link rel="stylesheet" href="/static/style.css?v=13" />
 </head>
 <body>
   <main class="container">
+    <div class="actions-top">
+      <a class="btn secondary" href="/">← Formular</a>
+      <a class="btn" href="/admin/logout">Abmelden</a>
+    </div>
+
     <h1>Admin</h1>
 
     <form class="card searchbar" method="get" action="/admin">
-      <div class="field">
-        <label for="q_bau">Bau</label>
-        <input id="q_bau" name="q_bau" type="text" value="{{ q_bau }}" placeholder="z. B. G725" />
-      </div>
-      <div class="field">
-        <label for="q_date">Datum</label>
-        <input id="q_date" name="q_date" type="date" value="{{ q_date }}" />
-      </div>
-      <div class="actions">
-        <button class="btn primary" type="submit">Suchen</button>
-        <a class="btn" href="/admin">Alle (max. 200)</a>
-        <a class="btn secondary" href="/">← Formular</a>
+      <div class="grid-3">
+        <div class="field">
+          <label for="q_bau">Bau</label>
+          <input id="q_bau" name="q_bau" type="text" value="{{ q_bau }}" placeholder="z. B. G725" />
+        </div>
+        <div class="field">
+          <label for="q_date">Datum</label>
+          <input id="q_date" name="q_date" type="date" value="{{ q_date }}" />
+        </div>
+        <div class="actions" style="align-self:end;">
+          <button class="btn primary" type="submit">Suchen</button>
+          <a class="btn" href="/admin">Alle (max 200)</a>
+        </div>
       </div>
     </form>
 
-    <section class="card table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Id</th>
-            <th>Datum</th>
-            <th>Bau</th>
-            <th>BASF-Beauftragter</th>
-            <th>Erstellt (UTC)</th>
-            <th>Excel</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in rows %}
-          <tr>
-            <td><a href="/admin/view/{{ r['id'] }}">#{{ r['id'] }}</a></td>
-            <td>{{ r['datum'] }}</td>
-            <td>{{ r['bau'] }}</td>
-            <td class="muted">{{ r['basf_beauftragter'] or '' }}</td>
-            <td class="muted">{{ r['created_at'] }}</td>
-            <td>
-              {% if r['excel_filename'] %}
-                <a href="/download/{{ r['excel_filename'] }}">Download</a>
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="6" class="muted">Keine Treffer.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <section class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Id</th>
+              <th>Datum</th>
+              <th>Bau</th>
+              <th>BASF-Beauftragter</th>
+              <th>Erstellt (UTC)</th>
+              <th>Excel</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+              <tr>
+                <td><a href="/admin/view/{{ r['id'] }}">#{{ r['id'] }}</a></td>
+                <td>{{ r['datum'] }}</td>
+                <td>{{ r['bau'] }}</td>
+                <td class="muted">{{ r['basf_beauftragter'] or '' }}</td>
+                <td class="muted">{{ r['created_at'] }}</td>
+                <td>
+                  {% if r['excel_filename'] %}
+                    <a href="/download/{{ r['excel_filename'] }}">Download</a>
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="muted">Keine Ergebnisse.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </section>
   </main>
 </body>
