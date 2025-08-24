@@ -1,157 +1,84 @@
-/* ==== Base tokens ======================================================= */
 :root{
-  --bg:        #f6f7fb;
-  --card:      #ffffff;
-  --border:    #e5e7eb;
-  --shadow1:   0 1px 2px rgba(16,24,40,.06), 0 8px 20px rgba(16,24,40,.04);
-  --text:      #111827;   /* normál szöveg */
-  --muted:     #6b7280;   /* halványabb szöveg */
-  --heading:   #111827;   /* címsorok */
-  --brand:     #2563eb;   /* kék gomb/szegély */
-  --brand-600: #1d4ed8;
-  --brand-100: #e0e7ff;
-  --focus:     rgba(37,99,235,.25);
-  --radius-lg: 16px;
-  --radius-md: 12px;
-  --radius-sm: 10px;
+  --bg:#f6f7fb;
+  --card:#fff;
+  --text:#1f2937;
+  --muted:#6b7280;
+  --border:#e5e7eb;
+  --primary:#2563eb;
+  --primary-contrast:#fff;
+  --shadow: 0 8px 24px rgba(0,0,0,.06);
+  --radius: 14px;
 }
 
-/* ==== Page ============================================================= */
 *{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0;
-  background:var(--bg);
-  color:var(--text);
-  font: 400 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI",
-        Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial}
 
-/* ==== Layout =========================================================== */
-.container{
-  max-width: 940px;
-  margin: 0 auto;
-  padding: 24px 16px 80px;
-}
+.container{max-width:960px;margin:0 auto;padding:1rem}
+.container.narrow{max-width:720px}
 
-h1{
-  margin: 0 0 20px;
-  font-size: clamp(24px, 3.6vw, 32px);
-  line-height: 1.2;
-  font-weight: 700;
-  color: var(--heading);
-}
-h2{
-  margin: 0 0 12px;
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--heading);
-}
+h1{font-size:1.8rem;margin:1rem 0}
+h2{font-size:1.2rem;margin:.25rem 0 1rem 0}
 
 .card{
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 18px 16px;
-  box-shadow: var(--shadow1);
-  margin: 16px 0;
-}
-
-/* ==== Grid ============================================================= */
-.grid{display:grid; gap:16px}
-.grid-2{grid-template-columns: repeat(2,1fr)}
-.grid-3{grid-template-columns: repeat(3,1fr)}
-@media (max-width: 860px){
-  .grid-2, .grid-3{grid-template-columns: 1fr}
-}
-.stack > * + *{margin-top:16px}
-
-/* ==== Fields =========================================================== */
-.field label, fieldset legend{
-  display:block;
-  margin:0 0 6px;
-  font-weight: 600;
-  color:#374151;
-}
-fieldset{border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 12px 6px}
-legend{padding:0 6px; color:#4b5563}
-
-input, textarea{
-  width:100%;
-  padding:12px 14px;
+  background:var(--card);
   border:1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius:var(--radius);
+  padding:1rem;
+  box-shadow:var(--shadow);
+  margin:1rem 0;
+}
+
+.field{display:flex;flex-direction:column;gap:.35rem}
+.field + .field{margin-top:.75rem}
+label{font-weight:600}
+
+input, textarea, select{
+  width:100%;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:.75rem .9rem;
   background:#fff;
-  color:var(--text);
   outline:none;
-  transition: border-color .15s ease, box-shadow .15s ease;
-  -webkit-appearance:none; appearance:none;
 }
-textarea{min-height:120px; resize: vertical}
+textarea{resize:vertical}
 
-input:focus, textarea:focus{
-  border-color: var(--brand);
-  box-shadow: 0 0 0 4px var(--focus);
-}
+.actions{display:flex;gap:.5rem}
+.actions-top{display:flex;gap:.5rem;justify-content:flex-end;margin:.5rem 0 1rem}
 
-input[readonly], .stunden-display{
-  background:#f9fafb;
-  color:#374151;
-}
-
-.muted{color:var(--muted)}
-.small{font-size:.9rem}
-
-/* ==== Buttons ========================================================== */
 .btn{
-  display:inline-flex; align-items:center; justify-content:center;
-  gap:.5rem; white-space:nowrap; cursor:pointer;
-  border-radius: 999px;
-  padding: 12px 18px;
-  font-weight: 600;
-  border: 1px solid transparent;
-  background:#fff; color:var(--text);
-  transition: background .15s ease, border-color .15s ease, transform .02s ease;
-  user-select:none;
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:.65rem 1rem;border-radius:12px;border:1px solid var(--border);
+  background:#fff;color:var(--text);text-decoration:none;font-weight:600;
 }
-.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--primary);color:var(--primary-contrast);border-color:var(--primary)}
+.btn.secondary{background:#eef2ff;border-color:#dbeafe}
 
-/* Primary – kék, fehér felirat */
-.btn.primary{
-  background: var(--brand);
-  color: #fff;
-  border-color: var(--brand);
+.small{font-size:.875rem}
+.muted{color:var(--muted)}
+
+.grid{display:grid;grid-template-columns:1fr;gap:1rem}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem}
+.stack{display:flex;flex-direction:column;gap:1rem}
+
+fieldset.worker{border:1px solid var(--border);border-radius:12px;padding:1rem}
+fieldset.worker legend{padding:0 .35rem;font-weight:700}
+
+.ck-row{display:flex;align-items:center;gap:.5rem}
+
+.alert.error{
+  background:#fee2e2;border:1px solid #fecaca;color:#991b1b;
+  padding:.75rem 1rem;border-radius:12px;margin:.5rem 0 1rem;
 }
-.btn.primary:hover{background:var(--brand-600); border-color:var(--brand-600)}
 
-/* Secondary – kék kontúr, fehér háttér */
-.btn.secondary{
-  background:#fff;
-  color: var(--brand);
-  border: 2px solid var(--brand);
+/* admin table */
+.table-wrap{width:100%;overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:720px}
+th,td{padding:.6rem;border-bottom:1px solid var(--border);text-align:left}
+tbody tr:hover{background:#f9fafb}
+
+/* mobile tweaks */
+@media (max-width:740px){
+  .grid-2{grid-template-columns:1fr}
+  .grid-3{grid-template-columns:1fr}
 }
-.btn.secondary:hover{background: var(--brand-100)}
-
-/* Gomb-sor alul */
-.actions{margin: 20px 0 0; text-align:center}
-.actions .btn{min-width: 220px}
-
-/* ==== Helpers ========================================================== */
-#besch-count{margin-top:6px}
-
-/* biztos ami biztos: ne öröklődjön semmilyen korábbi “mindent szürkére” override */
-button, input, textarea, label, legend, p, h1, h2, h3, h4, h5, h6{color:inherit}
-
-
-/* Checkbox ne legyen „szövegmező” kinézetű */
-input[type="checkbox"]{
-  width:auto; height:auto; padding:0; margin:0;
-  border:none; background:transparent; box-shadow:none;
-  appearance:auto; -webkit-appearance:auto;
-}
-.ck-row{ display:flex; align-items:center; gap:.5rem; font-weight:600; }
-
-/* --- Admin login gyors fixek --- */
-.card { box-sizing: border-box; }
-.card .btn { min-height: 44px; }            /* nagyobb érintési cél */
-.field input, .field textarea, .field select { width: 100%; }  /* biztos ami biztos */
