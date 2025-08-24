@@ -46,14 +46,20 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ---- Egyszerű login (környezeti változókból) ----
-APP_USERNAME = os.getenv("APP_USERNAME", "admin")
-APP_PASSWORD = os.getenv("APP_PASSWORD", "admin")
+# ---- Login beállítások (környezeti változókból) ----
+APP_USERNAME = os.getenv("APP_USERNAME", "user")
+APP_PASSWORD = os.getenv("APP_PASSWORD", "user")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
+
 SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-dev-secret")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
 
-def _is_authed(request: Request) -> bool:
+def _is_user(request: Request) -> bool:
     return bool(request.session.get("auth_ok") is True)
+
+def _is_admin(request: Request) -> bool:
+    return bool(request.session.get("admin_ok") is True)
 
 # ---- Tárolók / DB init ----
 BASE_DIR = Path(os.getcwd())
@@ -88,10 +94,7 @@ def init_db():
             payload_json TEXT
         )
         """)
-
-@app.on_event("startup")
-def _startup():
-    init_db()
+init_db()
 
 # ---------- helpers for merged cells ----------
 def merged_ranges(ws):
@@ -442,16 +445,17 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     buf.seek(0)
     return buf.read()
 
-# ---------- Login / Logout ----------
+# ---------- User Login / Logout ----------
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request, next: str = "/"):
-    if _is_authed(request):
+    if _is_user(request):
         return RedirectResponse(next or "/", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
 
 @app.post("/login", response_class=HTMLResponse)
 async def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
     if username == APP_USERNAME and password == APP_PASSWORD:
+        request.session.clear()
         request.session["auth_ok"] = True
         return RedirectResponse(next or "/", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
@@ -461,10 +465,31 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
+# ---------- Admin Login / Logout ----------
+@app.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_form(request: Request, next: str = "/admin"):
+    if _is_admin(request):
+        return RedirectResponse(next or "/admin", status_code=303)
+    # A meglévő login.html sablont használjuk
+    return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
+
+@app.post("/admin/login", response_class=HTMLResponse)
+async def admin_login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/admin")):
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        request.session.clear()
+        request.session["admin_ok"] = True
+        return RedirectResponse(next or "/admin", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
+
+@app.get("/admin/logout")
+async def admin_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/admin/login", status_code=303)
+
 # ---------- Főoldal (űrlap) ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    if not _is_authed(request):
+    if not _is_user(request):
         return RedirectResponse("/login?next=/", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request})
 
@@ -484,14 +509,12 @@ async def generate_excel(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
 ):
-    if not _is_authed(request):
+    if not _is_user(request):
         return RedirectResponse("/login?next=/", status_code=303)
 
-    # Excel sablon
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # Felső mezők
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -503,7 +526,6 @@ async def generate_excel(
     if (basf_beauftragter or "").strip():
         set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # Beschreibung blokk
     r1, c1, r2, c2 = find_description_block(ws)
     for r in range(r1, r2 + 1):
         if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
@@ -516,13 +538,12 @@ async def generate_excel(
     if not inserted:
         set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)
 
-    # Dolgozók és órák + Vorhaltung
     pos = find_header_positions(ws)
     row = pos["data_start_row"]
     vorhaltung_col = pos.get("vorhaltung_col", None)
 
     workers = []
-    for i in range(1, 6):
+    for i in range(1, 5+1):
         vn = locals().get(f"vorname{i}", "") or ""
         nn = locals().get(f"nachname{i}", "") or ""
         aw = locals().get(f"ausweis{i}", "") or ""
@@ -559,18 +580,15 @@ async def generate_excel(
         rr, rc = right_of_label
         set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # Nyomtatási beállítások
     try:
         set_print_defaults(ws)
     except Exception as e:
         print("PRINT SETUP WARN:", repr(e))
 
-    # Excel fájl mentése a 'generated/' alá
     excel_name = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
     excel_path = GEN_DIR / excel_name
     wb.save(excel_path.as_posix())
 
-    # DB mentés (payload + egyszerű mezők)
     payload = {
         "datum": datum,
         "bau": bau,
@@ -614,20 +632,16 @@ async def generate_excel(
             excel_name, json.dumps(payload, ensure_ascii=False)
         ))
 
-    # Fájlt letöltésre is visszaadjuk
-    data = excel_path.read_bytes()
+    with open(excel_path, "rb") as f:
+        data = f.read()
     headers = {
-        "Content-Disposition": f'attachment; filename="{excel_name}"',
+        "Content-Disposition": f'attachment; filename=\"{excel_name}\"',
         "Content-Length": str(len(data)),
         "Cache-Control": "no-store",
     }
-    return Response(
-        content=data,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers
-    )
+    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
-# ---------- PDF előnézet (nem kötelező használni) ----------
+# ---------- PDF előnézet (opcionális) ----------
 @app.post("/generate_pdf")
 async def generate_pdf(
     request: Request,
@@ -643,7 +657,7 @@ async def generate_pdf(
     vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
     vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
 ):
-    if not _is_authed(request):
+    if not _is_user(request):
         return RedirectResponse("/login?next=/", status_code=303)
 
     if not REPORTLAB_AVAILABLE or not PIL_AVAILABLE:
@@ -694,7 +708,7 @@ async def generate_pdf(
 
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
     headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Disposition": f'attachment; filename=\"{fname}\"',
         "Content-Length": str(len(pdf_bytes)),
         "Cache-Control": "no-store",
     }
@@ -702,27 +716,26 @@ async def generate_pdf(
 
 # ===================== ADMIN =====================
 
-# Kereső oldal
+# Kereső oldal (csak admin)
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
-    if not _is_authed(request):
-        return RedirectResponse("/login?next=/admin", status_code=303)
+    if not _is_admin(request):
+        return RedirectResponse("/admin/login?next=/admin", status_code=303)
 
     sql = "SELECT id, created_at, datum, bau, basf_beauftragter, excel_filename FROM submissions "
     clauses = []
     params = []
 
     if q_bau.strip():
-        clauses.append("LOWER(bau) LIKE LOWER(?)")
+        clauses.append("bau LIKE ?")
         params.append(f"%{q_bau.strip()}%")
     if q_date.strip():
-        # YYYY-MM-DD pontos egyezés (az űrlap ezt küldi)
-        clauses.append("datum = ?")
-        params.append(q_date.strip())
+        clauses.append("datum LIKE ?")
+        params.append(f"%{q_date.strip()}%")
 
     if clauses:
         sql += "WHERE " + " AND ".join(clauses) + " "
-    sql += "ORDER BY datetime(created_at) DESC LIMIT 200"
+    sql += "ORDER BY created_at DESC LIMIT 200"
 
     with db_conn() as c:
         rows = c.execute(sql, params).fetchall()
@@ -734,11 +747,11 @@ async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
         "q_date": q_date
     })
 
-# Részletes nézet (read-only)
+# Részletes nézet (csak admin)
 @app.get("/admin/view/{sid}", response_class=HTMLResponse)
 async def admin_view(request: Request, sid: int):
-    if not _is_authed(request):
-        return RedirectResponse(f"/login?next=/admin/view/{sid}", status_code=303)
+    if not _is_admin(request):
+        return RedirectResponse(f"/admin/login?next=/admin/view/{sid}", status_code=303)
 
     with db_conn() as c:
         row = c.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
@@ -756,11 +769,11 @@ async def admin_view(request: Request, sid: int):
         "payload": payload
     })
 
-# Excel fájl kiszolgálás (bejelentkezve)
+# Excel fájl letöltés (csak admin)
 @app.get("/download/{fname}")
 async def download_file(request: Request, fname: str):
-    if not _is_authed(request):
-        return RedirectResponse(f"/login?next=/download/{fname}", status_code=303)
+    if not _is_admin(request):
+        return RedirectResponse(f"/admin/login?next=/download/{fname}", status_code=303)
     fp = GEN_DIR / fname
     if not fp.exists():
         return PlainTextResponse("Fájl nem található.", status_code=404)
@@ -768,5 +781,5 @@ async def download_file(request: Request, fname: str):
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+        headers={"Content-Disposition": f'attachment; filename=\"{fname}\"'}
     )
