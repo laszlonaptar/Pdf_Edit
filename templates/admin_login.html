@@ -5,29 +5,71 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Admin Login – Leistungsnachweis</title>
   <link rel="stylesheet" href="/static/style.css?v=12" />
+  <style>
+    .auth-wrap {
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 520px;
+    }
+    .alert {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      padding: .75rem 1rem;
+      border-radius: .5rem;
+      margin-bottom: 1rem;
+    }
+    .actions-row {
+      display: flex;
+      gap: .75rem;
+      flex-wrap: wrap;
+      margin-top: .75rem;
+    }
+    .actions-row .btn {
+      flex: 1 1 0;
+      min-height: 44px;
+    }
+    @media (max-width:480px){
+      .actions-row .btn { flex-basis: 100%; }
+    }
+  </style>
 </head>
 <body>
-  <main class="container" style="max-width:420px">
-    <h1>Admin Login</h1>
-    {% if error %}
-      <div class="card" style="border-left:4px solid #dc2626;color:#b91c1c;">
-        Falscher Benutzername oder Passwort.
-      </div>
-    {% endif %}
-    <form class="card" method="post" action="/admin/login">
-      <div class="field">
-        <label for="username">Benutzername</label>
-        <input id="username" name="username" type="text" autocomplete="username" required />
-      </div>
-      <div class="field">
-        <label for="password">Passwort</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required />
-      </div>
-      <div class="actions" style="display:flex;gap:.5rem;justify-content:flex-end;">
-        <a class="btn secondary" href="/">Zurück</a>
-        <button class="btn primary" type="submit">Anmelden</button>
-      </div>
-    </form>
+  <main class="auth-wrap">
+    <section class="card auth-card">
+      <h1 style="margin-top:0;">Admin Login</h1>
+
+      {% if error %}
+        <div class="alert">Ungültiger Benutzername oder Passwort</div>
+      {% endif %}
+
+      <form method="post" action="/admin/login">
+        <input type="hidden" name="next" value="{{ next or '/admin' }}" />
+
+        <div class="field">
+          <label for="username">Benutzername</label>
+          <input id="username" name="username" type="text" placeholder="Admin Benutzername"
+                 required autocomplete="username" />
+        </div>
+
+        <div class="field">
+          <label for="password">Passwort</label>
+          <input id="password" name="password" type="password" placeholder="••••••••"
+                 required autocomplete="current-password" />
+        </div>
+
+        <div class="actions-row">
+          <a class="btn secondary" href="/">Zurück</a>
+          <button class="btn primary" type="submit">Einloggen</button>
+        </div>
+      </form>
+    </section>
   </main>
 </body>
 </html>
