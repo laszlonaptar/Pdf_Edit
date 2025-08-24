@@ -3,32 +3,44 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Login – Leistungsnachweis</title>
+  <title>Admin Login – Leistungsnachweis</title>
   <link rel="stylesheet" href="/static/style.css?v=12" />
   <style>
-    .login-card { max-width: 420px; margin: 10vh auto; }
-    .error { color: #b00020; font-weight: 600; margin-top: .5rem; }
+    body { display:flex; align-items:center; justify-content:center; height:100vh; background:#f3f4f6; }
+    .login-box { background:#fff; padding:2rem; border-radius:.75rem; box-shadow:0 4px 10px rgba(0,0,0,0.1); width:100%; max-width:400px; }
+    h1 { font-size:1.5rem; margin-bottom:1rem; text-align:center; }
+    .error { color:#b91c1c; background:#fee2e2; padding:.5rem; border-radius:.25rem; margin-bottom:1rem; text-align:center; }
+    .field { margin-bottom:1rem; }
+    label { font-weight:600; display:block; margin-bottom:.25rem; }
+    input[type="text"], input[type="password"] {
+      width:100%; padding:.5rem; border:1px solid #ccc; border-radius:.25rem;
+    }
+    .actions { display:flex; justify-content:space-between; align-items:center; margin-top:1rem; }
+    .btn { padding:.5rem 1rem; border:none; border-radius:.25rem; background:#2563eb; color:#fff; cursor:pointer; }
+    .btn.secondary { background:#6b7280; }
   </style>
 </head>
 <body>
-  <main class="container login-card card">
-    <h1>Login</h1>
+  <div class="login-box">
+    <h1>Admin Login</h1>
+    {% if error %}
+      <div class="error">Ungültiger Benutzername oder Passwort</div>
+    {% endif %}
     <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next }}" />
       <div class="field">
         <label for="username">Benutzername</label>
-        <input id="username" name="username" type="text" required />
+        <input id="username" name="username" type="text" required placeholder="Admin Benutzername" />
       </div>
       <div class="field">
         <label for="password">Passwort</label>
-        <input id="password" name="password" type="password" required />
+        <input id="password" name="password" type="password" required placeholder="••••••••" />
       </div>
-      {% if error %}
-      <div class="error">Falscher Benutzername oder Passwort.</div>
-      {% endif %}
       <div class="actions">
-        <button class="btn primary" type="submit">Anmelden</button>
+        <button class="btn secondary" type="reset">Zurücksetzen</button>
+        <button class="btn" type="submit">Einloggen</button>
       </div>
     </form>
-  </main>
+  </div>
 </body>
 </html>
