@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Leistungsnachweis</title>
-  <link rel="stylesheet" href="/static/style.css?v=13" />
+  <link rel="stylesheet" href="/static/style.css?v=14" />
 </head>
 <body>
   <main class="container">
@@ -47,22 +47,28 @@
       <section class="card">
         <h2>Mitarbeiter</h2>
 
+        <!-- datalist-ek az autocomplete-hez -->
+        <datalist id="dl-vorname"></datalist>
+        <datalist id="dl-nachname"></datalist>
+        <datalist id="dl-ausweis"></datalist>
+
         <div id="worker-list" class="stack">
+          <!-- Worker #1 sablon -->
           <fieldset class="worker" data-index="1">
             <legend>Mitarbeiter 1</legend>
 
             <div class="grid-3">
               <div class="field">
                 <label>Vorname</label>
-                <input name="vorname1" type="text" />
+                <input name="vorname1" class="inp-vorname" type="text" list="dl-vorname" autocomplete="off" />
               </div>
               <div class="field">
                 <label>Nachname</label>
-                <input name="nachname1" type="text" />
+                <input name="nachname1" class="inp-nachname" type="text" list="dl-nachname" autocomplete="off" />
               </div>
               <div class="field">
                 <label>Ausweis-Nr. / Kennzeichen</label>
-                <input name="ausweis1" type="text" />
+                <input name="ausweis1" class="inp-ausweis" type="text" list="dl-ausweis" autocomplete="off" />
               </div>
             </div>
 
@@ -72,9 +78,9 @@
             </div>
 
             <div class="field ck-row">
-              <input type="checkbox" id="break_half" />
+              <input type="checkbox" class="ck-break-half" />
               <span>Pause nur 0,5&nbsp;h</span>
-              <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
+              <input type="hidden" name="break_minutes" class="break-minutes" value="60" />
             </div>
             <div class="muted small" style="margin-top:-.5rem;margin-bottom:.5rem;">
               Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
