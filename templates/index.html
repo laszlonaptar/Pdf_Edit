@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Leistungsnachweis</title>
-  <link rel="stylesheet" href="/static/style.css?v=14" />
+  <link rel="stylesheet" href="/static/style.css?v=15" />
 </head>
 <body>
   <main class="container">
@@ -47,53 +47,40 @@
       <section class="card">
         <h2>Mitarbeiter</h2>
 
-        <!-- datalist-ek az autocomplete-hez -->
-        <datalist id="dl-vorname"></datalist>
-        <datalist id="dl-nachname"></datalist>
-        <datalist id="dl-ausweis"></datalist>
-
         <div id="worker-list" class="stack">
-          <!-- Worker #1 sablon -->
-          <fieldset class="worker" data-index="1">
-            <legend>Mitarbeiter 1</legend>
+          <!-- 5 sor – ugyanaz a szerkezet -->
+          {% for i in range(1,6) %}
+          <fieldset class="worker" data-index="{{ i }}">
+            <legend>Mitarbeiter {{ i }}</legend>
 
             <div class="grid-3">
               <div class="field">
                 <label>Vorname</label>
-                <input name="vorname1" class="inp-vorname" type="text" list="dl-vorname" autocomplete="off" />
+                <input name="vorname{{ i }}" type="text" list="dl_vornamen" autocomplete="off" />
               </div>
               <div class="field">
                 <label>Nachname</label>
-                <input name="nachname1" class="inp-nachname" type="text" list="dl-nachname" autocomplete="off" />
+                <input name="nachname{{ i }}" type="text" list="dl_nachnamen" autocomplete="off" />
               </div>
               <div class="field">
                 <label>Ausweis-Nr. / Kennzeichen</label>
-                <input name="ausweis1" class="inp-ausweis" type="text" list="dl-ausweis" autocomplete="off" />
+                <input name="ausweis{{ i }}" type="text" list="dl_ausweise" autocomplete="off" />
               </div>
             </div>
 
             <div class="field">
               <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
-              <input name="vorhaltung1" type="text" />
-            </div>
-
-            <div class="field ck-row">
-              <input type="checkbox" class="ck-break-half" />
-              <span>Pause nur 0,5&nbsp;h</span>
-              <input type="hidden" name="break_minutes" class="break-minutes" value="60" />
-            </div>
-            <div class="muted small" style="margin-top:-.5rem;margin-bottom:.5rem;">
-              Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
+              <input name="vorhaltung{{ i }}" type="text" />
             </div>
 
             <div class="grid-3">
               <div class="field">
                 <label>Beginn</label>
-                <input name="beginn1" class="t-beginn" type="time" step="900" />
+                <input name="beginn{{ i }}" class="t-beginn" type="time" step="900" inputmode="numeric" />
               </div>
               <div class="field">
                 <label>Ende</label>
-                <input name="ende1" class="t-ende" type="time" step="900" />
+                <input name="ende{{ i }}" class="t-ende" type="time" step="900" inputmode="numeric" />
               </div>
               <div class="field">
                 <label>Stunden (auto)</label>
@@ -101,9 +88,19 @@
               </div>
             </div>
           </fieldset>
-        </div>
+          {% endfor %}
 
-        <button type="button" id="add-worker" class="btn secondary">+ Weitere Mitarbeiter hinzufügen</button>
+          <!-- közös szünet kapcsoló -->
+          <div class="field ck-row">
+            <input type="checkbox" id="break_half" />
+            <span>Pause nur 0,5&nbsp;h</span>
+            <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
+          </div>
+          <div class="muted small" style="margin-top:-.5rem;margin-bottom:.5rem;">
+            Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
+          </div>
+
+        </div>
       </section>
 
       <!-- Gesamtzeit -->
@@ -112,9 +109,6 @@
         <div class="field">
           <label>Gesamtstunden (auto)</label>
           <input id="gesamtstunden_auto" type="text" value="" readonly />
-          <div class="muted small">
-            Automatischer Pausenabzug: standardmäßig 1,00&nbsp;h. Wenn „Pause nur 0,5&nbsp;h” gewählt, werden 0,50&nbsp;h abgezogen.
-          </div>
         </div>
       </section>
 
@@ -122,8 +116,13 @@
         <button class="btn primary" type="submit">Excel generieren</button>
       </div>
     </form>
+
+    <!-- datalist-ek az autókomplethez -->
+    <datalist id="dl_vornamen"></datalist>
+    <datalist id="dl_nachnamen"></datalist>
+    <datalist id="dl_ausweise"></datalist>
   </main>
 
-  <script src="/static/script.js?v=14"></script>
+  <script src="/static/script.js?v=15"></script>
 </body>
 </html>
