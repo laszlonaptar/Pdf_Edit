@@ -4,7 +4,26 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Leistungsnachweis</title>
-  <link rel="stylesheet" href="/static/style.css?v=15" />
+  <link rel="stylesheet" href="/static/style.css?v=14" />
+  <style>
+    input[type="checkbox"]{
+      width:auto;height:auto;padding:0;margin:0;border:none;background:transparent;box-shadow:none;
+      appearance:auto;-webkit-appearance:auto;
+    }
+    .ck-row{display:flex;align-items:center;gap:.5rem;font-weight:600;}
+    .actions-top{display:flex;gap:.5rem;justify-content:flex-end;margin:.5rem 0 1rem;}
+    .small{font-size:.875rem}.muted{color:#666}
+    .stack{display:flex;flex-direction:column;gap:1rem}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+    .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem}
+    fieldset.worker{border:1px solid #e5e7eb;padding:1rem;border-radius:.5rem}
+    fieldset.worker legend{padding:0 .35rem;font-weight:600}
+    @media (max-width: 720px){
+      .grid-2,.grid-3{grid-template-columns:1fr}
+      .actions-top{justify-content:flex-start}
+    }
+    input,select,textarea{min-width:0;width:100%}
+  </style>
 </head>
 <body>
   <main class="container">
@@ -29,7 +48,7 @@
           </div>
           <div class="field">
             <label for="basf_beauftragter">BASF-Beauftragter, Org.-Code</label>
-            <input id="basf_beauftragter" name="basf_beauftragter" type="text" />
+            <input id="basf_beauftragter" name="basf_beauftragter" type="text" required />
           </div>
         </div>
       </section>
@@ -38,7 +57,8 @@
       <section class="card">
         <div class="field">
           <label for="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
-          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" placeholder="Max. 1000 Zeichen"></textarea>
+          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" required
+            placeholder="Max. 1000 Zeichen"></textarea>
           <div class="muted small" id="besch-count">0 / 1000</div>
         </div>
       </section>
@@ -48,39 +68,50 @@
         <h2>Mitarbeiter</h2>
 
         <div id="worker-list" class="stack">
-          <!-- 5 sor – ugyanaz a szerkezet -->
-          {% for i in range(1,6) %}
-          <fieldset class="worker" data-index="{{ i }}">
-            <legend>Mitarbeiter {{ i }}</legend>
-
+          <!-- Worker #1 -->
+          <fieldset class="worker" data-index="1">
+            <legend>Mitarbeiter 1</legend>
             <div class="grid-3">
               <div class="field">
                 <label>Vorname</label>
-                <input name="vorname{{ i }}" type="text" list="dl_vornamen" autocomplete="off" />
+                <input name="vorname1" type="text" required />
               </div>
               <div class="field">
                 <label>Nachname</label>
-                <input name="nachname{{ i }}" type="text" list="dl_nachnamen" autocomplete="off" />
+                <input name="nachname1" type="text" required />
               </div>
               <div class="field">
                 <label>Ausweis-Nr. / Kennzeichen</label>
-                <input name="ausweis{{ i }}" type="text" list="dl_ausweise" autocomplete="off" />
+                <input name="ausweis1" type="text" required />
+              </div>
+            </div>
+
+            <div class="grid">
+              <div class="field">
+                <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+                <input name="vorhaltung1" type="text" />
               </div>
             </div>
 
             <div class="field">
-              <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
-              <input name="vorhaltung{{ i }}" type="text" />
+              <label class="ck-row">
+                <input type="checkbox" id="break_half" />
+                <span>Pause nur 0,5&nbsp;h</span>
+              </label>
+              <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
+              <div class="muted small">
+                Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
+              </div>
             </div>
 
             <div class="grid-3">
               <div class="field">
                 <label>Beginn</label>
-                <input name="beginn{{ i }}" class="t-beginn" type="time" step="900" inputmode="numeric" />
+                <input name="beginn1" type="time" step="60" required />
               </div>
               <div class="field">
                 <label>Ende</label>
-                <input name="ende{{ i }}" class="t-ende" type="time" step="900" inputmode="numeric" />
+                <input name="ende1" type="time" step="60" required />
               </div>
               <div class="field">
                 <label>Stunden (auto)</label>
@@ -88,41 +119,51 @@
               </div>
             </div>
           </fieldset>
-          {% endfor %}
-
-          <!-- közös szünet kapcsoló -->
-          <div class="field ck-row">
-            <input type="checkbox" id="break_half" />
-            <span>Pause nur 0,5&nbsp;h</span>
-            <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
-          </div>
-          <div class="muted small" style="margin-top:-.5rem;margin-bottom:.5rem;">
-            Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
-          </div>
-
         </div>
+
+        <button type="button" id="add-worker" class="btn secondary">+ Weitere Mitarbeiter hinzufügen</button>
       </section>
 
       <!-- Gesamtzeit -->
       <section class="card">
         <h2>Gesamtzeit</h2>
-        <div class="field">
-          <label>Gesamtstunden (auto)</label>
-          <input id="gesamtstunden_auto" type="text" value="" readonly />
+        <div class="grid">
+          <div class="field">
+            <label>Gesamtstunden (auto)</label>
+            <input id="gesamtstunden_auto" type="text" value="" readonly />
+            <div class="muted small">
+              Automatischer Pausenabzug: standardmäßig 1,00&nbsp;h. Wenn „Pause nur 0,5&nbsp;h“ gewählt, werden 0,50&nbsp;h abgezogen.
+            </div>
+          </div>
         </div>
       </section>
 
       <div class="actions" style="display:flex;gap:1rem;">
         <button class="btn primary" type="submit">Excel generieren</button>
+        <!-- Ha kell a PDF gomb, ezt vedd elő: 
+        <button class="btn" type="submit" formaction="/generate_pdf">PDF Vorschau</button>
+        -->
       </div>
     </form>
-
-    <!-- datalist-ek az autókomplethez -->
-    <datalist id="dl_vornamen"></datalist>
-    <datalist id="dl_nachnamen"></datalist>
-    <datalist id="dl_ausweise"></datalist>
   </main>
 
-  <script src="/static/script.js?v=15"></script>
+  <script src="/static/script.js?v=15min-autocomplete"></script>
+  <script>
+    // Zähler + Pausen-Flag (mini init – a fő logika a script.js-ben van)
+    (function(){
+      const ta = document.getElementById('beschreibung');
+      const cnt = document.getElementById('besch-count');
+      if (ta && cnt){
+        const upd = () => { cnt.textContent = (ta.value.length || 0) + ' / 1000'; };
+        ta.addEventListener('input', upd); upd();
+      }
+      const half = document.getElementById('break_half');
+      const hid = document.getElementById('break_minutes');
+      if (half && hid){
+        const sync = () => { hid.value = half.checked ? '30' : '60'; };
+        half.addEventListener('change', sync); sync();
+      }
+    })();
+  </script>
 </body>
 </html>
