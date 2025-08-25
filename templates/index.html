@@ -170,42 +170,52 @@
   <script src="/static/script.js?v=15min-autocomplete"></script>
 
   <!-- Kis i18n init: feliratok cseréje + nyelv tárolása -->
-  <script>
-    (function(){
-      const LS_KEY = "ln_lang";
-      const sel = document.getElementById("lang");
-      const hidden = document.getElementById("lang_hidden");
+ <script>
+  (function(){
+    const LS_KEY = "ln_lang";
+    const sel = document.getElementById("lang");
+    const hidden = document.getElementById("lang_hidden");
 
-      function applyI18n(lang) {
-        const dict = (window.I18N && window.I18N[lang]) || window.I18N.de;
-        // Text csere
-        document.querySelectorAll("[data-i18n]").forEach(el => {
-          const k = el.getAttribute("data-i18n");
-          if (dict[k]) el.innerHTML = dict[k];
-        });
-        // Placeholder csere (külön attribútumban jelezve)
-        document.querySelectorAll("[data-i18n-ph]").forEach(el => {
-          const k = el.getAttribute("data-i18n-ph");
-          if (dict[k]) el.setAttribute("placeholder", dict[k]);
-        });
-        // <title> frissítés
-        if (dict.title) document.title = dict.title;
-      }
+    function applyI18n(lang) {
+      const dict = (window.I18N && window.I18N[lang]) || window.I18N.de;
 
-      function setLang(lang){
-        const safe = (["de","hr"].includes(lang) ? lang : "de");
-        localStorage.setItem(LS_KEY, safe);
-        sel.value = safe;
-        if (hidden) hidden.value = safe;
-        applyI18n(safe);
-      }
+      // Feliratok
+      document.querySelectorAll("[data-i18n]").forEach(el => {
+        const k = el.getAttribute("data-i18n");
+        if (dict[k]) el.innerHTML = dict[k];
+      });
+      document.querySelectorAll("[data-i18n-ph]").forEach(el => {
+        const k = el.getAttribute("data-i18n-ph");
+        if (dict[k]) el.setAttribute("placeholder", dict[k]);
+      });
 
-      // induláskor
-      const initial = localStorage.getItem(LS_KEY) || "de";
-      setLang(initial);
+      // <legend> feliratok: „Mitarbeiter/Radnik {n}”
+      document.querySelectorAll("fieldset.worker").forEach((fs, i) => {
+        const lg = fs.querySelector("legend");
+        if (lg) lg.textContent = (dict.worker_legend || "Mitarbeiter") + " " + (i + 1);
+      });
 
-      sel.addEventListener("change", () => setLang(sel.value));
-    })();
-  </script>
+      if (dict.title) document.title = dict.title;
+    }
+
+    function setLang(lang){
+      const safe = (["de","hr"].includes(lang) ? lang : "de");
+      localStorage.setItem(LS_KEY, safe);
+      sel.value = safe;
+      if (hidden) hidden.value = safe;
+      window.__currentLang = safe;
+      applyI18n(safe);
+    }
+
+    // exportáljuk, hogy a script.js is tudja frissíteni új worker beszúrásakor
+    window.__applyI18n = applyI18n;
+
+    // induláskor
+    const initial = localStorage.getItem(LS_KEY) || "de";
+    setLang(initial);
+
+    sel.addEventListener("change", () => setLang(sel.value));
+  })();
+</script>
 </body>
 </html>
