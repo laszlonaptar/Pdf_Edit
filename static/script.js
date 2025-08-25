@@ -585,7 +585,8 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
     workerList.appendChild(tpl);
-
+    
+    if (window.__applyI18n) window.__applyI18n(window.__currentLang || "de");
     // friss fordítás az új blokkra is
     applyTranslations(currentLang);
 
