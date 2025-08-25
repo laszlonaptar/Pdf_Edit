@@ -6,9 +6,84 @@
    - Validáció elküldés előtt
    - Excel letöltés: fetch + blob
    - (Opcionális) PDF Vorschau: új lap + IFRAME
+   - i18n: nyelvváltás (de/hr) a window.I18N szótárral, #lang-select alapján
 */
 
 document.addEventListener("DOMContentLoaded", () => {
+  /* ===================== I18N ===================== */
+  const I18N = (window.I18N || {});
+  const DEFAULT_LANG = "de";
+
+  function getLang() {
+    // 1) URL ?lang=...  2) localStorage  3) <html lang>  4) default
+    const u = new URL(window.location.href);
+    const ql = (u.searchParams.get("lang") || "").trim();
+    const ls = (localStorage.getItem("app_lang") || "").trim();
+    const hl = (document.documentElement.getAttribute("lang") || "").trim();
+    return (ql || ls || hl || DEFAULT_LANG);
+  }
+  function t(key, lang) {
+    const L = lang || currentLang;
+    try {
+      if (I18N[L] && key in I18N[L]) return I18N[L][key];
+      if (I18N[DEFAULT_LANG] && key in I18N[DEFAULT_LANG]) return I18N[DEFAULT_LANG][key];
+    } catch (_) {}
+    return null;
+  }
+  function translateNode(el, lang) {
+    if (!el) return;
+    const key = el.getAttribute("data-i18n");
+    if (key) {
+      const txt = t(key, lang);
+      if (txt != null) el.textContent = txt;
+    }
+    const phKey = el.getAttribute && el.getAttribute("data-i18n-placeholder");
+    if (phKey && el.placeholder !== undefined) {
+      const ph = t(phKey, lang);
+      if (ph != null) el.placeholder = ph;
+    }
+    const valKey = el.getAttribute && el.getAttribute("data-i18n-value");
+    if (valKey && el.value !== undefined) {
+      const v = t(valKey, lang);
+      if (v != null) el.value = v;
+    }
+  }
+  function applyTranslations(lang) {
+    // oldal cím
+    const ttl = t("title", lang);
+    if (ttl) document.title = ttl;
+
+    // minden jelölt elem
+    document.querySelectorAll("[data-i18n], [data-i18n-placeholder], [data-i18n-value]").forEach(el => {
+      translateNode(el, lang);
+    });
+
+    // „Wird generiert...” szöveg fordítása, ha van
+    const gen = t("generating", lang);
+    if (gen) window.__GEN_TEXT = gen; // a setBusy használja, ha be van állítva
+  }
+
+  let currentLang = getLang();
+  // szinkronizáljuk a <select id="lang-select"> értékét (ha van)
+  const langSel = document.getElementById("lang-select");
+  if (langSel) {
+    if ([...langSel.options].some(o => o.value === currentLang)) {
+      langSel.value = currentLang;
+    }
+    langSel.addEventListener("change", () => {
+      currentLang = langSel.value || DEFAULT_LANG;
+      localStorage.setItem("app_lang", currentLang);
+      // <html lang> frissítése
+      document.documentElement.setAttribute("lang", currentLang);
+      applyTranslations(currentLang);
+    });
+  }
+  // kezdeti beállítás
+  document.documentElement.setAttribute("lang", currentLang);
+  applyTranslations(currentLang);
+
+  /* ============== A LAP TÖBBI FUNKCIÓJA ============== */
+
   const addBtn = document.getElementById("add-worker");
   const workerList = document.getElementById("worker-list");
   const totalOut = document.getElementById("gesamtstunden_auto");
@@ -473,43 +548,46 @@ document.addEventListener("DOMContentLoaded", () => {
     tpl.className = "worker";
     tpl.dataset.index = String(idx);
     tpl.innerHTML = `
-      <legend>Mitarbeiter ${idx}</legend>
+      <legend data-i18n="mitarbeiter">Mitarbeiter</legend> ${idx}
       <div class="grid-3">
         <div class="field">
-          <label>Vorname</label>
+          <label data-i18n="vorname">Vorname</label>
           <input name="vorname${idx}" type="text" />
         </div>
         <div class="field">
-          <label>Nachname</label>
+          <label data-i18n="nachname">Nachname</label>
           <input name="nachname${idx}" type="text" />
         </div>
         <div class="field">
-          <label>Ausweis-Nr. / Kennzeichen</label>
+          <label data-i18n="ausweis">Ausweis-Nr. / Kennzeichen</label>
           <input name="ausweis${idx}" type="text" />
         </div>
       </div>
       <div class="grid">
         <div class="field">
-          <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+          <label data-i18n="vorhaltung">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
           <input name="vorhaltung${idx}" type="text" />
         </div>
       </div>
       <div class="grid-3">
         <div class="field">
-          <label>Beginn</label>
+          <label data-i18n="beginn">Beginn</label>
           <input name="beginn${idx}" type="time" />
         </div>
         <div class="field">
-          <label>Ende</label>
+          <label data-i18n="ende">Ende</label>
           <input name="ende${idx}" type="time" />
         </div>
         <div class="field">
-          <label>Stunden (auto)</label>
+          <label data-i18n="stunden">Stunden (auto)</label>
           <input class="stunden-display" type="text" value="" readonly />
         </div>
       </div>
     `;
     workerList.appendChild(tpl);
+
+    // friss fordítás az új blokkra is
+    applyTranslations(currentLang);
 
     // szinkron az 1. dolgozóról
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
@@ -636,7 +714,8 @@ document.addEventListener("DOMContentLoaded", () => {
         submitBtn.dataset._label =
           submitBtn.textContent || submitBtn.value || "Generieren";
         submitBtn.disabled = true;
-        submitBtn.textContent = "Wird generiert...";
+        const txt = window.__GEN_TEXT || "Wird generiert...";
+        submitBtn.textContent = txt;
       } else {
         submitBtn.disabled = false;
         const lbl = submitBtn.dataset._label;
