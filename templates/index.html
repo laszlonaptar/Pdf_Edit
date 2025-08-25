@@ -11,7 +11,9 @@
       appearance:auto;-webkit-appearance:auto;
     }
     .ck-row{display:flex;align-items:center;gap:.5rem;font-weight:600;}
-    .actions-top{display:flex;gap:.5rem;justify-content:flex-end;margin:.5rem 0 1rem;}
+    .actions-top{display:flex;gap:.5rem;justify-content:flex-end;margin:.5rem 0 1rem;align-items:center;}
+    .lang-switch{display:flex;align-items:center;gap:.35rem}
+    .lang-switch select{padding:.35rem .5rem;border:1px solid #e5e7eb;border-radius:.5rem;background:#fff}
     .small{font-size:.875rem}.muted{color:#666}
     .stack{display:flex;flex-direction:column;gap:1rem}
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
@@ -20,7 +22,8 @@
     fieldset.worker legend{padding:0 .35rem;font-weight:600}
     @media (max-width: 720px){
       .grid-2,.grid-3{grid-template-columns:1fr}
-      .actions-top{justify-content:flex-start}
+      .actions-top{justify-content:flex-start;flex-wrap:wrap;gap:.5rem}
+      .lang-switch select{font-size:.95rem}
     }
     input,select,textarea{min-width:0;width:100%}
   </style>
@@ -28,26 +31,35 @@
 <body>
   <main class="container">
     <div class="actions-top">
-      <a class="btn secondary" href="/admin">Admin</a>
-      <a class="btn" href="/logout">Abmelden</a>
+      <!-- Nyelvválasztó (jobb felső sarok) -->
+      <div class="lang-switch">
+        <label for="langSel" class="muted small" data-i18n="ui.language">Sprache</label>
+        <select id="langSel" aria-label="Language">
+          <option value="de">DE</option>
+          <option value="hr">HR</option>
+        </select>
+      </div>
+
+      <a class="btn secondary" href="/admin" data-i18n="ui.admin">Admin</a>
+      <a class="btn" href="/logout" data-i18n="ui.logout">Abmelden</a>
     </div>
 
-    <h1>Leistungsnachweis</h1>
+    <h1 data-i18n="page.title">Leistungsnachweis</h1>
 
     <form id="ln-form" method="post" action="/generate_excel" novalidate>
       <!-- Kopf -->
       <section class="card">
         <div class="grid-2">
           <div class="field">
-            <label for="datum">Datum der Leistungsausführung</label>
+            <label for="datum" data-i18n="head.date">Datum der Leistungsausführung</label>
             <input id="datum" name="datum" type="date" required />
           </div>
           <div class="field">
-            <label for="bau">Bau und Ausführungsort</label>
+            <label for="bau" data-i18n="head.site">Bau und Ausführungsort</label>
             <input id="bau" name="bau" type="text" placeholder="z. B. G725" required />
           </div>
           <div class="field">
-            <label for="basf_beauftragter">BASF-Beauftragter, Org.-Code</label>
+            <label for="basf_beauftragter" data-i18n="head.beauftragter">BASF-Beauftragter, Org.-Code</label>
             <input id="basf_beauftragter" name="basf_beauftragter" type="text" required />
           </div>
         </div>
@@ -56,39 +68,39 @@
       <!-- Beschreibung -->
       <section class="card">
         <div class="field">
-          <label for="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
+          <label for="beschreibung" data-i18n="desc.label">Beschreibung der ausgeführten Arbeiten</label>
           <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" required
-            placeholder="Max. 1000 Zeichen"></textarea>
+            data-i18n-placeholder="desc.placeholder" placeholder="Max. 1000 Zeichen"></textarea>
           <div class="muted small" id="besch-count">0 / 1000</div>
         </div>
       </section>
 
       <!-- Mitarbeiter -->
       <section class="card">
-        <h2>Mitarbeiter</h2>
+        <h2 data-i18n="workers.title">Mitarbeiter</h2>
 
         <div id="worker-list" class="stack">
           <!-- Worker #1 -->
           <fieldset class="worker" data-index="1">
-            <legend>Mitarbeiter 1</legend>
+            <legend id="worker1-legend">Mitarbeiter 1</legend>
             <div class="grid-3">
               <div class="field">
-                <label>Vorname</label>
+                <label data-i18n="workers.vorname">Vorname</label>
                 <input name="vorname1" type="text" required />
               </div>
               <div class="field">
-                <label>Nachname</label>
+                <label data-i18n="workers.nachname">Nachname</label>
                 <input name="nachname1" type="text" required />
               </div>
               <div class="field">
-                <label>Ausweis-Nr. / Kennzeichen</label>
+                <label data-i18n="workers.ausweis">Ausweis-Nr. / Kennzeichen</label>
                 <input name="ausweis1" type="text" required />
               </div>
             </div>
 
             <div class="grid">
               <div class="field">
-                <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+                <label data-i18n="workers.vorhaltung">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
                 <input name="vorhaltung1" type="text" />
               </div>
             </div>
@@ -96,42 +108,42 @@
             <div class="field">
               <label class="ck-row">
                 <input type="checkbox" id="break_half" />
-                <span>Pause nur 0,5&nbsp;h</span>
+                <span data-i18n="workers.breakHalf">Pause nur 0,5&nbsp;h</span>
               </label>
               <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
-              <div class="muted small">
+              <div class="muted small" data-i18n="workers.breakInfo">
                 Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
               </div>
             </div>
 
             <div class="grid-3">
               <div class="field">
-                <label>Beginn</label>
+                <label data-i18n="workers.beginn">Beginn</label>
                 <input name="beginn1" type="time" step="60" required />
               </div>
               <div class="field">
-                <label>Ende</label>
+                <label data-i18n="workers.ende">Ende</label>
                 <input name="ende1" type="time" step="60" required />
               </div>
               <div class="field">
-                <label>Stunden (auto)</label>
+                <label data-i18n="workers.stunden">Stunden (auto)</label>
                 <input class="stunden-display" type="text" value="" readonly />
               </div>
             </div>
           </fieldset>
         </div>
 
-        <button type="button" id="add-worker" class="btn secondary">+ Weitere Mitarbeiter hinzufügen</button>
+        <button type="button" id="add-worker" class="btn secondary" data-i18n="workers.add">+ Weitere Mitarbeiter hinzufügen</button>
       </section>
 
       <!-- Gesamtzeit -->
       <section class="card">
-        <h2>Gesamtzeit</h2>
+        <h2 data-i18n="total.title">Gesamtzeit</h2>
         <div class="grid">
           <div class="field">
-            <label>Gesamtstunden (auto)</label>
+            <label data-i18n="total.label">Gesamtstunden (auto)</label>
             <input id="gesamtstunden_auto" type="text" value="" readonly />
-            <div class="muted small">
+            <div class="muted small" data-i18n="total.hint">
               Automatischer Pausenabzug: standardmäßig 1,00&nbsp;h. Wenn „Pause nur 0,5&nbsp;h“ gewählt, werden 0,50&nbsp;h abgezogen.
             </div>
           </div>
@@ -139,30 +151,108 @@
       </section>
 
       <div class="actions" style="display:flex;gap:1rem;">
-        <button class="btn primary" type="submit">Excel generieren</button>
-        <!-- Ha kell a PDF gomb, ezt vedd elő: 
-        <button class="btn" type="submit" formaction="/generate_pdf">PDF Vorschau</button>
-        -->
+        <button class="btn primary" type="submit" data-i18n="actions.excel">Excel generieren</button>
+        <!-- <button class="btn" type="submit" formaction="/generate_pdf" data-i18n="actions.pdf">PDF Vorschau</button> -->
       </div>
     </form>
   </main>
 
+  <!-- Meglévő logika (idő, autocomplete, letöltés, stb.) -->
   <script src="/static/script.js?v=15min-autocomplete"></script>
+
+  <!-- Mini i18n – csak feliratok (input nevek/ID-k változatlanok) -->
   <script>
-    // Zähler + Pausen-Flag (mini init – a fő logika a script.js-ben van)
     (function(){
-      const ta = document.getElementById('beschreibung');
-      const cnt = document.getElementById('besch-count');
-      if (ta && cnt){
-        const upd = () => { cnt.textContent = (ta.value.length || 0) + ' / 1000'; };
-        ta.addEventListener('input', upd); upd();
+      const dict = {
+        de: {
+          "ui.language":"Sprache","ui.admin":"Admin","ui.logout":"Abmelden",
+          "page.title":"Leistungsnachweis",
+          "head.date":"Datum der Leistungsausführung",
+          "head.site":"Bau und Ausführungsort",
+          "head.beauftragter":"BASF-Beauftragter, Org.-Code",
+          "desc.label":"Beschreibung der ausgeführten Arbeiten",
+          "desc.placeholder":"Max. 1000 Zeichen",
+          "workers.title":"Mitarbeiter",
+          "workers.vorname":"Vorname","workers.nachname":"Nachname","workers.ausweis":"Ausweis-Nr. / Kennzeichen",
+          "workers.vorhaltung":"Vorhaltung / beauftragtes Gerät / Fahrzeug",
+          "workers.breakHalf":"Pause nur 0,5\u00A0h",
+          "workers.breakInfo":"Wenn nicht ausgewählt, zieht das System automatisch 1,00\u00A0h Pause ab.",
+          "workers.beginn":"Beginn","workers.ende":"Ende","workers.stunden":"Stunden (auto)",
+          "workers.add":"+ Weitere Mitarbeiter hinzufügen",
+          "total.title":"Gesamtzeit","total.label":"Gesamtstunden (auto)",
+          "total.hint":"Automatischer Pausenabzug: standardmäßig 1,00\u00A0h. Wenn „Pause nur 0,5\u00A0h“ gewählt, werden 0,50\u00A0h abgezogen.",
+          "actions.excel":"Excel generieren","actions.pdf":"PDF Vorschau",
+          "worker.legend.n":"Mitarbeiter {n}",
+          "_title":"Leistungsnachweis"
+        },
+        hr: {
+          "ui.language":"Jezik","ui.admin":"Admin","ui.logout":"Odjava",
+          "page.title":"Izvješće o izvedbi",
+          "head.date":"Datum izvođenja radova",
+          "head.site":"Gradilište i mjesto izvođenja",
+          "head.beauftragter":"BASF ovlaštena osoba, Org.-kod",
+          "desc.label":"Opis izvedenih radova",
+          "desc.placeholder":"Maks. 1000 znakova",
+          "workers.title":"Zaposlenici",
+          "workers.vorname":"Ime","workers.nachname":"Prezime","workers.ausweis":"Br. iskaznice / Registracija",
+          "workers.vorhaltung":"Ugovorena oprema / vozilo",
+          "workers.breakHalf":"Pauza samo 0,5\u00A0h",
+          "workers.breakInfo":"Ako nije označeno, sustav automatski oduzima 1,00\u00A0h pauze.",
+          "workers.beginn":"Početak","workers.ende":"Kraj","workers.stunden":"Sati (auto)",
+          "workers.add":"+ Dodaj još zaposlenika",
+          "total.title":"Ukupno vrijeme","total.label":"Ukupno sati (auto)",
+          "total.hint":"Automatsko oduzimanje pauze: standardno 1,00\u00A0h. Ako je označeno „Pauza samo 0,5\u00A0h“, oduzima se 0,50\u00A0h.",
+          "actions.excel":"Generiraj Excel","actions.pdf":"PDF pregled",
+          "worker.legend.n":"Zaposlenik {n}",
+          "_title":"Izvješće o izvedbi"
+        }
+      };
+
+      const $ = (sel, root=document) => root.querySelector(sel);
+      const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+      const html = document.documentElement;
+      const sel = $("#langSel");
+      const LS_KEY = "ui_lang";
+
+      function t(key, lang){ return (dict[lang] && dict[lang][key]) || (dict.de && dict.de[key]) || ""; }
+
+      function applyI18n(lang){
+        html.setAttribute("lang", lang);
+        document.title = t("_title", lang) || document.title;
+
+        // sima szövegek
+        $$("[data-i18n]").forEach(el => {
+          const key = el.getAttribute("data-i18n");
+          el.innerHTML = t(key, lang) || el.innerHTML;
+        });
+
+        // placeholder-ek
+        $$("[data-i18n-placeholder]").forEach(el => {
+          const key = el.getAttribute("data-i18n-placeholder");
+          const val = t(key, lang); if (val) el.setAttribute("placeholder", val);
+        });
+
+        // 1. dolgozó legend: sorszám beillesztése
+        const leg = $("#worker1-legend");
+        if (leg){
+          const fmt = t("worker.legend.n", lang);
+          if (fmt) leg.textContent = fmt.replace("{n}", "1");
+        }
       }
-      const half = document.getElementById('break_half');
-      const hid = document.getElementById('break_minutes');
-      if (half && hid){
-        const sync = () => { hid.value = half.checked ? '30' : '60'; };
-        half.addEventListener('change', sync); sync();
+
+      function init(){
+        const saved = localStorage.getItem(LS_KEY);
+        const lang = (saved === "hr" || saved === "de") ? saved : "de";
+        sel.value = lang;
+        applyI18n(lang);
+        sel.addEventListener("change", () => {
+          const v = sel.value === "hr" ? "hr" : "de";
+          localStorage.setItem(LS_KEY, v);
+          applyI18n(v);
+        });
       }
+      document.addEventListener("DOMContentLoaded", init);
     })();
   </script>
 </body>
