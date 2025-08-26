@@ -8,26 +8,27 @@
 </head>
 <body>
   <main class="container">
-    <!-- Felső sáv: nyelvváltó + navigáció -->
+    <!-- Felső sáv: nyelv + admin + logout -->
     <div class="actions-top">
-      <div class="locale">
+      <div class="locale" style="display:flex;align-items:center;gap:.5rem;">
         <label for="lang" class="muted small" style="white-space:nowrap;">🌐</label>
         <select id="lang" class="lang-select">
           <option value="de">Deutsch</option>
           <option value="hr">Hrvatski</option>
         </select>
       </div>
-      <a class="btn secondary" href="/admin" data-i18n="admin">Admin</a>
-      <a class="btn" href="/logout" data-i18n="logout">Abmelden</a>
+      <a class="btn secondary" href="/admin"  data-i18n="admin">Admin</a>
+      <a class="btn"          href="/logout" data-i18n="logout">Abmelden</a>
     </div>
 
     <h1 data-i18n="title">Leistungsnachweis</h1>
 
-    <!-- FŐ ŰRLAP -->
+    <!-- Fő űrlap -->
     <form id="ln-form" method="post" action="/generate_excel" novalidate>
+      <!-- ezt a JS frissíti a választott nyelvre -->
       <input type="hidden" name="lang" id="lang_hidden" value="de" />
 
-      <!-- Fejléc adatok -->
+      <!-- 1) Fejléc mezők -->
       <section class="card">
         <div class="grid-2">
           <div class="field">
@@ -45,46 +46,20 @@
         </div>
       </section>
 
-      <!-- Beschreibung -->
+      <!-- 2) Leírás -->
       <section class="card">
         <div class="field">
           <label for="beschreibung" data-i18n="beschreibung_label">Beschreibung der ausgeführten Arbeiten</label>
           <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" data-i18n-ph="beschreibung_placeholder" placeholder="Max. 1000 Zeichen"></textarea>
           <div class="muted small" id="besch-count">0 / 1000</div>
         </div>
+        <!-- A fordítási panelt a script.js DINAMIKUSAN illeszti ide a textarea alá (csak HR nézetben). -->
       </section>
 
-      <!-- Fordítás panel (HR felületen látszik csak a JS alapján) -->
-      <section class="card" id="translate-panel" style="display:none;">
-        <div style="display:flex;align-items:center;gap:.75rem;justify-content:space-between;flex-wrap:wrap;">
-          <h2 class="muted" data-i18n="translate_title">Übersetzung (bearbeitbar)</h2>
-          <div style="display:flex;gap:.5rem;align-items:center;">
-            <button type="button" id="do-translate" class="btn secondary" data-i18n="translate_run">Übersetzen</button>
-            <button type="button" id="copy-translation" class="btn" data-i18n="translate_overwrite_desc">Übersetzung in Beschreibung kopieren</button>
-          </div>
-        </div>
-        <div class="field" style="margin-top:.75rem">
-          <label class="muted small">
-            <span data-i18n="translate_detected">Erkannte Sprache</span>:
-            <strong id="tr-detected">–</strong>
-          </label>
-          <textarea id="beschreibung_de" rows="6" placeholder="Deutsch…"></textarea>
-          <div class="muted small">
-            <span id="tr-count">0</span> <span data-i18n="chars">Zeichen</span>
-          </div>
-        </div>
-        <div class="field">
-          <label class="muted small" data-i18n="translate_glossary_hits">Glossar-Treffer</label>
-          <div id="tr-glossary-hits" class="muted small">–</div>
-        </div>
-      </section>
-
-      <!-- Mitarbeiter szekció -->
+      <!-- 3) Dolgozók -->
       <section class="card" id="worker-section">
-        <h2 class="muted" data-i18n="mitarbeiter">Mitarbeiter</h2>
-
         <div id="worker-list">
-          <!-- 1. dolgozó (alapértelmezett) -->
+          <!-- Mitarbeiter 1 – kell az autocomplete induláshoz -->
           <fieldset class="worker" data-index="1">
             <legend data-i18n="mitarbeiter">Mitarbeiter</legend> 1
             <div class="grid-3">
@@ -101,12 +76,14 @@
                 <input name="ausweis1" type="text" />
               </div>
             </div>
+
             <div class="grid">
               <div class="field">
                 <label data-i18n="vorhaltung">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
                 <input name="vorhaltung1" type="text" />
               </div>
             </div>
+
             <div class="grid-3">
               <div class="field">
                 <label data-i18n="beginn">Beginn</label>
@@ -124,24 +101,29 @@
           </fieldset>
         </div>
 
-        <div class="actions" style="margin-top:.5rem">
-          <button class="btn secondary" type="button" id="add-worker" data-i18n="weitere">+ Weitere Mitarbeiter hinzufügen</button>
+        <div style="margin-top:.75rem;">
+          <button type="button" class="btn secondary" id="add-worker" data-i18n="weitere">+ Weitere Mitarbeiter hinzufügen</button>
         </div>
+      </section>
 
-        <div class="grid-2" style="margin-top:1rem">
+      <!-- 4) Szünet és összesítés -->
+      <section class="card">
+        <div class="grid-2">
           <div class="field">
             <label class="checkbox">
-              <input id="break_half" type="checkbox" />
+              <input type="checkbox" id="break_half" />
               <span data-i18n="pause_half">Pause nur 0,5 h</span>
             </label>
             <div class="muted small" data-i18n="pause_hint">
               Wenn nicht ausgewählt, zieht das System automatisch 1,00 h Pause ab.
             </div>
+            <!-- a script ezt olvassa: 30 = fél óra, 60 = 1 óra -->
             <input type="hidden" id="break_minutes" name="break_minutes" value="60" />
           </div>
+
           <div class="field">
-            <label data-i18n="gesamtstunden">Gesamtstunden (auto)</label>
-            <input id="gesamtstunden_auto" type="text" value="" readonly />
+            <label for="gesamtstunden_auto" data-i18n="gesamtstunden">Gesamtstunden (auto)</label>
+            <input id="gesamtstunden_auto" name="gesamtstunden_auto" type="text" value="" readonly />
             <div class="muted small" data-i18n="gesamt_hint">
               Automatischer Pausenabzug: standardmäßig 1,00 h. Wenn „Pause nur 0,5 h“ gewählt, werden 0,50 h abgezogen.
             </div>
@@ -149,14 +131,16 @@
         </div>
       </section>
 
-      <!-- Akciók -->
-      <div class="actions">
-        <button class="btn" type="submit" formaction="/generate_pdf">PDF Vorschau</button>
+      <!-- 5) Akciók -->
+      <div class="actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
         <button class="btn primary" type="submit" data-i18n="generate_excel">Excel generieren</button>
+        <!-- Opcionális PDF gomb – a script felismeri és előnézetet nyit -->
+        <button class="btn" type="submit" formaction="/generate_pdf">PDF Vorschau</button>
       </div>
     </form>
   </main>
 
+  <!-- FONTOS: i18n.js előbb, hogy a script.js azonnal használhassa -->
   <script src="/static/i18n.js"></script>
   <script src="/static/script.js"></script>
 </body>
