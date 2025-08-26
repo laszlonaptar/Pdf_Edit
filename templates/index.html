@@ -8,6 +8,7 @@
 </head>
 <body>
   <main class="container">
+    <!-- Felső sáv: nyelvváltó + navigáció -->
     <div class="actions-top">
       <div class="locale">
         <label for="lang" class="muted small" style="white-space:nowrap;">🌐</label>
@@ -22,22 +23,23 @@
 
     <h1 data-i18n="title">Leistungsnachweis</h1>
 
+    <!-- FŐ ŰRLAP -->
     <form id="ln-form" method="post" action="/generate_excel" novalidate>
       <input type="hidden" name="lang" id="lang_hidden" value="de" />
 
-      <!-- Kopf -->
+      <!-- Fejléc adatok -->
       <section class="card">
         <div class="grid-2">
           <div class="field">
-            <label for="datum" data-i18n="date_label"></label>
+            <label for="datum" data-i18n="date_label">Datum der Leistungsausführung</label>
             <input id="datum" name="datum" type="date" required />
           </div>
           <div class="field">
-            <label for="bau" data-i18n="bau_label"></label>
+            <label for="bau" data-i18n="bau_label">Bau und Ausführungsort</label>
             <input id="bau" name="bau" type="text" required />
           </div>
           <div class="field">
-            <label for="basf_beauftragter" data-i18n="basf_label"></label>
+            <label for="basf_beauftragter" data-i18n="basf_label">BASF-Beauftragter, Org.-Code</label>
             <input id="basf_beauftragter" name="basf_beauftragter" type="text" required />
           </div>
         </div>
@@ -46,13 +48,13 @@
       <!-- Beschreibung -->
       <section class="card">
         <div class="field">
-          <label for="beschreibung" data-i18n="beschreibung_label"></label>
-          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" data-i18n-ph="beschreibung_placeholder"></textarea>
+          <label for="beschreibung" data-i18n="beschreibung_label">Beschreibung der ausgeführten Arbeiten</label>
+          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" data-i18n-ph="beschreibung_placeholder" placeholder="Max. 1000 Zeichen"></textarea>
           <div class="muted small" id="besch-count">0 / 1000</div>
         </div>
       </section>
 
-      <!-- ÚJ Fordítás blokk -->
+      <!-- Fordítás panel (HR felületen látszik csak a JS alapján) -->
       <section class="card" id="translate-panel" style="display:none;">
         <div style="display:flex;align-items:center;gap:.75rem;justify-content:space-between;flex-wrap:wrap;">
           <h2 class="muted" data-i18n="translate_title">Übersetzung (bearbeitbar)</h2>
@@ -63,20 +65,93 @@
         </div>
         <div class="field" style="margin-top:.75rem">
           <label class="muted small">
-            <span data-i18n="translate_detected">Erkannte Sprache</span>: <strong id="tr-detected">–</strong>
+            <span data-i18n="translate_detected">Erkannte Sprache</span>:
+            <strong id="tr-detected">–</strong>
           </label>
           <textarea id="beschreibung_de" rows="6" placeholder="Deutsch…"></textarea>
-          <div class="muted small"><span id="tr-count">0</span> <span data-i18n="chars">Zeichen</span></div>
+          <div class="muted small">
+            <span id="tr-count">0</span> <span data-i18n="chars">Zeichen</span>
+          </div>
         </div>
         <div class="field">
-          <label class="muted small" data-i18n="translate_glossary_hits"></label>
+          <label class="muted small" data-i18n="translate_glossary_hits">Glossar-Treffer</label>
           <div id="tr-glossary-hits" class="muted small">–</div>
         </div>
       </section>
 
-      <!-- Mitarbeiter … (többi rész marad a mostaniból) -->
+      <!-- Mitarbeiter szekció -->
+      <section class="card" id="worker-section">
+        <h2 class="muted" data-i18n="mitarbeiter">Mitarbeiter</h2>
 
+        <div id="worker-list">
+          <!-- 1. dolgozó (alapértelmezett) -->
+          <fieldset class="worker" data-index="1">
+            <legend data-i18n="mitarbeiter">Mitarbeiter</legend> 1
+            <div class="grid-3">
+              <div class="field">
+                <label data-i18n="vorname">Vorname</label>
+                <input name="vorname1" type="text" />
+              </div>
+              <div class="field">
+                <label data-i18n="nachname">Nachname</label>
+                <input name="nachname1" type="text" />
+              </div>
+              <div class="field">
+                <label data-i18n="ausweis">Ausweis-Nr. / Kennzeichen</label>
+                <input name="ausweis1" type="text" />
+              </div>
+            </div>
+            <div class="grid">
+              <div class="field">
+                <label data-i18n="vorhaltung">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+                <input name="vorhaltung1" type="text" />
+              </div>
+            </div>
+            <div class="grid-3">
+              <div class="field">
+                <label data-i18n="beginn">Beginn</label>
+                <input name="beginn1" type="time" />
+              </div>
+              <div class="field">
+                <label data-i18n="ende">Ende</label>
+                <input name="ende1" type="time" />
+              </div>
+              <div class="field">
+                <label data-i18n="stunden">Stunden (auto)</label>
+                <input class="stunden-display" type="text" value="" readonly />
+              </div>
+            </div>
+          </fieldset>
+        </div>
+
+        <div class="actions" style="margin-top:.5rem">
+          <button class="btn secondary" type="button" id="add-worker" data-i18n="weitere">+ Weitere Mitarbeiter hinzufügen</button>
+        </div>
+
+        <div class="grid-2" style="margin-top:1rem">
+          <div class="field">
+            <label class="checkbox">
+              <input id="break_half" type="checkbox" />
+              <span data-i18n="pause_half">Pause nur 0,5 h</span>
+            </label>
+            <div class="muted small" data-i18n="pause_hint">
+              Wenn nicht ausgewählt, zieht das System automatisch 1,00 h Pause ab.
+            </div>
+            <input type="hidden" id="break_minutes" name="break_minutes" value="60" />
+          </div>
+          <div class="field">
+            <label data-i18n="gesamtstunden">Gesamtstunden (auto)</label>
+            <input id="gesamtstunden_auto" type="text" value="" readonly />
+            <div class="muted small" data-i18n="gesamt_hint">
+              Automatischer Pausenabzug: standardmäßig 1,00 h. Wenn „Pause nur 0,5 h“ gewählt, werden 0,50 h abgezogen.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Akciók -->
       <div class="actions">
+        <button class="btn" type="submit" formaction="/generate_pdf">PDF Vorschau</button>
         <button class="btn primary" type="submit" data-i18n="generate_excel">Excel generieren</button>
       </div>
     </form>
