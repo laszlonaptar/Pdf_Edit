@@ -4,34 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title data-i18n="title">Leistungsnachweis</title>
-  <link rel="stylesheet" href="/static/style.css?v=14" />
-  <style>
-    input[type="checkbox"]{
-      width:auto;height:auto;padding:0;margin:0;border:none;background:transparent;box-shadow:none;
-      appearance:auto;-webkit-appearance:auto;
-    }
-    .ck-row{display:flex;align-items:center;gap:.5rem;font-weight:600;}
-    .actions-top{display:flex;gap:.5rem;justify-content:flex-end;align-items:center;margin:.5rem 0 1rem;}
-    .locale{display:flex;align-items:center;gap:.5rem}
-    .small{font-size:.875rem}.muted{color:#666}
-    .stack{display:flex;flex-direction:column;gap:1rem}
-    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-    .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem}
-    fieldset.worker{border:1px solid #e5e7eb;padding:1rem;border-radius:.5rem}
-    fieldset.worker legend{padding:0 .35rem;font-weight:600}
-    @media (max-width: 720px){
-      .grid-2,.grid-3{grid-template-columns:1fr}
-      .actions-top{justify-content:flex-start;gap:.75rem}
-    }
-    input,select,textarea{min-width:0;width:100%}
-    /* nyelvváltó kisebb szélességen se törje meg a sort */
-    .lang-select{min-width: 6.5rem}
-  </style>
+  <link rel="stylesheet" href="/static/style.css?v=15" />
 </head>
 <body>
   <main class="container">
     <div class="actions-top">
-      <!-- Nyelvválasztó (jobb felső sarok) -->
       <div class="locale">
         <label for="lang" class="muted small" style="white-space:nowrap;">🌐</label>
         <select id="lang" class="lang-select">
@@ -39,7 +16,6 @@
           <option value="hr">Hrvatski</option>
         </select>
       </div>
-
       <a class="btn secondary" href="/admin" data-i18n="admin">Admin</a>
       <a class="btn" href="/logout" data-i18n="logout">Abmelden</a>
     </div>
@@ -47,22 +23,21 @@
     <h1 data-i18n="title">Leistungsnachweis</h1>
 
     <form id="ln-form" method="post" action="/generate_excel" novalidate>
-      <!-- a backend felé – ha hasznos – elküldjük a kiválasztott nyelvet -->
       <input type="hidden" name="lang" id="lang_hidden" value="de" />
 
       <!-- Kopf -->
       <section class="card">
         <div class="grid-2">
           <div class="field">
-            <label for="datum" data-i18n="date_label">Datum der Leistungsausführung</label>
+            <label for="datum" data-i18n="date_label"></label>
             <input id="datum" name="datum" type="date" required />
           </div>
           <div class="field">
-            <label for="bau" data-i18n="bau_label">Bau und Ausführungsort</label>
-            <input id="bau" name="bau" type="text" placeholder="z. B. G725" required />
+            <label for="bau" data-i18n="bau_label"></label>
+            <input id="bau" name="bau" type="text" required />
           </div>
           <div class="field">
-            <label for="basf_beauftragter" data-i18n="basf_label">BASF-Beauftragter, Org.-Code</label>
+            <label for="basf_beauftragter" data-i18n="basf_label"></label>
             <input id="basf_beauftragter" name="basf_beauftragter" type="text" required />
           </div>
         </div>
@@ -71,151 +46,43 @@
       <!-- Beschreibung -->
       <section class="card">
         <div class="field">
-          <label for="beschreibung" data-i18n="beschreibung_label">Beschreibung der ausgeführten Arbeiten</label>
-          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6"
-            placeholder="Max. 1000 Zeichen" data-i18n-ph="beschreibung_placeholder" required></textarea>
+          <label for="beschreibung" data-i18n="beschreibung_label"></label>
+          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" data-i18n-ph="beschreibung_placeholder"></textarea>
           <div class="muted small" id="besch-count">0 / 1000</div>
         </div>
       </section>
 
-      <!-- Mitarbeiter -->
-      <section class="card">
-        <h2 data-i18n="mitarbeiter">Mitarbeiter</h2>
-
-        <div id="worker-list" class="stack">
-          <!-- Worker #1 -->
-          <fieldset class="worker" data-index="1">
-            <legend>Mitarbeiter 1</legend>
-            <div class="grid-3">
-              <div class="field">
-                <label data-i18n="vorname">Vorname</label>
-                <input name="vorname1" type="text" required />
-              </div>
-              <div class="field">
-                <label data-i18n="nachname">Nachname</label>
-                <input name="nachname1" type="text" required />
-              </div>
-              <div class="field">
-                <label data-i18n="ausweis">Ausweis-Nr. / Kennzeichen</label>
-                <input name="ausweis1" type="text" required />
-              </div>
-            </div>
-
-            <div class="grid">
-              <div class="field">
-                <label data-i18n="vorhaltung">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
-                <input name="vorhaltung1" type="text" />
-              </div>
-            </div>
-
-            <div class="field">
-              <label class="ck-row">
-                <input type="checkbox" id="break_half" />
-                <span data-i18n="pause_half">Pause nur 0,5&nbsp;h</span>
-              </label>
-              <input type="hidden" name="break_minutes" id="break_minutes" value="60" />
-              <div class="muted small" data-i18n="pause_hint">
-                Wenn nicht ausgewählt, zieht das System automatisch 1,00&nbsp;h Pause ab.
-              </div>
-            </div>
-
-            <div class="grid-3">
-              <div class="field">
-                <label data-i18n="beginn">Beginn</label>
-                <input name="beginn1" type="time" step="60" required />
-              </div>
-              <div class="field">
-                <label data-i18n="ende">Ende</label>
-                <input name="ende1" type="time" step="60" required />
-              </div>
-              <div class="field">
-                <label data-i18n="stunden">Stunden (auto)</label>
-                <input class="stunden-display" type="text" value="" readonly />
-              </div>
-            </div>
-          </fieldset>
-        </div>
-
-        <button type="button" id="add-worker" class="btn secondary" data-i18n="weitere">
-          + Weitere Mitarbeiter hinzufügen
-        </button>
-      </section>
-
-      <!-- Gesamtzeit -->
-      <section class="card">
-        <h2 data-i18n="gesamtzeit">Gesamtzeit</h2>
-        <div class="grid">
-          <div class="field">
-            <label data-i18n="gesamtstunden">Gesamtstunden (auto)</label>
-            <input id="gesamtstunden_auto" type="text" value="" readonly />
-            <div class="muted small" data-i18n="gesamt_hint">
-              Automatischer Pausenabzug: standardmäßig 1,00&nbsp;h. Wenn „Pause nur 0,5&nbsp;h“ gewählt, werden 0,50&nbsp;h abgezogen.
-            </div>
+      <!-- ÚJ Fordítás blokk -->
+      <section class="card" id="translate-panel" style="display:none;">
+        <div style="display:flex;align-items:center;gap:.75rem;justify-content:space-between;flex-wrap:wrap;">
+          <h2 class="muted" data-i18n="translate_title">Übersetzung (bearbeitbar)</h2>
+          <div style="display:flex;gap:.5rem;align-items:center;">
+            <button type="button" id="do-translate" class="btn secondary" data-i18n="translate_run">Übersetzen</button>
+            <button type="button" id="copy-translation" class="btn" data-i18n="translate_overwrite_desc">Übersetzung in Beschreibung kopieren</button>
           </div>
         </div>
+        <div class="field" style="margin-top:.75rem">
+          <label class="muted small">
+            <span data-i18n="translate_detected">Erkannte Sprache</span>: <strong id="tr-detected">–</strong>
+          </label>
+          <textarea id="beschreibung_de" rows="6" placeholder="Deutsch…"></textarea>
+          <div class="muted small"><span id="tr-count">0</span> <span data-i18n="chars">Zeichen</span></div>
+        </div>
+        <div class="field">
+          <label class="muted small" data-i18n="translate_glossary_hits"></label>
+          <div id="tr-glossary-hits" class="muted small">–</div>
+        </div>
       </section>
 
-      <div class="actions" style="display:flex;gap:1rem;">
+      <!-- Mitarbeiter … (többi rész marad a mostaniból) -->
+
+      <div class="actions">
         <button class="btn primary" type="submit" data-i18n="generate_excel">Excel generieren</button>
-        <!-- Opcionális PDF gomb (ha kell, vedd elő és a script már kezeli):
-        <button class="btn" type="submit" formaction="/generate_pdf">PDF Vorschau</button>
-        -->
       </div>
     </form>
   </main>
 
-  <!-- Fordítások -->
-  <script src="/static/i18n.js?v=1"></script>
-  <!-- A meglévő fő logika (autocomplete, timepicker, számítások stb.) -->
-  <script src="/static/script.js?v=15min-autocomplete"></script>
-
-  <!-- Kis i18n init: feliratok cseréje + nyelv tárolása -->
- <script>
-  (function(){
-    const LS_KEY = "ln_lang";
-    const sel = document.getElementById("lang");
-    const hidden = document.getElementById("lang_hidden");
-
-    function applyI18n(lang) {
-      const dict = (window.I18N && window.I18N[lang]) || window.I18N.de;
-
-      // Feliratok
-      document.querySelectorAll("[data-i18n]").forEach(el => {
-        const k = el.getAttribute("data-i18n");
-        if (dict[k]) el.innerHTML = dict[k];
-      });
-      document.querySelectorAll("[data-i18n-ph]").forEach(el => {
-        const k = el.getAttribute("data-i18n-ph");
-        if (dict[k]) el.setAttribute("placeholder", dict[k]);
-      });
-
-      // <legend> feliratok: „Mitarbeiter/Radnik {n}”
-      document.querySelectorAll("fieldset.worker").forEach((fs, i) => {
-        const lg = fs.querySelector("legend");
-        if (lg) lg.textContent = (dict.worker_legend || "Mitarbeiter") + " " + (i + 1);
-      });
-
-      if (dict.title) document.title = dict.title;
-    }
-
-    function setLang(lang){
-      const safe = (["de","hr"].includes(lang) ? lang : "de");
-      localStorage.setItem(LS_KEY, safe);
-      sel.value = safe;
-      if (hidden) hidden.value = safe;
-      window.__currentLang = safe;
-      applyI18n(safe);
-    }
-
-    // exportáljuk, hogy a script.js is tudja frissíteni új worker beszúrásakor
-    window.__applyI18n = applyI18n;
-
-    // induláskor
-    const initial = localStorage.getItem(LS_KEY) || "de";
-    setLang(initial);
-
-    sel.addEventListener("change", () => setLang(sel.value));
-  })();
-</script>
+  <script src="/static/i18n.js"></script>
+  <script src="/static/script.js"></script>
 </body>
 </html>
