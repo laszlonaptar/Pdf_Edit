@@ -1,6 +1,5 @@
-# main.py  (1/3)
-from fastapi import FastAPI, Request, Form, Response
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, Request, Form, Response, HTTPException, Query
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -21,142 +20,8 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Tuple, Optional, List, Dict
-import re
-import requests
-
-# ================== Azure Translator beállítások ==================
-AZ_T_ENDPOINT = os.getenv("AZURE_TRANSLATOR_ENDPOINT", "https://api.cognitive.microsofttranslator.com")
-AZ_T_KEY      = os.getenv("AZURE_TRANSLATOR_KEY")          # kötelező az éles fordításhoz
-AZ_T_REGION   = os.getenv("AZURE_TRANSLATOR_REGION")       # kötelező az éles fordításhoz
-
-def _azure_translate_to_de(text: str) -> Dict[str, str]:
-    """
-    Meghívja az Azure Translatort és DE-re fordít. 
-    Visszaad: { detected: 'hr'|'de'|'und', de_text: '...', raw: <API json> }
-    Hiba esetén az eredetit adja vissza (de_text=text, detected='und').
-    """
-    text = (text or "").strip()
-    if not text:
-        return {"detected": "und", "de_text": "", "raw": {}}
-
-    if not (AZ_T_KEY and AZ_T_REGION and AZ_T_ENDPOINT):
-        # Nincs beállítva -> ne álljon meg
-        return {"detected": "und", "de_text": text, "raw": {"note": "azure_not_configured"}}
-
-    url = f"{AZ_T_ENDPOINT}/translate"
-    params = {"api-version": "3.0", "to": "de"}
-    headers = {
-        "Ocp-Apim-Subscription-Key": AZ_T_KEY,
-        "Ocp-Apim-Subscription-Region": AZ_T_REGION,
-        "Content-Type": "application/json",
-    }
-    body = [{"text": text}]
-    try:
-        resp = requests.post(url, params=params, headers=headers, data=json.dumps(body), timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        item = (isinstance(data, list) and data[0]) or {}
-        detected = ((item.get("detectedLanguage") or {}).get("language")) or "und"
-        tr = (item.get("translations") or [])
-        de_text = (tr and (tr[0].get("text") or "").strip()) or text
-        return {"detected": detected, "de_text": de_text, "raw": data}
-    except Exception as e:
-        return {"detected": "und", "de_text": text, "raw": {"error": repr(e)}}
-
-# ================== Glosszárium (helyi JSON) ==================
-# Formátum (data/glossary.json):
-# {
-#   "keep": ["HHW","KTZ","PZK"],
-#   "map":  { "1to": "1 t", "2x1to": "2×1 t" }
-# }
-BASE_DIR = Path(os.getcwd())
-DATA_DIR = BASE_DIR / "data"
-GEN_DIR  = BASE_DIR / "generated"
-DATA_DIR.mkdir(exist_ok=True)
-GEN_DIR.mkdir(exist_ok=True)
-GLOSSARY_PATH = DATA_DIR / "glossary.json"
-
-_DEFAULT_GLOSSARY = {
-    "keep": ["HHW", "KTZ", "PZK", "BASF", "GP"],
-    "map":  {}
-}
-
-def _load_glossary() -> Dict:
-    try:
-        if GLOSSARY_PATH.exists():
-            with open(GLOSSARY_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if not isinstance(data, dict):
-                    return _DEFAULT_GLOSSARY
-                data.setdefault("keep", [])
-                data.setdefault("map", {})
-                if not isinstance(data["keep"], list): data["keep"] = []
-                if not isinstance(data["map"], dict): data["map"] = {}
-                return data
-    except Exception:
-        pass
-    return _DEFAULT_GLOSSARY
-
-def _mask_glossary_terms(text: str, glossary: Dict) -> Tuple[str, Dict[str,str], List[str]]:
-    """
-    A glossary 'keep' + 'map' kulcsai alapján helyőrzőkre cserélünk,
-    majd fordítás után visszacseréljük. Visszaad: (masked_text, placeholders, hits)
-    """
-    text = text or ""
-    hits: List[str] = []
-    placeholders: Dict[str, str] = {}
-
-    # összeállítjuk a kifejezések listáját (map kulcsok + keep elemek)
-    terms = list(set([*glossary.get("keep", []), *list((glossary.get("map") or {}).keys())]))
-    if not terms:
-        return text, placeholders, hits
-
-    # hosszabb előre (pl. "2x1to" előbb, mint "1to")
-    terms.sort(key=lambda s: len(s), reverse=True)
-
-    masked = text
-    counter = 0
-    for term in terms:
-        if not term:
-            continue
-        # szóhatár megközelítés: engedjük a kötőjelet/számot is; kis-nagybetűt nem bántjuk
-        pattern = re.compile(rf'(?<!\w){re.escape(term)}(?!\w)')
-        def _sub(m):
-            nonlocal counter, hits, placeholders
-            original = m.group(0)
-            ph = f"__GLS{counter}__"
-            counter += 1
-            placeholders[ph] = original
-            hits.append(original)
-            return ph
-        masked = pattern.sub(_sub, masked)
-    return masked, placeholders, hits
-
-def _unmask_placeholders(text: str, placeholders: Dict[str,str]) -> str:
-    if not placeholders:
-        return text
-    out = text
-    for ph, original in placeholders.items():
-        out = out.replace(ph, original)
-    return out
-
-def translate_with_glossary_to_de(src_text: str) -> Dict[str, object]:
-    """
-    1) Glosszárium maszkolás
-    2) Azure fordítás DE-re
-    3) Visszamaszkolás
-    """
-    glossary = _load_glossary()
-    masked, placeholders, hits = _mask_glossary_terms(src_text or "", glossary)
-    azure = _azure_translate_to_de(masked)
-    de_text = _unmask_placeholders(azure["de_text"], placeholders)
-    return {
-        "src_text": src_text or "",
-        "detected": azure.get("detected", "und"),
-        "de_text": de_text,
-        "glossary_hits": hits,
-        "raw": azure.get("raw")
-    }
+import urllib.request
+import urllib.error
 
 # ---- Google Drive (service account) ----
 GDRIVE_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON", "")
@@ -232,7 +97,12 @@ def _is_user(request: Request) -> bool:
 def _is_admin(request: Request) -> bool:
     return bool(request.session.get("admin_ok") is True)
 
-# ---- DB init ----
+# ---- Tárolók / DB init ----
+BASE_DIR = Path(os.getcwd())
+DATA_DIR = BASE_DIR / "data"
+GEN_DIR = BASE_DIR / "generated"
+DATA_DIR.mkdir(exist_ok=True)
+GEN_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
 def db_conn():
@@ -296,7 +166,6 @@ def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="ce
     tgt = ws.cell(row=rr, column=cc)
     tgt.value = text
     tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical)
-    # main.py (2/3)
 
 # ---------- time & hours ----------
 def parse_hhmm(s: str) -> Optional[time]:
@@ -503,7 +372,6 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         print("IMG: insert FAILED ->", repr(e))
         traceback.print_exc()
         return False
-        # main.py (3/3)
 
 # ---------- Nyomtatási beállítások ----------
 def set_print_defaults(ws):
@@ -537,6 +405,11 @@ def set_print_defaults(ws):
 def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
     if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
         raise RuntimeError("ReportLab vagy PIL nincs telepítve.")
+
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import ImageReader
 
     pw, ph = landscape(A4)
     margin_left = 12 * mm
@@ -594,8 +467,8 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     c.setFont("Helvetica", 10)
     for (vn, nn, aw, bg, en, vh) in workers:
         x = margin_left
-        vals = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}", vh]
-        for val, w in zip(vals, col_widths):
+        from_val = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}", vh]
+        for val, w in zip(from_val, col_widths):
             c.drawString(x, y, str(val or ""))
             x += w
         y -= 14
@@ -630,7 +503,7 @@ async def login_submit(request: Request, username: str = Form(...), password: st
 
 @app.get("/logout")
 async def logout(request: Request):
-    request.session.clear()
+    request.session.clear
     return RedirectResponse("/login", status_code=303)
 
 # ---------- Admin Login / Logout ----------
@@ -889,65 +762,8 @@ async def generate_pdf(
     }
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
-# ---------- Fordítás (preview, szerkeszthető blokkhoz) ----------
-@app.post("/translate_preview")
-async def translate_preview(request: Request):
-    """
-    Bemenet (JSON vagy form):
-      - text: az eredeti, vegyes nyelvű leírás (required)
-    Válasz (JSON):
-      - ok: bool
-      - detected: 'hr' | 'de' | 'und' | stb.
-      - de_text: német szöveg (glosszárium visszahelyezéssel)
-      - src_text: eredeti szöveg (echo)
-      - src_text_len / de_text_len: karakterszámok
-      - glossary_hits: talált kifejezések a glosszáriumból
-      - azure_configured: be van-e állítva az Azure
-      - note: opcionális megjegyzés (pl. ha nincs Azure)
-    """
-    if not _is_user(request):
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-
-    try:
-        ct = (request.headers.get("content-type") or "").lower()
-        if "application/json" in ct:
-            data = await request.json()
-            text = (data.get("text") or "").strip()
-        else:
-            form = await request.form()
-            text = (form.get("text") or "").strip()
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"bad_request: {e}"}, status_code=400)
-
-    if not text:
-        return JSONResponse({"ok": False, "error": "empty_text"}, status_code=400)
-
-    result = translate_with_glossary_to_de(text)
-    de_text = result.get("de_text") or ""
-    detected = result.get("detected") or "und"
-    glossary_hits = result.get("glossary_hits") or []
-    azure_configured = bool(AZ_T_KEY and AZ_T_REGION and AZ_T_ENDPOINT)
-
-    note = None
-    raw = result.get("raw") or {}
-    if isinstance(raw, dict) and raw.get("note") == "azure_not_configured":
-        note = "Azure Translator nincs konfigurálva – az eredeti szöveget adtuk vissza."
-
-    return JSONResponse({
-        "ok": True,
-        "detected": detected,
-        "de_text": de_text,
-        "src_text": text,
-        "src_text_len": len(text),
-        "de_text_len": len(de_text),
-        "glossary_hits": glossary_hits,
-        "azure_configured": azure_configured,
-        "note": note
-    })
-
 # ===================== ADMIN =====================
 
-# Kereső oldal (csak admin)
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
     if not _is_admin(request):
@@ -978,7 +794,6 @@ async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
         "q_date": q_date
     })
 
-# Részletes nézet (csak admin)
 @app.get("/admin/view/{sid}", response_class=HTMLResponse)
 async def admin_view(request: Request, sid: int):
     if not _is_admin(request):
@@ -1000,7 +815,6 @@ async def admin_view(request: Request, sid: int):
         "payload": payload
     })
 
-# Excel fájl letöltés (csak admin, helyi fájlról)
 @app.get("/download/{fname}")
 async def download_file(request: Request, fname: str):
     if not _is_admin(request):
@@ -1014,3 +828,157 @@ async def download_file(request: Request, fname: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'}
     )
+
+# ===================== ÚJ FUNKCIÓK: HEALTH, CONFIG, AUTOCOMPLETE, AZURE TRANSLATE =====================
+
+# --- HEALTH CHECK (Render stabilitás) ---
+@app.get("/healthz")
+def healthz_get():
+    return {"ok": True}
+
+@app.head("/healthz")
+def healthz_head():
+    return Response(status_code=200)
+
+# Render időnként HEAD /-ot küld – adjunk 200-at (GET / marad a login/redirect logikával)
+@app.head("/")
+def index_head():
+    return Response(status_code=200, headers={"Cache-Control": "no-store"})
+
+# --- CONFIG API (gombok láthatósága a frontendnek) ---
+@app.get("/api/config")
+def api_config():
+    return {
+        "features": {
+            "autocomplete": True,
+            "translation_button": True,  # ettől jelenhet meg a „Fordítás németre” gomb a horvát nézeten
+        },
+        "i18n": {
+            "default": "de",
+            "available": ["de", "hr", "en"],
+        },
+    }
+
+# --- AUTOCOMPLETE API (workers.json vagy WORKERS_JSON env) ---
+_DEFAULT_WORKERS = [
+    {"last_name": "Muster", "first_name": "Max", "id": "A001"},
+    {"last_name": "Beispiel", "first_name": "Erika", "id": "A002"},
+    {"last_name": "Novak", "first_name": "Ivan", "id": "HR015"},
+]
+
+def _load_workers() -> List[Dict[str, str]]:
+    raw = os.getenv("WORKERS_JSON")
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    if os.path.exists("workers.json"):
+        try:
+            with open("workers.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except Exception:
+            pass
+    return _DEFAULT_WORKERS
+
+@app.get("/api/workers")
+def api_workers(q: Optional[str] = Query(default=None, description="név vagy Ausweis-ID szűrő")):
+    people = _load_workers()
+    if not q:
+        return {"items": people}
+    ql = q.lower().strip()
+    return {"items": [
+        p for p in people
+        if any(ql in (p.get(k, "") or "").lower() for k in ("last_name","first_name","id"))
+    ]}
+
+# --- AZURE TRANSLATOR API (horvát → német; szerkeszthető visszatérés) ---
+# Szükséges Render env:
+#   AZURE_TRANSLATOR_ENDPOINT = "https://<resource>.cognitiveservices.azure.com/translator/text/v3.0/translate"
+#   AZURE_TRANSLATOR_KEY = "<key>"
+#   AZURE_TRANSLATOR_REGION = "westeurope"  (ha szükséges; ha nem, üresen hagyható)
+# Opcionális:
+#   POST_TRANSLATION_DICT_JSON = '{"HorvátSzó":"PreferáltNémetSzó", ... }'
+
+@app.post("/api/translate")
+async def api_translate(req: Request):
+    try:
+        body = await req.json()
+        text = (body.get("text") or "").strip()
+        source = (body.get("source") or "").strip() or None
+        target = (body.get("target") or "").strip() or "de"
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    endpoint = os.getenv("AZURE_TRANSLATOR_ENDPOINT", "").rstrip("/")
+    key = os.getenv("AZURE_TRANSLATOR_KEY", "")
+    region = os.getenv("AZURE_TRANSLATOR_REGION", "")
+    if not endpoint or not key:
+        raise HTTPException(status_code=501, detail="Azure Translator nincs konfigurálva (endpoint/key).")
+
+    # Azure Translator Text API – v3.0
+    # POST {endpoint}?api-version=3.0&from={src?}&to={target}
+    params = f"?api-version=3.0&to={target}"
+    if source:
+        params += f"&from={source}"
+    url = endpoint + params
+
+    payload = json.dumps([{"text": text}]).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Ocp-Apim-Subscription-Key": key,
+    }
+    if region:
+        headers["Ocp-Apim-Subscription-Region"] = region
+
+    req_obj = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req_obj, timeout=12) as resp:
+            raw = resp.read()
+            data = json.loads(raw.decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        msg = e.read().decode("utf-8", errors="ignore")
+        raise HTTPException(status_code=502, detail=f"Azure Translator error {e.code}: {msg or e.reason}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Azure Translator request failed: {repr(e)}")
+
+    # Válasz feldolgozása
+    # Példa output: [{"translations":[{"text":"...","to":"de"}], ...}]
+    translated = ""
+    try:
+        translations = data[0]["translations"]
+        if translations:
+            translated = translations[0]["text"]
+    except Exception:
+        raise HTTPException(status_code=502, detail="Unexpected translator response")
+
+    # Opcionális szótári csere (a te belső szótárad szerint)
+    repl_raw = os.getenv("POST_TRANSLATION_DICT_JSON", "")
+    if repl_raw:
+        try:
+            repl = json.loads(repl_raw)
+            if isinstance(repl, dict):
+                for src_word, dst_word in repl.items():
+                    if not src_word:
+                        continue
+                    translated = translated.replace(str(src_word), str(dst_word))
+        except Exception:
+            pass
+
+    return {"translated": translated}
+
+# ---------------- HEAD /healthz / (vége) ----------------
+
+def _port() -> int:
+    try:
+        return int(os.getenv("PORT", "10000"))
+    except Exception:
+        return 10000
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=_port())
