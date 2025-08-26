@@ -1,6 +1,6 @@
-# main.py
+# main.py  (1/3)
 from fastapi import FastAPI, Request, Form, Response
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -20,7 +20,143 @@ import traceback
 import json
 import sqlite3
 from pathlib import Path
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
+import re
+import requests
+
+# ================== Azure Translator beállítások ==================
+AZ_T_ENDPOINT = os.getenv("AZURE_TRANSLATOR_ENDPOINT", "https://api.cognitive.microsofttranslator.com")
+AZ_T_KEY      = os.getenv("AZURE_TRANSLATOR_KEY")          # kötelező az éles fordításhoz
+AZ_T_REGION   = os.getenv("AZURE_TRANSLATOR_REGION")       # kötelező az éles fordításhoz
+
+def _azure_translate_to_de(text: str) -> Dict[str, str]:
+    """
+    Meghívja az Azure Translatort és DE-re fordít. 
+    Visszaad: { detected: 'hr'|'de'|'und', de_text: '...', raw: <API json> }
+    Hiba esetén az eredetit adja vissza (de_text=text, detected='und').
+    """
+    text = (text or "").strip()
+    if not text:
+        return {"detected": "und", "de_text": "", "raw": {}}
+
+    if not (AZ_T_KEY and AZ_T_REGION and AZ_T_ENDPOINT):
+        # Nincs beállítva -> ne álljon meg
+        return {"detected": "und", "de_text": text, "raw": {"note": "azure_not_configured"}}
+
+    url = f"{AZ_T_ENDPOINT}/translate"
+    params = {"api-version": "3.0", "to": "de"}
+    headers = {
+        "Ocp-Apim-Subscription-Key": AZ_T_KEY,
+        "Ocp-Apim-Subscription-Region": AZ_T_REGION,
+        "Content-Type": "application/json",
+    }
+    body = [{"text": text}]
+    try:
+        resp = requests.post(url, params=params, headers=headers, data=json.dumps(body), timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        item = (isinstance(data, list) and data[0]) or {}
+        detected = ((item.get("detectedLanguage") or {}).get("language")) or "und"
+        tr = (item.get("translations") or [])
+        de_text = (tr and (tr[0].get("text") or "").strip()) or text
+        return {"detected": detected, "de_text": de_text, "raw": data}
+    except Exception as e:
+        return {"detected": "und", "de_text": text, "raw": {"error": repr(e)}}
+
+# ================== Glosszárium (helyi JSON) ==================
+# Formátum (data/glossary.json):
+# {
+#   "keep": ["HHW","KTZ","PZK"],
+#   "map":  { "1to": "1 t", "2x1to": "2×1 t" }
+# }
+BASE_DIR = Path(os.getcwd())
+DATA_DIR = BASE_DIR / "data"
+GEN_DIR  = BASE_DIR / "generated"
+DATA_DIR.mkdir(exist_ok=True)
+GEN_DIR.mkdir(exist_ok=True)
+GLOSSARY_PATH = DATA_DIR / "glossary.json"
+
+_DEFAULT_GLOSSARY = {
+    "keep": ["HHW", "KTZ", "PZK", "BASF", "GP"],
+    "map":  {}
+}
+
+def _load_glossary() -> Dict:
+    try:
+        if GLOSSARY_PATH.exists():
+            with open(GLOSSARY_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if not isinstance(data, dict):
+                    return _DEFAULT_GLOSSARY
+                data.setdefault("keep", [])
+                data.setdefault("map", {})
+                if not isinstance(data["keep"], list): data["keep"] = []
+                if not isinstance(data["map"], dict): data["map"] = {}
+                return data
+    except Exception:
+        pass
+    return _DEFAULT_GLOSSARY
+
+def _mask_glossary_terms(text: str, glossary: Dict) -> Tuple[str, Dict[str,str], List[str]]:
+    """
+    A glossary 'keep' + 'map' kulcsai alapján helyőrzőkre cserélünk,
+    majd fordítás után visszacseréljük. Visszaad: (masked_text, placeholders, hits)
+    """
+    text = text or ""
+    hits: List[str] = []
+    placeholders: Dict[str, str] = {}
+
+    # összeállítjuk a kifejezések listáját (map kulcsok + keep elemek)
+    terms = list(set([*glossary.get("keep", []), *list((glossary.get("map") or {}).keys())]))
+    if not terms:
+        return text, placeholders, hits
+
+    # hosszabb előre (pl. "2x1to" előbb, mint "1to")
+    terms.sort(key=lambda s: len(s), reverse=True)
+
+    masked = text
+    counter = 0
+    for term in terms:
+        if not term:
+            continue
+        # szóhatár megközelítés: engedjük a kötőjelet/számot is; kis-nagybetűt nem bántjuk
+        pattern = re.compile(rf'(?<!\w){re.escape(term)}(?!\w)')
+        def _sub(m):
+            nonlocal counter, hits, placeholders
+            original = m.group(0)
+            ph = f"__GLS{counter}__"
+            counter += 1
+            placeholders[ph] = original
+            hits.append(original)
+            return ph
+        masked = pattern.sub(_sub, masked)
+    return masked, placeholders, hits
+
+def _unmask_placeholders(text: str, placeholders: Dict[str,str]) -> str:
+    if not placeholders:
+        return text
+    out = text
+    for ph, original in placeholders.items():
+        out = out.replace(ph, original)
+    return out
+
+def translate_with_glossary_to_de(src_text: str) -> Dict[str, object]:
+    """
+    1) Glosszárium maszkolás
+    2) Azure fordítás DE-re
+    3) Visszamaszkolás
+    """
+    glossary = _load_glossary()
+    masked, placeholders, hits = _mask_glossary_terms(src_text or "", glossary)
+    azure = _azure_translate_to_de(masked)
+    de_text = _unmask_placeholders(azure["de_text"], placeholders)
+    return {
+        "src_text": src_text or "",
+        "detected": azure.get("detected", "und"),
+        "de_text": de_text,
+        "glossary_hits": hits,
+        "raw": azure.get("raw")
+    }
 
 # ---- Google Drive (service account) ----
 GDRIVE_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON", "")
@@ -96,12 +232,7 @@ def _is_user(request: Request) -> bool:
 def _is_admin(request: Request) -> bool:
     return bool(request.session.get("admin_ok") is True)
 
-# ---- Tárolók / DB init ----
-BASE_DIR = Path(os.getcwd())
-DATA_DIR = BASE_DIR / "data"
-GEN_DIR = BASE_DIR / "generated"
-DATA_DIR.mkdir(exist_ok=True)
-GEN_DIR.mkdir(exist_ok=True)
+# ---- DB init ----
 DB_PATH = DATA_DIR / "app.db"
 
 def db_conn():
@@ -165,6 +296,7 @@ def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="ce
     tgt = ws.cell(row=rr, column=cc)
     tgt.value = text
     tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical)
+    # main.py (2/3)
 
 # ---------- time & hours ----------
 def parse_hhmm(s: str) -> Optional[time]:
@@ -371,6 +503,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         print("IMG: insert FAILED ->", repr(e))
         traceback.print_exc()
         return False
+        # main.py (3/3)
 
 # ---------- Nyomtatási beállítások ----------
 def set_print_defaults(ws):
@@ -623,7 +756,6 @@ async def generate_excel(
     excel_path = GEN_DIR / excel_name
     wb.save(excel_path.as_posix())
 
-    # Olvasd be bytes-ba (helyi letöltés + Drive feltöltés is)
     with open(excel_path, "rb") as f:
         excel_bytes = f.read()
 
@@ -756,6 +888,62 @@ async def generate_pdf(
         "Cache-Control": "no-store",
     }
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+# ---------- Fordítás (preview, szerkeszthető blokkhoz) ----------
+@app.post("/translate_preview")
+async def translate_preview(request: Request):
+    """
+    Bemenet (JSON vagy form):
+      - text: az eredeti, vegyes nyelvű leírás (required)
+    Válasz (JSON):
+      - ok: bool
+      - detected: 'hr' | 'de' | 'und' | stb.
+      - de_text: német szöveg (glosszárium visszahelyezéssel)
+      - src_text: eredeti szöveg (echo)
+      - src_text_len / de_text_len: karakterszámok
+      - glossary_hits: talált kifejezések a glosszáriumból
+      - azure_configured: be van-e állítva az Azure
+      - note: opcionális megjegyzés (pl. ha nincs Azure)
+    """
+    if not _is_user(request):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+
+    try:
+        ct = (request.headers.get("content-type") or "").lower()
+        if "application/json" in ct:
+            data = await request.json()
+            text = (data.get("text") or "").strip()
+        else:
+            form = await request.form()
+            text = (form.get("text") or "").strip()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"bad_request: {e}"}, status_code=400)
+
+    if not text:
+        return JSONResponse({"ok": False, "error": "empty_text"}, status_code=400)
+
+    result = translate_with_glossary_to_de(text)
+    de_text = result.get("de_text") or ""
+    detected = result.get("detected") or "und"
+    glossary_hits = result.get("glossary_hits") or []
+    azure_configured = bool(AZ_T_KEY and AZ_T_REGION and AZ_T_ENDPOINT)
+
+    note = None
+    raw = result.get("raw") or {}
+    if isinstance(raw, dict) and raw.get("note") == "azure_not_configured":
+        note = "Azure Translator nincs konfigurálva – az eredeti szöveget adtuk vissza."
+
+    return JSONResponse({
+        "ok": True,
+        "detected": detected,
+        "de_text": de_text,
+        "src_text": text,
+        "src_text_len": len(text),
+        "de_text_len": len(de_text),
+        "glossary_hits": glossary_hits,
+        "azure_configured": azure_configured,
+        "note": note
+    })
 
 # ===================== ADMIN =====================
 
