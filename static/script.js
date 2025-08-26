@@ -568,8 +568,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (bb && (isSynced(bb) || !bb.value)) {
             bb.value = firstBeg;
             bb._setFromValue?.(firstBeg);
-            mark
-                         markSynced(bb, true);
+            markSynced(bb, true);
           }
           if (ee && (isSynced(ee) || !ee.value)) {
             ee.value = firstEnd;
