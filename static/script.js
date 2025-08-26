@@ -1,13 +1,12 @@
 /* static/script.js
-   - I18N nyelvváltás (#lang vagy #lang-select)
-   - HR felületen „Prevedi na njemački” fordítás gomb + szerkeszthető német mező + számláló
+   - I18N nyelvváltás (#lang / #lang-select) + <input type="hidden" id="lang_hidden">
+   - HR felületen „Prevedi na njemački” fordítás gomb + szerkeszthető DE mező + számláló
    - /translate_preview hívás
    - Autocomplete dolgozók CSV-ből (Vorname/Nachname/Ausweis szinkron)
    - 15 perces time picker
    - Óraszámítás rögzített szünetekkel vagy 30 perces móddal
    - 1. dolgozó idejének szinkron másolása
-   - Validáció elküldés előtt
-   - Excel letöltés (fetch + blob) + PDF Vorschau
+   - Validáció, Excel letöltés, PDF Vorschau
 */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -16,12 +15,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const DEFAULT_LANG = "de";
 
   function getLang() {
-    const u = new URL(window.location.href);
+    const u  = new URL(window.location.href);
     const ql = (u.searchParams.get("lang") || "").trim();
     const ls = (localStorage.getItem("app_lang") || "").trim();
     const hl = (document.documentElement.getAttribute("lang") || "").trim();
     return (ql || ls || hl || DEFAULT_LANG);
   }
+  let currentLang = getLang();
+
   function t(key, lang) {
     const L = lang || currentLang;
     try {
@@ -30,6 +31,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (_) {}
     return null;
   }
+
   function translateNode(el, lang) {
     if (!el) return;
     const key = el.getAttribute("data-i18n");
@@ -38,23 +40,29 @@ document.addEventListener("DOMContentLoaded", () => {
       if (txt != null) el.textContent = txt;
     }
     const phKey = el.getAttribute && el.getAttribute("data-i18n-ph");
-    if (phKey && el.placeholder !== undefined) {
+    if (phKey && "placeholder" in el) {
       const ph = t(phKey, lang);
       if (ph != null) el.placeholder = ph;
     }
     const valKey = el.getAttribute && el.getAttribute("data-i18n-value");
-    if (valKey && el.value !== undefined) {
+    if (valKey && "value" in el) {
       const v = t(valKey, lang);
       if (v != null) el.value = v;
     }
   }
+
+  function setHiddenLang(lang) {
+    const hidden = document.getElementById("lang_hidden");
+    if (hidden) hidden.value = lang;
+  }
+
   function applyTranslations(lang) {
     const ttl = t("title", lang);
     if (ttl) document.title = ttl;
 
-    document.querySelectorAll("[data-i18n], [data-i18n-ph], [data-i18n-value]").forEach(el => {
-      translateNode(el, lang);
-    });
+    document
+      .querySelectorAll("[data-i18n], [data-i18n-ph], [data-i18n-value]")
+      .forEach((el) => translateNode(el, lang));
 
     const gen = t("generating", lang);
     if (gen) window.__GEN_TEXT = gen;
@@ -63,12 +71,10 @@ document.addEventListener("DOMContentLoaded", () => {
     setHiddenLang(lang);
   }
 
-  let currentLang = getLang();
+  // nyelvváltó (támogatjuk mindkét id-t)
   const langSel = document.getElementById("lang") || document.getElementById("lang-select");
-  if (langSel) {
-    if ([...langSel.options].some(o => o.value === currentLang)) {
-      langSel.value = currentLang;
-    }
+  if (langSel && [...langSel.options].some(o => o.value === currentLang)) {
+    langSel.value = currentLang;
     langSel.addEventListener("change", () => {
       currentLang = langSel.value || DEFAULT_LANG;
       localStorage.setItem("app_lang", currentLang);
@@ -89,19 +95,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const breakHidden = document.getElementById("break_minutes");
   const MAX_WORKERS = 5;
 
-  function setHiddenLang(lang) {
-    const hidden = document.getElementById("lang_hidden");
-    if (hidden) hidden.value = lang;
-  }
-
-  /* ============== FORDÍTÁS UI (csak HR) ============== */
-  // Dinamikusan illesztjük be a gombot és az eredményblokkot a Beschreibung szekció alá.
-  let translateWrap = null;      // konténer
-  let translateBtn = null;       // „Prevedi na njemački”
-  let deBox = null;              // szerkeszthető textarea (DE)
-  let deCount = null;            // DE karakterszám
-  let infoLine = null;           // felismert nyelv + glosszáriumtalálatok
-  let lastSrcText = "";          // mi volt utoljára lefordítva
+  /* ===================== Fordítás UI (csak HR) ===================== */
+  let translateWrap = null;
+  let translateBtn  = null;     // „Prevedi na njemački” / „Übersetzen”
+  let deBox         = null;     // szerkeszthető német textarea
+  let deCount       = null;     // számláló
+  let infoLine      = null;     // detektált nyelv + glosszárium
+  let lastSrcText   = "";       // forrás szöveg
 
   function ensureTranslateUI() {
     if (!besch || translateWrap) return;
@@ -110,7 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
     translateWrap = document.createElement("div");
     translateWrap.id = "translate-ui";
     translateWrap.style.marginTop = "0.75rem";
-    translateWrap.style.display = "none"; // csak HR nyelvnél mutatjuk
+    translateWrap.style.display = "none";
 
     translateWrap.innerHTML = `
       <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
@@ -138,7 +138,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function toggleTranslateUI(lang) {
     ensureTranslateUI();
     if (!translateWrap) return;
-    translateWrap.style.display = lang === "hr" ? "block" : "none";
+    translateWrap.style.display = (lang === "hr" ? "block" : "none");
     if (translateBtn) translateBtn.textContent = (lang === "hr") ? "Prevedi na njemački" : "Übersetzen";
   }
 
@@ -151,13 +151,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!besch) return;
     const text = (besch.value || "").trim();
     lastSrcText = text;
-    if (!text) {
-      alert("Nincs lefordítható szöveg.");
-      return;
-    }
+    if (!text) { alert("Nincs lefordítható szöveg."); return; }
 
     translateBtn.disabled = true;
-    const oldTxt = translateBtn.textContent;
+    const old = translateBtn.textContent;
     translateBtn.textContent = (currentLang === "hr") ? "Prevođenje…" : "Übersetze…";
 
     try {
@@ -168,42 +165,51 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-
       if (!data.ok) throw new Error(data.error || "Ismeretlen hiba.");
 
       const de   = data.de_text || "";
       const det  = data.detected || "und";
       const hits = Array.isArray(data.glossary_hits) ? data.glossary_hits : [];
 
-      const detLabel = det === "hr" ? "felismert nyelv: horvát"
-                      : det === "de" ? "felismert nyelv: német"
-                      : `felismert nyelv: ${det}`;
+      const detLabel  = det === "hr" ? "felismert nyelv: horvát"
+                        : det === "de" ? "felismert nyelv: német"
+                        : `felismert nyelv: ${det}`;
       const hitsLabel = hits.length ? ` | glosszárium: ${hits.join(", ")}` : "";
 
       if (infoLine) infoLine.textContent = `${detLabel}${hitsLabel}`;
-
-      const resultBox = document.getElementById("translate-result");
-      if (resultBox) resultBox.style.display = "block";
-
+      document.getElementById("translate-result").style.display = "block";
       if (deBox) {
         deBox.value = de;
         updateDeCount();
         deBox.focus();
       }
-    } catch (err) {
-      console.error(err);
+    } catch (e) {
+      console.error(e);
       alert("A fordítás most nem sikerült. Próbáld újra később.");
     } finally {
-      translateBtn.textContent = oldTxt;
+      translateBtn.textContent = old;
       translateBtn.disabled = false;
     }
   }
 
-  // induláskor építsük fel és állítsuk láthatóra/eltüntetésre
+  // indulás
   ensureTranslateUI();
   toggleTranslateUI(currentLang);
 
-  /* ===================== AUTOCOMPLETE ===================== */
+  /* ===================== Beschreibung számláló ===================== */
+  (function () {
+    const out = document.getElementById("besch-count");
+    if (!besch || !out) return;
+    const max = parseInt(besch.getAttribute("maxlength") || "1000", 10);
+    function updateBeschCount() {
+      const len = besch.value.length || 0;
+      out.textContent = `${len} / ${max}`;
+    }
+    updateBeschCount();
+    besch.addEventListener("input", updateBeschCount);
+    besch.addEventListener("change", updateBeschCount);
+  })();
+     /* ===================== AUTOCOMPLETE ===================== */
   let WORKERS = [];
   const byAusweis  = new Map();
   const byFullName = new Map(); // "nachname|vorname" -> worker
@@ -232,8 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     const delim = detectDelim(lines[0]);
 
-  /* ====== folyt. 2/3 ====== */
-       const splitCSV = (line) => {
+    const splitCSV = (line) => {
       const re = new RegExp(`${delim}(?=(?:[^"]*"[^"]*")*[^"]*$)`, "g");
       return line.split(re).map((x) => {
         x = x.trim();
@@ -298,10 +303,10 @@ document.addEventListener("DOMContentLoaded", () => {
       dd.innerHTML = "";
       list.slice(0, 12).forEach((item) => {
         const opt = document.createElement("div");
-        opt.textContent  = item.label ?? item.value;
-        opt.dataset.value= item.value ?? item.label ?? "";
-        opt.style.padding= ".5rem .75rem";
-        opt.style.cursor = "pointer";
+        opt.textContent   = item.label ?? item.value;
+        opt.dataset.value = item.value ?? item.label ?? "";
+        opt.style.padding = ".5rem .75rem";
+        opt.style.cursor  = "pointer";
         opt.addEventListener("mousedown", (e) => {
           e.preventDefault();
           input.value = opt.dataset.value;
@@ -336,10 +341,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function setupAutocomplete(fs) {
-    const idx    = fs.getAttribute("data-index");
-    const inpNach= fs.querySelector(`input[name="nachname${idx}"]`);
-    const inpVor = fs.querySelector(`input[name="vorname${idx}"]`);
-    const inpAus = fs.querySelector(`input[name="ausweis${idx}"]`);
+    const idx     = fs.getAttribute("data-index");
+    const inpNach = fs.querySelector(`input[name="nachname${idx}"]`);
+    const inpVor  = fs.querySelector(`input[name="vorname${idx}"]`);
+    const inpAus  = fs.querySelector(`input[name="ausweis${idx}"]`);
     if (!inpNach || !inpVor || !inpAus) return;
 
     // Vorname
@@ -350,15 +355,15 @@ document.addEventListener("DOMContentLoaded", () => {
         label: `${w.vorname} — ${w.nachname} [${w.ausweis}]`,
         payload: w,
       })),
-      (_value, item) => {
-        if (item && item.payload) {
+      (value, item) => {
+        if (item?.payload) {
           const w = item.payload;
           inpVor.value  = w.vorname;
           inpNach.value = w.nachname;
           inpAus.value  = w.ausweis;
           return;
         }
-        const w2 = byFullName.get(keyName(inpNach.value, _value));
+        const w2 = byFullName.get(keyName(inpNach.value, value));
         if (w2) inpAus.value = w2.ausweis;
       }
     );
@@ -371,15 +376,15 @@ document.addEventListener("DOMContentLoaded", () => {
         label: `${w.nachname} — ${w.vorname} [${w.ausweis}]`,
         payload: w,
       })),
-      (_value, item) => {
-        if (item && item.payload) {
+      (value, item) => {
+        if (item?.payload) {
           const w = item.payload;
           inpNach.value = w.nachname;
           inpVor.value  = w.vorname;
           inpAus.value  = w.ausweis;
           return;
         }
-        const w2 = byFullName.get(keyName(_value, inpVor.value));
+        const w2 = byFullName.get(keyName(value, inpVor.value));
         if (w2) inpAus.value = w2.ausweis;
       }
     );
@@ -400,7 +405,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     );
 
-    // kézi módosítás utáni kiegészítések
+    // kézi módosítás utáni kiegészítés
     inpAus.addEventListener("change", () => {
       const w = byAusweis.get((inpAus.value || "").trim());
       if (w) { inpNach.value = w.nachname; inpVor.value = w.vorname; }
@@ -497,6 +502,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     return Math.max(0, total) / 60;
   }
+
   const formatHours = (h) => (Math.round(h * 100) / 100).toFixed(2);
 
   function recalcWorker(workerEl) {
@@ -507,23 +513,23 @@ document.addEventListener("DOMContentLoaded", () => {
     if (out) out.value = h ? formatHours(h) : "";
     return h;
   }
+
   function recalcAll() {
     let sum = 0;
     workerList.querySelectorAll(".worker").forEach((w) => { sum += recalcWorker(w); });
     if (totalOut) totalOut.value = sum ? formatHours(sum) : "";
   }
+     /* ===================== Szünet kapcsoló ===================== */
+  function updateBreakAndRecalc() {
+    if (!breakHidden) return;
+    breakHidden.value = breakHalf?.checked ? "30" : "60";
+    recalcAll();
+  }
+  breakHalf?.addEventListener("change", updateBreakAndRecalc);
+  updateBreakAndRecalc();
 
-  function enforceNumericKeyboard(input) {
-    input.setAttribute("inputmode", "numeric");
-    input.setAttribute("pattern",  "[0-9]*");
-    input.addEventListener("input", () => {
-      input.value = input.value.replace(/\D/g, "");
-    });
-  }
-  function markSynced(inp, isSynced) {
-    if (!inp) return;
-    isSynced ? (inp.dataset.synced = "1") : delete inp.dataset.synced;
-  }
+  /* ===================== Szinkron az 1. dolgozóról ===================== */
+  function markSynced(inp, on) { if (!inp) return; on ? (inp.dataset.synced = "1") : delete inp.dataset.synced; }
   function isSynced(inp) { return !!(inp && inp.dataset.synced === "1"); }
   function setupManualEditUnsync(inp) {
     if (!inp) return;
@@ -531,19 +537,21 @@ document.addEventListener("DOMContentLoaded", () => {
     inp.addEventListener("input",  (e) => { if (e.isTrusted) unsync(); });
     inp.addEventListener("change", (e) => { if (e.isTrusted) unsync(); });
   }
+  function enforceNumericKeyboard(input) {
+    input.setAttribute("inputmode","numeric");
+    input.setAttribute("pattern","[0-9]*");
+    input.addEventListener("input",()=>{ input.value=input.value.replace(/\D/g,""); });
+  }
 
   function wireWorker(workerEl) {
     const idx = workerEl.getAttribute("data-index");
 
-    // autocomplete
     setupAutocomplete(workerEl);
 
-    // Ausweis numerikus
     const ausweis = workerEl.querySelector(`input[name="ausweis${idx}"]`);
     if (ausweis) enforceNumericKeyboard(ausweis);
 
-    // idő mezők
-    ["beginn", "ende"].forEach((prefix) => {
+    ["beginn","ende"].forEach((prefix) => {
       const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
       if (inp) {
         enhanceTimePicker(inp);
@@ -561,8 +569,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
         const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
         if (!firstBeg && !firstEnd) return;
-        const workers = Array.from(workerList.querySelectorAll(".worker")).slice(1);
-        workers.forEach((fs) => {
+        const others = Array.from(workerList.querySelectorAll(".worker")).slice(1);
+        others.forEach((fs) => {
           const bb = fs.querySelector('input[name^="beginn"]');
           const ee = fs.querySelector('input[name^="ende"]');
           if (bb && (isSynced(bb) || !bb.value)) {
@@ -588,9 +596,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // első dolgozó bekötése
-  wireWorker(workerList.querySelector(".worker"));
-  recalcAll();
+  // első dolgozó bekötése (a HTML-ben létező első .worker)
+  const firstWorker = workerList?.querySelector(".worker");
+  if (firstWorker) {
+    wireWorker(firstWorker);
+    recalcAll();
+  }
 
   // új dolgozó hozzáadása
   addBtn?.addEventListener("click", () => {
@@ -640,21 +651,21 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
     workerList.appendChild(tpl);
 
-    // friss fordítás az új blokkra is
+    // i18n alkalmazása az új blokkra is
     applyTranslations(currentLang);
 
     // 1. dolgozó időinek átvétele
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
     const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
-    const begNew   = tpl.querySelector(\`input[name="beginn\${idx}"]\`);
-    const endNew   = tpl.querySelector(\`input[name="ende\${idx}"]\`);
+    const begNew   = tpl.querySelector(`input[name="beginn${idx}"]`);
+    const endNew   = tpl.querySelector(`input[name="ende${idx}"]`);
     if (firstBeg && begNew) begNew.value = firstBeg;
     if (firstEnd && endNew) endNew.value = firstEnd;
 
     // bekötés
     wireWorker(tpl);
 
-    // a custom time pickerek szinkronba hozása a value-val
+    // custom time pickerek value sync
     begNew?._setFromValue?.(begNew.value || "");
     endNew?._setFromValue?.(endNew.value || "");
 
@@ -666,24 +677,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // dolgozók CSV betöltése
   loadWorkers();
-    // ==== Beschreibung számláló (eredeti mező) ====
-  (function () {
-    const out = document.getElementById("besch-count");
-    if (!besch || !out) return;
-    const max = parseInt(besch.getAttribute("maxlength") || "1000", 10);
-    function updateBeschCount() {
-      const len = besch.value.length || 0;
-      out.textContent = `${len} / ${max}`;
-    }
-    updateBeschCount();
-    besch.addEventListener("input", updateBeschCount);
-    besch.addEventListener("change", updateBeschCount);
-  })();
-
-  // ==== Validáció ====
+     /* ===================== Validáció ===================== */
   (function () {
     if (!form) return;
     const trim = (v) => (v || "").toString().trim();
+
     const readWorker = (fs) => {
       const idx = fs.getAttribute("data-index") || "";
       const q = (sel) => fs.querySelector(sel);
@@ -698,9 +696,9 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     form.addEventListener("submit", function (e) {
-      if (e.submitter && e.submitter.getAttribute("formaction") === "/generate_pdf") {
-        return;
-      }
+      // ha PDF gombbal küldik, ne validáljuk kétszer itt – a PDF ág kezeli
+      if (e.submitter && e.submitter.getAttribute("formaction") === "/generate_pdf") return;
+
       const errors = [];
       const datum = trim(document.getElementById("datum")?.value);
       const bau   = trim(document.getElementById("bau")?.value);
@@ -742,7 +740,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }, false);
   })();
 
-  // ==== Excel letöltés (fetch + blob) ====
+  /* ===================== Excel letöltés (fetch + blob) ===================== */
   (function () {
     if (!form) return;
     const submitBtn = form.querySelector('button[type="submit"]:not([formaction])');
@@ -773,35 +771,35 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    async function downloadOnce(fd) {
-      injectTranslation(fd);
-      const res = await fetch("/generate_excel", { method: "POST", body: fd });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "leistungsnachweis.xlsx";
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-    }
-
     form.addEventListener("submit", async (e) => {
       if (e.submitter && e.submitter.getAttribute("formaction") === "/generate_pdf") return;
       if (e.defaultPrevented) return;
       e.preventDefault();
       const fd = new FormData(form);
+      injectTranslation(fd);
       setBusy(true);
-      try { await downloadOnce(fd); }
-      catch (err) {
+      try {
+        const res = await fetch("/generate_excel", { method: "POST", body: fd });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "leistungsnachweis.xlsx";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      } catch (err) {
         console.error(err);
-        alert("Excel generálás nem sikerült, próbáld újra.");
+        alert("A fájl generálása most nem sikerült. Próbáld újra.");
+      } finally {
+        setBusy(false);
       }
-      finally { setBusy(false); }
     });
   })();
 
-  // ==== PDF Vorschau ====
+  /* ===================== PDF Vorschau ===================== */
   (function () {
     if (!form) return;
     const pdfBtn = form.querySelector('button[formaction="/generate_pdf"]');
@@ -821,20 +819,46 @@ document.addEventListener("DOMContentLoaded", () => {
 
     pdfBtn.addEventListener("click", async (ev) => {
       ev.preventDefault();
+      ev.stopPropagation();
+
       const win = window.open("", "_blank");
-      if (!win) { alert("Popup geblockt."); return; }
-      win.document.write("<p>PDF wird generiert…</p>");
+      if (!win) { alert("A böngésző letiltotta a felugró ablakot. Engedélyezd, kérlek."); return; }
+
+      win.document.open();
+      win.document.write(`
+        <!doctype html>
+        <html><head><meta charset="utf-8"><title>PDF Vorschau</title>
+        <style>html,body{height:100%;margin:0}.box{font:15px/1.4 system-ui; padding:24px}</style></head>
+        <body><div class="box">PDF wird generiert…</div></body></html>
+      `);
+      win.document.close();
+
       try {
         const fd = new FormData(form);
         injectTranslation(fd);
+
         const res = await fetch("/generate_pdf", { method: "POST", body: fd });
         if (!res.ok) throw new Error("HTTP " + res.status);
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("pdf")) throw new Error("Unerwartete Antwort – kein PDF.");
+
         const blob = await res.blob();
         const url  = URL.createObjectURL(blob);
-        win.document.write(`<iframe src="${url}" style="width:100%;height:100%"></iframe>`);
+        win.document.open();
+        win.document.write(`
+          <!doctype html>
+          <html><head><meta charset="utf-8"><title>Vorschau</title>
+          <style>html,body,iframe{height:100%;width:100%;margin:0;border:0}</style></head>
+          <body><iframe src="${url}" title="preview" frameborder="0"></iframe></body></html>
+        `);
+        win.document.close();
+        setTimeout(()=> URL.revokeObjectURL(url), 120000);
       } catch (err) {
-        win.document.write("<pre>Fehler: " + (err.message || err) + "</pre>");
+        win.document.open();
+        win.document.write(`<pre style="white-space:pre-wrap;padding:24px">PDF-Erzeugung fehlgeschlagen:\n${(err && err.message) || err}</pre>`);
+        win.document.close();
       }
     });
   })();
-});
+
+}); // DOMContentLoaded end
