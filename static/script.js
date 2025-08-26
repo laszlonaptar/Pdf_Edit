@@ -6,7 +6,8 @@
    - Validáció elküldés előtt
    - Excel letöltés: fetch + blob
    - (Opcionális) PDF Vorschau: új lap + IFRAME
-   - i18n: nyelvváltás (de/hr) a window.I18N szótárral, #lang-select alapján
+   - i18n: nyelvváltás (de/hr) a window.I18N szótárral
+   - HR UI-n fordítás gomb („Prevedi na njemački”) + szerkeszthető eredményblokk + külön számláló
 */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -15,7 +16,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const DEFAULT_LANG = "de";
 
   function getLang() {
-    // 1) URL ?lang=...  2) localStorage  3) <html lang>  4) default
     const u = new URL(window.location.href);
     const ql = (u.searchParams.get("lang") || "").trim();
     const ls = (localStorage.getItem("app_lang") || "").trim();
@@ -37,7 +37,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const txt = t(key, lang);
       if (txt != null) el.textContent = txt;
     }
-    const phKey = el.getAttribute && el.getAttribute("data-i18n-placeholder");
+    const phKey = el.getAttribute && el.getAttribute("data-i18n-ph");
     if (phKey && el.placeholder !== undefined) {
       const ph = t(phKey, lang);
       if (ph != null) el.placeholder = ph;
@@ -49,23 +49,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
   function applyTranslations(lang) {
-    // oldal cím
     const ttl = t("title", lang);
     if (ttl) document.title = ttl;
 
-    // minden jelölt elem
-    document.querySelectorAll("[data-i18n], [data-i18n-placeholder], [data-i18n-value]").forEach(el => {
+    document.querySelectorAll("[data-i18n], [data-i18n-ph], [data-i18n-value]").forEach(el => {
       translateNode(el, lang);
     });
 
-    // „Wird generiert...” szöveg fordítása, ha van
     const gen = t("generating", lang);
-    if (gen) window.__GEN_TEXT = gen; // a setBusy használja, ha be van állítva
+    if (gen) window.__GEN_TEXT = gen;
+
+    // fordítás UI láthatóság frissítése
+    toggleTranslateUI(lang);
   }
 
   let currentLang = getLang();
-  // szinkronizáljuk a <select id="lang-select"> értékét (ha van)
-  const langSel = document.getElementById("lang-select");
+  // támogasd mindkét ID-t (html-ben lehet #lang vagy #lang-select)
+  const langSel = document.getElementById("lang") || document.getElementById("lang-select");
   if (langSel) {
     if ([...langSel.options].some(o => o.value === currentLang)) {
       langSel.value = currentLang;
@@ -73,26 +73,133 @@ document.addEventListener("DOMContentLoaded", () => {
     langSel.addEventListener("change", () => {
       currentLang = langSel.value || DEFAULT_LANG;
       localStorage.setItem("app_lang", currentLang);
-      // <html lang> frissítése
       document.documentElement.setAttribute("lang", currentLang);
       applyTranslations(currentLang);
     });
   }
-  // kezdeti beállítás
   document.documentElement.setAttribute("lang", currentLang);
   applyTranslations(currentLang);
 
-  /* ============== A LAP TÖBBI FUNKCIÓJA ============== */
-
+  /* ============== ALAP VÁLTOZÓK ============== */
   const addBtn = document.getElementById("add-worker");
   const workerList = document.getElementById("worker-list");
   const totalOut = document.getElementById("gesamtstunden_auto");
   const breakHalf = document.getElementById("break_half");
   const breakHidden = document.getElementById("break_minutes");
   const form = document.getElementById("ln-form");
+  const besch = document.getElementById("beschreibung");
   const MAX_WORKERS = 5;
 
-  // ===== AUTOCOMPLETE =====
+  /* ============== FORDÍTÁS UI (csak HR) ============== */
+  // Dinamikusan illesztjük be a gombot és az eredményblokkot a Beschreibung szekció alá.
+  let translateWrap = null;      // a teljes fordítás blokk konténere
+  let translateBtn = null;       // a „Prevedi na njemački” gomb
+  let deBox = null;              // szerkeszthető textarea a német szövegnek
+  let deCount = null;            // karakterszámláló a német szövegre
+  let infoLine = null;           // detektált nyelv + glosszárium találatok
+  let lastSrcText = "";          // mi volt utoljára lefordítva (hogy tudjuk, mit tegyünk be 'src'-nek)
+
+  function ensureTranslateUI() {
+    if (!besch) return;
+    if (translateWrap) return; // már létezik
+
+    // keresd meg a Beschreibung mező környezetét (card szekció)
+    let section = besch.closest(".card") || besch.parentElement || besch;
+    translateWrap = document.createElement("div");
+    translateWrap.id = "translate-ui";
+    translateWrap.style.marginTop = "0.75rem";
+    translateWrap.style.display = "none"; // alapból rejtve, csak hr-nél mutatjuk
+    translateWrap.innerHTML = `
+      <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
+        <button type="button" id="btn-translate-de" class="btn secondary">Prevedi na njemački</button>
+        <span class="muted small" id="translate-info"></span>
+      </div>
+      <div id="translate-result" style="margin-top:.5rem;display:none;">
+        <label class="muted small" style="display:block;margin-bottom:.25rem;">Deutsch (bearbeitbar)</label>
+        <textarea id="beschreibung_de" rows="5" style="width:100%;"></textarea>
+        <div class="muted small" id="beschreibung_de_count" style="margin-top:.25rem;">0</div>
+      </div>
+    `;
+    section.appendChild(translateWrap);
+
+    translateBtn = translateWrap.querySelector("#btn-translate-de");
+    deBox = translateWrap.querySelector("#beschreibung_de");
+    deCount = translateWrap.querySelector("#beschreibung_de_count");
+    infoLine = translateWrap.querySelector("#translate-info");
+
+    translateBtn?.addEventListener("click", doTranslate);
+    deBox?.addEventListener("input", updateDeCount);
+    deBox?.addEventListener("change", updateDeCount);
+  }
+
+  function toggleTranslateUI(lang) {
+    ensureTranslateUI();
+    if (!translateWrap) return;
+    // csak HR UI-n látszódjon
+    translateWrap.style.display = lang === "hr" ? "block" : "none";
+  }
+
+  function updateDeCount() {
+    if (!deBox || !deCount) return;
+    const len = (deBox.value || "").length;
+    deCount.textContent = `${len}`;
+  }
+
+  async function doTranslate() {
+    if (!besch) return;
+    const text = (besch.value || "").trim();
+    lastSrcText = text;
+    if (!text) {
+      alert("Nincs lefordítható szöveg.");
+      return;
+    }
+
+    translateBtn.disabled = true;
+    const oldTxt = translateBtn.textContent;
+    translateBtn.textContent = "Fordítás folyamatban…";
+
+    try {
+      const res = await fetch("/translate_preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      if (!data.ok) throw new Error(data.error || "Ismeretlen hiba.");
+      // kitöltjük a szerkeszthető blokkot
+      const de = data.de_text || "";
+      const det = data.detected || "und";
+      const hits = Array.isArray(data.glossary_hits) ? data.glossary_hits : [];
+
+      const detLabel = det === "hr" ? "felismert nyelv: horvát" :
+                       det === "de" ? "felismert nyelv: német" :
+                       `felismert nyelv: ${det}`;
+      const hitsLabel = hits.length ? ` | glosszárium: ${hits.join(", ")}` : "";
+
+      if (infoLine) infoLine.textContent = `${detLabel}${hitsLabel}`;
+      const resultBox = document.getElementById("translate-result");
+      if (resultBox) resultBox.style.display = "block";
+      if (deBox) {
+        deBox.value = de;
+        updateDeCount();
+        deBox.focus();
+      }
+    } catch (err) {
+      console.error(err);
+      alert("A fordítás most nem sikerült. Próbáld újra kicsit később.");
+    } finally {
+      translateBtn.textContent = oldTxt;
+      translateBtn.disabled = false;
+    }
+  }
+
+  // indulásnál építsd fel a blokkot, és állítsd be a láthatóságot
+  ensureTranslateUI();
+  toggleTranslateUI(currentLang);
+
+  /* ============== AUTOCOMPLETE ===================== */
   let WORKERS = [];
   const byAusweis = new Map();
   const byFullName = new Map(); // "nachname|vorname" -> worker
@@ -328,7 +435,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function enhanceTimePicker(inp) {
     if (!inp || inp.dataset.enhanced === "1") return;
     inp.dataset.enhanced = "1";
-    // iOS-on a natív time input sokszor kényelmetlen – elrejtjük, és két selectet adunk
+    // iOS workaround: a time input helyett két select
     inp.type = "hidden";
 
     const box = document.createElement("div");
@@ -366,7 +473,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (inp.value !== prev) dispatchBoth();
     }
 
-    // külsőből hívható setter (új dolgozó beszúrásakor)
+    // külsőből hívható setter
     inp._setFromValue = (v) => {
       const mm = /^\d{2}:\d{2}$/.test(v) ? v.split(":") : ["", ""];
       selH.value = mm[0] || "";
@@ -548,7 +655,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tpl.className = "worker";
     tpl.dataset.index = String(idx);
     tpl.innerHTML = `
-      <legend data-i18n="mitarbeiter">Mitarbeiter</legend> ${idx}
+      <legend>Mitarbeiter ${idx}</legend>
       <div class="grid-3">
         <div class="field">
           <label data-i18n="vorname">Vorname</label>
@@ -585,12 +692,9 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
     workerList.appendChild(tpl);
-    
-    if (window.__applyI18n) window.__applyI18n(window.__currentLang || "de");
-    // friss fordítás az új blokkra is
+
     applyTranslations(currentLang);
 
-    // szinkron az 1. dolgozóról
     const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
     const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
     const begNew = tpl.querySelector(`input[name="beginn${idx}"]`);
@@ -600,7 +704,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     wireWorker(tpl);
 
-    // frissen beállított értékek tükrözése a selectekben
     if (begNew && begNew._setFromValue) begNew._setFromValue(begNew.value || "");
     if (endNew && endNew._setFromValue) endNew._setFromValue(endNew.value || "");
 
@@ -612,9 +715,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   loadWorkers();
 
-  // ==== Beschreibung számláló ====
+  // ==== Beschreibung számláló (eredeti mező) ====
   (function () {
-    const besch = document.getElementById("beschreibung");
     const out = document.getElementById("besch-count");
     if (!besch || !out) return;
     const max = parseInt(besch.getAttribute("maxlength") || "1000", 10);
@@ -647,7 +749,6 @@ document.addEventListener("DOMContentLoaded", () => {
     form.addEventListener(
       "submit",
       function (e) {
-        // ha PDF gomb indítja, ezt az ágat ne futtassuk
         if (
           e.submitter &&
           e.submitter.getAttribute("formaction") === "/generate_pdf"
@@ -659,12 +760,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const datum = trim(document.getElementById("datum")?.value);
         const bau = trim(document.getElementById("bau")?.value);
         const bf = trim(document.getElementById("basf_beauftragter")?.value);
-        const besch = trim(document.getElementById("beschreibung")?.value);
+        const beschTxt = trim(besch?.value);
 
         if (!datum) errors.push("Bitte das Datum der Leistungsausführung angeben.");
         if (!bau) errors.push("Bitte Bau und Ausführungsort ausfüllen.");
         if (!bf) errors.push("Bitte den BASF-Beauftragten (Org.-Code) ausfüllen.");
-        if (!besch) errors.push("Bitte die Beschreibung der ausgeführten Arbeiten ausfüllen.");
+        if (!beschTxt) errors.push("Bitte die Beschreibung der ausgeführten Arbeiten ausfüllen.");
 
         const sets = Array.from(
           document.getElementById("worker-list").querySelectorAll(".worker")
@@ -737,7 +838,29 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     };
 
+    // KIEG: a fordítás alkalmazása beküldés előtt
+    function injectTranslationIntoFormData(fd) {
+      const deTxt = (document.getElementById("beschreibung_de")?.value || "").trim();
+      const srcTxt = (lastSrcText || "").trim();
+      if (deTxt) {
+        // Eredeti megőrzése külön mezőben
+        fd.set("beschreibung_src", srcTxt || (besch?.value || ""));
+        // Jelöld, hogy a DE fordítást használtuk
+        fd.set("beschreibung_de_used", "1");
+        // A beküldött 'beschreibung' legyen a német szöveg (Excel-be ez megy)
+        fd.set("beschreibung", deTxt);
+      } else {
+        // ha nincs fordítás, akkor eredeti megy tovább
+        fd.set("beschreibung_de_used", "0");
+      }
+    }
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
     async function downloadOnce(fd) {
+      // itt fűzzük be a fordítást
+      injectTranslationIntoFormData(fd);
+
       const res = await fetch("/generate_excel", { method: "POST", body: fd });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -745,7 +868,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!ct.includes("spreadsheet")) {
         const txt = await res.text().catch(() => "");
         throw new Error(txt || "Ismeretlen hiba (nem érkezett fájl).");
-      }
+        }
       const blob = await res.blob();
       const name =
         filenameFromDisposition(res.headers.get("content-disposition")) ||
@@ -761,16 +884,13 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => URL.revokeObjectURL(url), 2000);
     }
 
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
     form.addEventListener(
       "submit",
       async (e) => {
-        // ha PDF gomb indítja, most nem mi intézzük
         if (e.submitter && e.submitter.getAttribute("formaction") === "/generate_pdf") {
           return;
         }
-        if (e.defaultPrevented) return; // validáció megállította
+        if (e.defaultPrevented) return;
 
         e.preventDefault();
         const fd = new FormData(form);
@@ -793,7 +913,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   })();
 
-  // ==== (Opcionális) PDF Vorschau – csak akkor fut, ha van hozzá gomb ====
+  // ==== (Opcionális) PDF Vorschau ====
   (function () {
     if (!form) return;
     const pdfBtn = form.querySelector('button[formaction="/generate_pdf"]');
@@ -811,6 +931,19 @@ document.addEventListener("DOMContentLoaded", () => {
         return m[1].replace(/"/g, "").trim();
       }
     };
+
+    // A PDF-nél is vegyük át a fordítást (ha van), hogy a preview egyezzen
+    function injectTranslationIntoFormData(fd) {
+      const deTxt = (document.getElementById("beschreibung_de")?.value || "").trim();
+      const srcTxt = (lastSrcText || "").trim();
+      if (deTxt) {
+        fd.set("beschreibung_src", srcTxt || (besch?.value || ""));
+        fd.set("beschreibung_de_used", "1");
+        fd.set("beschreibung", deTxt);
+      } else {
+        fd.set("beschreibung_de_used", "0");
+      }
+    }
 
     pdfBtn.addEventListener("click", async (ev) => {
       ev.preventDefault();
@@ -833,6 +966,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       try {
         const fd = new FormData(form);
+        injectTranslationIntoFormData(fd);
+
         const res = await fetch("/generate_pdf", { method: "POST", body: fd });
         if (!res.ok) throw new Error("HTTP " + res.status);
 
