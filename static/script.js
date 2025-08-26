@@ -13,7 +13,10 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ===================== I18N ===================== */
   const I18N = (window.I18N || {});
   const DEFAULT_LANG = "de";
+  const form        = document.getElementById("ln-form");
+  const besch       = document.getElementById("beschreibung");
 
+   
   function getLang() {
     const u  = new URL(window.location.href);
     const ql = (u.searchParams.get("lang") || "").trim();
@@ -86,8 +89,7 @@ document.addEventListener("DOMContentLoaded", () => {
   applyTranslations(currentLang);
 
   /* ===================== ALAP ELEMEK ===================== */
-  const form        = document.getElementById("ln-form");
-  const besch       = document.getElementById("beschreibung");
+  
   const addBtn      = document.getElementById("add-worker");
   const workerList  = document.getElementById("worker-list");
   const totalOut    = document.getElementById("gesamtstunden_auto");
