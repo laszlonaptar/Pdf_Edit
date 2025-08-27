@@ -1,4 +1,4 @@
-// i18n.js — nyelvkezelés (URL ?lang=, localStorage, default=de)
+// i18n.js — csak DE és HR; HR nézetben jelenjen meg a fordítás gomb
 (function () {
   const KEY = "pdfedit.lang";
 
@@ -16,12 +16,12 @@
 
   function getLang() {
     const qs = parseQuery();
-    if (qs.lang && ["de", "hr", "en"].includes(qs.lang)) {
+    if (qs.lang && ["de", "hr"].includes(qs.lang)) {
       localStorage.setItem(KEY, qs.lang);
       return qs.lang;
     }
     const saved = localStorage.getItem(KEY);
-    if (saved && ["de", "hr", "en"].includes(saved)) return saved;
+    if (saved && ["de", "hr"].includes(saved)) return saved;
     return "de";
   }
 
@@ -44,7 +44,7 @@
       th_vh: "Vorhaltung",
       btn_excel: "Excel generieren",
       btn_pdf: "PDF Vorschau",
-      t_busy: "Übersetzen...",
+      t_busy: "Übersetzen…",
       t_done: "Übersetzung fertig.",
       t_error: "Übersetzung fehlgeschlagen."
     },
@@ -66,31 +66,9 @@
       th_vh: "Oprema",
       btn_excel: "Generiraj Excel",
       btn_pdf: "PDF pregled",
-      t_busy: "Prevodim...",
+      t_busy: "Prevodim…",
       t_done: "Prijevod gotov.",
       t_error: "Greška pri prijevodu."
-    },
-    en: {
-      title: "Work report",
-      logout: "Logout",
-      date: "Date",
-      site: "Site / Location",
-      bf: "Site manager",
-      break: "Breaks (min)",
-      desc: "Description / What was done?",
-      translate_to_de: "Translate to German",
-      workers: "Workers",
-      th_last: "Last name",
-      th_first: "First name",
-      th_id: "ID",
-      th_start: "Start",
-      th_end: "End",
-      th_vh: "Equipment",
-      btn_excel: "Generate Excel",
-      btn_pdf: "PDF preview",
-      t_busy: "Translating...",
-      t_done: "Translation done.",
-      t_error: "Translation failed."
     }
   };
 
@@ -103,7 +81,7 @@
     const select = document.getElementById("lang-select");
     if (select) select.value = lang;
 
-    // Fordítás gomb csak HR nyelvnél
+    // Fordítás gomb: csak HR
     const btn = document.getElementById("btn-translate-hr-de");
     if (btn) btn.style.display = (lang === "hr" ? "" : "none");
   }
