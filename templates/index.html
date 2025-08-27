@@ -4,15 +4,24 @@
   <meta charset="utf-8">
   <title>Leistungsnachweis</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/style.css?v=16">
+  <link rel="stylesheet" href="/static/style.css?v=17">
   <script defer src="/static/i18n.js"></script>
   <script defer src="/static/script.js"></script>
 </head>
 <body>
   <div class="container">
-    <div class="actions-top" style="justify-content: space-between">
-      <div class="muted small">Admin</div>
-      <a class="btn" href="/logout">Abmelden</a>
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <select id="lang-switch" class="btn ghost small">
+          <option value="de">Deutsch</option>
+          <option value="hr">Hrvatski</option>
+        </select>
+        <a class="btn ghost small" href="/admin">Admin</a>
+      </div>
+      <div class="topbar-right">
+        <a class="btn small" href="/logout">Abmelden</a>
+      </div>
     </div>
 
     <h1>Leistungsnachweis</h1>
@@ -40,14 +49,18 @@
         <div class="field">
           <label>Beschreibung der ausgeführten Arbeiten</label>
           <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="4" autocomplete="off"></textarea>
-          <div class="actions-top" style="justify-content:flex-start;margin-top:.5rem">
+
+          <!-- HR→DE gomb és státusz — csak HR nyelven lesz látható a script.js logika szerint -->
+          <div class="actions-top" id="translate-row" style="justify-content:flex-start;margin-top:.5rem">
             <button type="button" id="translate-hr-de" class="btn secondary">Übersetzen (HR → DE)</button>
             <span class="muted small" id="translate-status" style="margin-left:.5rem;"></span>
           </div>
+
           <div class="field" id="translation-wrap" style="display:none; margin-top:.5rem">
             <label>Übersetzter Text (DE)</label>
             <textarea id="beschreibung_de" readonly rows="4"></textarea>
           </div>
+
           <div class="muted small"><span id="besch-count">0 / 1000</span></div>
         </div>
       </div>
@@ -82,7 +95,7 @@
               </div>
             </div>
 
-            <!-- SZÜNET BLOKK – közvetlenül a munkaidő mezők előtt, velük egy egységben -->
+            <!-- szünet-kapcsoló a munkaidő-blokk FELETT -->
             <div class="field ck-row" style="margin-top:.5rem">
               <input type="checkbox" id="break_half" />
               <label for="break_half">Pause nur 0,5&nbsp;h</label>
