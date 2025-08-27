@@ -1,97 +1,244 @@
-/* Apple-szerű, letisztult, reszponzív UI */
-:root{
-  --bg:#f5f5f7; --card:#fff; --fg:#1d1d1f; --muted:#6e6e73;
-  --border:#d2d2d7; --ring:#0071e3; --accent:#0a84ff;
-  --shadow:0 6px 18px rgba(0,0,0,.06); --radius:14px;
-}
-*{box-sizing:border-box}
-html,body{
-  margin:0; padding:0; background:var(--bg); color:var(--fg);
-  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,"Helvetica Neue",Helvetica,sans-serif;
-  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
-}
-a{color:var(--accent); text-decoration:none}
-.container{max-width:1100px; margin:28px auto; padding:0 16px}
-
-.topbar{
-  position:sticky; top:0; z-index:10;
-  background:rgba(255,255,255,.82); backdrop-filter:blur(12px);
-  border-bottom:1px solid var(--border);
-  display:flex; align-items:center; gap:12px; padding:10px 16px;
-}
-.brand{font-weight:700; letter-spacing:.2px}
-.spacer{flex:1}
-.lang-switch select{
-  appearance:none; padding:8px 12px; border-radius:12px; border:1px solid var(--border); background:#fff;
+:root {
+  --bg: #f6f7fb;
+  --card: #fff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --primary: #2563eb;
+  --primary-contrast: #fff;
+  --shadow: 0 8px 24px rgba(0, 0, 0, .06);
+  --radius: 14px;
 }
 
-h1{margin:18px 2px; font-size:22px; font-weight:700}
-h2{margin:14px 2px; font-size:17px; font-weight:650}
-
-.card{
-  background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
-  box-shadow:var(--shadow); padding:16px; margin-bottom:16px;
+* {
+  box-sizing: border-box;
 }
 
-/* Rács – egységes szélességű mezők */
-.grid{ display:grid; gap:14px; grid-template-columns:1fr }
-@media (min-width:640px){ .grid{ grid-template-columns:repeat(2,1fr) } }
-@media (min-width:980px){ .grid{ grid-template-columns:repeat(4,1fr) } }
-.field label{display:block; font-weight:600; margin-bottom:6px}
-.field.align-end{display:flex; flex-direction:column; justify-content:flex-end}
-
-.checkbox{display:flex; align-items:center; gap:8px; user-select:none}
-.checkbox input{width:18px; height:18px}
-
-input[type="text"], input[type="date"], input[type="time"], textarea, select{
-  width:100%; padding:10px 12px;
-  border:1px solid var(--border); border-radius:12px; background:#fff; color:var(--fg);
-  transition:border-color .2s ease, box-shadow .2s ease;
-}
-textarea.textarea{min-height:120px; resize:vertical}
-input:focus, textarea:focus, select:focus{
-  outline:none; border-color:var(--ring); box-shadow:0 0 0 3px color-mix(in srgb, var(--ring) 20%, transparent);
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
 }
 
-/* Táblázat – egységes szélesség */
-.table{border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff}
-.trow{display:grid; grid-template-columns: repeat(6, 1fr); gap:10px; padding:10px 12px; border-top:1px solid var(--border)}
-.trow:first-child{border-top:none}
-.trow.thead{background:#f2f2f7; font-weight:600}
-.trow input{width:100%}
-
-/* Autocomplete – csak gépelésre látható, kompakt panel */
-.ac-wrap{position:relative}
-.ac-list{
-  position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:5;
-  display:none; max-height:220px; overflow:auto; background:#fff; border:1px solid var(--border);
-  border-radius:12px; box-shadow:var(--shadow);
+/* ====== LAYOUT ====== */
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem;
 }
-.ac-item{padding:8px 10px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.ac-item:hover{background:#f5f5f7}
-
-.actions,.form-actions{display:flex; gap:10px; margin-top:12px}
-.btn{
-  border:1px solid var(--border); background:#fff; color:var(--fg);
-  padding:10px 14px; border-radius:12px; cursor:pointer;
-  transition:transform .05s ease, box-shadow .2s ease;
+.container.narrow {
+  max-width: 720px;
 }
-.btn:hover{box-shadow:0 2px 10px rgba(0,0,0,.06)}
-.btn:active{transform:translateY(1px)}
-.btn.primary{background:var(--accent); color:#fff; border-color:var(--accent)}
-.btn.ghost{background:#fff}
 
-.status{margin-top:6px; font-size:13px; color:var(--muted)}
-.status.ok{color:#0a7d22}
-.status.err{color:#b00020}
-.status.info{color:#0071e3}
+h1 {
+  font-size: 1.8rem;
+  margin: 1rem 0;
+}
+h2 {
+  font-size: 1.2rem;
+  margin: .25rem 0 1rem 0;
+}
 
-/* Login */
-.login{max-width:380px; margin:40px auto; background:#fff; border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); padding:20px}
-.login h1{margin-top:0}
-.login label{display:block; margin-bottom:8px}
-.login input{width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:12px}
-.login button{margin-top:10px; width:100%}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  box-shadow: var(--shadow);
+  margin: 1rem 0;
+}
 
-/* Placeholder */
-::placeholder{color:#9a9aa1}
+/* ====== NAVBAR ====== */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.nav-left {
+  display: flex;
+  gap: .75rem;
+  align-items: center;
+}
+
+.nav-right {
+  display: flex;
+  gap: .75rem;
+  align-items: center;
+}
+
+.navbar a, .navbar select {
+  padding: .5rem .9rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  text-decoration: none;
+  color: var(--text);
+  font-weight: 600;
+  font-size: .95rem;
+  cursor: pointer;
+}
+
+.navbar a:hover, .navbar select:hover {
+  background: #f3f4f6;
+}
+
+/* ====== FORM ELEMENTS ====== */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.field + .field {
+  margin-top: .75rem;
+}
+label {
+  font-weight: 600;
+}
+
+input, textarea, select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: .75rem .9rem;
+  background: #fff;
+  outline: none;
+}
+textarea {
+  resize: vertical;
+}
+
+.actions {
+  display: flex;
+  gap: .5rem;
+}
+.actions-top {
+  display: flex;
+  gap: .5rem;
+  justify-content: flex-end;
+  margin: .5rem 0 1rem;
+}
+
+/* ====== BUTTONS ====== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: .65rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn.primary {
+  background: var(--primary);
+  color: var(--primary-contrast);
+  border-color: var(--primary);
+}
+.btn.secondary {
+  background: #eef2ff;
+  border-color: #dbeafe;
+}
+.btn:hover {
+  background: #f9fafb;
+}
+
+/* ====== TYPOGRAPHY ====== */
+.small {
+  font-size: .875rem;
+}
+.muted {
+  color: var(--muted);
+}
+
+/* ====== GRID ====== */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ====== FIELDSET WORKERS ====== */
+fieldset.worker {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+fieldset.worker legend {
+  padding: 0 .35rem;
+  font-weight: 700;
+}
+
+/* ====== CHECKBOX ROW ====== */
+.ck-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+/* ====== ALERT ====== */
+.alert.error {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: .75rem 1rem;
+  border-radius: 12px;
+  margin: .5rem 0 1rem;
+}
+
+/* ====== ADMIN TABLE ====== */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+th, td {
+  padding: .6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+tbody tr:hover {
+  background: #f9fafb;
+}
+
+/* ====== MOBILE ====== */
+@media (max-width: 740px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .grid-3 { grid-template-columns: 1fr; }
+  .navbar {
+    flex-direction: column;
+    gap: .5rem;
+    align-items: flex-start;
+  }
+  .nav-right {
+    flex-wrap: wrap;
+    gap: .5rem;
+  }
+}
