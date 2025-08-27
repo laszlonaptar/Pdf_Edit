@@ -1,15 +1,36 @@
 /* static/script.js
-   - Autocomplete: csak gépelésre (Vorname/Nachname/Ausweis), CSV-ből
-   - 15 perces időválasztó (00/15/30/45), mobilbarát
-   - Óraszámítás + fix sávos szünet vagy 0,5 h
-   - 1. dolgozó idejének másolása új dolgozókra (felülírható)
-   - Validáció beküldés előtt
+   - Autocomplete dolgozók CSV-ből (Vorname/Nachname/Ausweis szinkron kitöltés)
+   - Mobilbarát 15 perces időválasztó (00/15/30/45)
+   - Óraszámítás (fix sávos szünet: 09:00–09:15 és 12:00–12:45, vagy 0,5 h)
+   - 1. dolgozó idejének szinkron másolása az új dolgozókra (amíg kézzel felül nem írod)
+   - Validáció elküldés előtt
    - Excel letöltés: fetch + blob
-   - PDF előnézet: új lap + <iframe>
-   - HR→DE fordítás gomb a „Beschreibung” alatt (Azure /api/translate)
+   - (Opcionális) PDF Vorschau: új lap + IFRAME
+   - Fejléc: nyelvváltó + csak HR UI-n jelenjen meg a fordítás gomb
 */
 
 document.addEventListener("DOMContentLoaded", () => {
+  /* ===== TOPBAR: nyelvváltó ===== */
+  (function langSwitcher() {
+    const sel = document.getElementById("lang-switch");
+    if (!sel) return;
+    const cur = (document.documentElement.getAttribute("lang") || "de").toLowerCase();
+    if (sel.value !== cur) sel.value = cur;
+    sel.addEventListener("change", () => {
+      const v = sel.value;
+      const url = new URL(location.href);
+      url.searchParams.set("lang", v);
+      location.href = url.toString();
+    });
+  })();
+
+  /* ===== Fordítás gomb csak HR UI-n ===== */
+  (function toggleTranslateButtonForLang() {
+    const lang = (document.documentElement.getAttribute("lang") || "de").toLowerCase();
+    const row = document.getElementById("translate-row");
+    if (row) row.style.display = (lang === "hr") ? "flex" : "none";
+  })();
+
   const addBtn = document.getElementById("add-worker");
   const workerList = document.getElementById("worker-list");
   const totalOut = document.getElementById("gesamtstunden_auto");
@@ -84,7 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
     refreshAllAutocompletes();
   }
 
-  // ===== Egyedi lenyíló (csak gépelésre) =====
+  // ===== Egyedi lenyíló =====
   function makeAutocomplete(input, getOptions, onPick) {
     const dd = document.createElement("div");
     dd.style.position = "absolute";
@@ -101,12 +122,8 @@ document.addEventListener("DOMContentLoaded", () => {
     dd.setAttribute("role", "listbox");
     document.body.appendChild(dd);
 
-    function hide() {
-      dd.style.display = "none";
-    }
-    function show() {
-      dd.style.display = dd.children.length ? "block" : "none";
-    }
+    function hide() { dd.style.display = "none"; }
+    function show() { dd.style.display = dd.children.length ? "block" : "none"; }
     function position() {
       const r = input.getBoundingClientRect();
       dd.style.left = `${window.scrollX + r.left}px`;
@@ -140,10 +157,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function filterOptions() {
       const q = input.value.toLowerCase().trim();
       const raw = getOptions();
-      if (!q) {
-        hide();
-        return;
-      }
+      if (!q) { hide(); return; }
       const list = raw
         .filter((v) => (v.label ?? v).toLowerCase().includes(q))
         .map((v) => (typeof v === "string" ? { value: v } : v));
@@ -151,10 +165,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     input.addEventListener("input", filterOptions);
-    input.addEventListener("focus", () => {
-      position();
-      filterOptions();
-    });
+    input.addEventListener("focus", () => { position(); filterOptions(); });
     input.addEventListener("blur", () => setTimeout(hide, 120));
     window.addEventListener("scroll", position, true);
     window.addEventListener("resize", position);
@@ -254,6 +265,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function enhanceTimePicker(inp) {
     if (!inp || inp.dataset.enhanced === "1") return;
     inp.dataset.enhanced = "1";
+    // iOS-on a natív time input sokszor kényelmetlen – elrejtjük, és két selectet adunk
     inp.type = "hidden";
 
     const box = document.createElement("div");
@@ -494,12 +506,10 @@ document.addEventListener("DOMContentLoaded", () => {
           <input name="vorhaltung${idx}" type="text" autocomplete="off" />
         </div>
       </div>
-
       <div class="field ck-row" style="margin-top:.5rem">
         <input type="checkbox" disabled />
         <label>Pause nur 0,5 h (vom ersten Block gesteuert)</label>
       </div>
-
       <div class="grid-3">
         <div class="field">
           <label>Beginn</label>
@@ -554,7 +564,7 @@ document.addEventListener("DOMContentLoaded", () => {
     besch.addEventListener("change", updateBeschCount);
   })();
 
-  // ==== VALIDÁCIÓ ====
+  // ==== Validáció ====
   (function () {
     if (!form) return;
     const trim = (v) => (v || "").toString().trim();
@@ -631,7 +641,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   })();
 
-  // ==== Excel letöltés (fetch + blob) – változatlan baseline ====
+  // ==== Excel letöltés (fetch + blob) ====
   (function () {
     if (!form) return;
     const submitBtn = form.querySelector('button[type="submit"]:not([formaction])');
@@ -719,7 +729,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   })();
 
-  // ==== PDF Vorschau – változatlan baseline ====
+  // ==== (Opcionális) PDF Vorschau – csak akkor fut, ha van hozzá gomb ====
   (function () {
     if (!form) return;
     const pdfBtn = form.querySelector('button[formaction="/generate_pdf"]');
@@ -797,7 +807,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   })();
 
-  // ==== HR → DE FORDÍTÁS GOMB (Azure /api/translate) ====
+  /* --- HR → DE fordítás gomb (Azure /api/translate) --- */
   (function () {
     const btn = document.getElementById("translate-hr-de");
     const src = document.getElementById("beschreibung");
@@ -824,11 +834,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     btn.addEventListener("click", async () => {
       const txt = (src.value || "").trim();
-      if (!txt) {
-        outWrap.style.display = "none";
-        out.value = "";
-        return;
-      }
+      if (!txt) { outWrap.style.display = "none"; out.value = ""; return; }
       try {
         st.textContent = "Übersetzung läuft…";
         btn.disabled = true;
