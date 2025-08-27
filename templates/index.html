@@ -1,147 +1,136 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title data-i18n="title">Leistungsnachweis</title>
-  <link rel="stylesheet" href="/static/style.css?v=15" />
+  <meta charset="utf-8">
+  <title>PDF-Edit – Leistungsnachweis</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preload" as="script" href="/static/i18n.js?v=16">
+  <link rel="preload" as="script" href="/static/script.js?v=16">
+  <link rel="stylesheet" href="/static/style.css?v=16">
 </head>
 <body>
-  <main class="container">
-    <!-- Felső sáv: nyelv + admin + logout -->
-    <div class="actions-top">
-      <div class="locale" style="display:flex;align-items:center;gap:.5rem;">
-        <label for="lang" class="muted small" style="white-space:nowrap;">🌐</label>
-        <select id="lang" class="lang-select">
-          <option value="de">Deutsch</option>
-          <option value="hr">Hrvatski</option>
-        </select>
+<header class="topbar">
+  <div class="brand">PDF-Edit</div>
+  <div class="spacer"></div>
+  <div class="lang-switch">
+    <select id="lang-select" aria-label="Language">
+      <option value="de">Deutsch</option>
+      <option value="hr">Hrvatski</option>
+      <option value="en">English</option>
+    </select>
+  </div>
+  <nav>
+    <a href="/logout" data-i18n="logout">Abmelden</a>
+  </nav>
+</header>
+
+<main class="container">
+  <h1 data-i18n="title">Leistungsnachweis</h1>
+
+  <form id="main-form" action="/generate_excel" method="post">
+    <section class="row">
+      <div class="col">
+        <label for="datum" data-i18n="date">Datum</label>
+        <input type="date" id="datum" name="datum" required>
       </div>
-      <a class="btn secondary" href="/admin"  data-i18n="admin">Admin</a>
-      <a class="btn"          href="/logout" data-i18n="logout">Abmelden</a>
+      <div class="col">
+        <label for="bau" data-i18n="site">Bau / Ausführungsort</label>
+        <input type="text" id="bau" name="bau" required>
+      </div>
+      <div class="col">
+        <label for="basf_beauftragter" data-i18n="bf">Bauleiter/Fachbauleiter</label>
+        <input type="text" id="basf_beauftragter" name="basf_beauftragter">
+      </div>
+      <div class="col">
+        <label for="break_minutes" data-i18n="break">Pausen (Min)</label>
+        <input type="number" id="break_minutes" name="break_minutes" value="60" min="0" step="5">
+      </div>
+    </section>
+
+    <section>
+      <label for="beschreibung" data-i18n="desc">Beschreibung / Was wurde gemacht?</label>
+      <textarea id="beschreibung" name="beschreibung" rows="6"></textarea>
+
+      <!-- HR nézetben látszik -->
+      <div class="actions">
+        <button type="button" id="btn-translate-hr-de" style="display:none" data-i18n="translate_to_de">Auf Deutsch übersetzen</button>
+      </div>
+      <div id="translate-status" class="muted"></div>
+
+      <!-- Opcionális külön kimenet (ha nem akarod felülírni az eredetit, hagyd bekapcsolva) -->
+      <!-- <textarea id="beschreibung_de" rows="6" placeholder="Übersetzung (DE)"></textarea> -->
+    </section>
+
+    <section>
+      <h2 data-i18n="workers">Mitarbeiter</h2>
+
+      <!-- Autocomplete datalist források -->
+      <datalist id="dl-lastnames"></datalist>
+      <datalist id="dl-firstnames"></datalist>
+      <datalist id="dl-ids"></datalist>
+
+      <div class="table">
+        <div class="row header">
+          <div data-i18n="th_last">Name</div>
+          <div data-i18n="th_first">Vorname</div>
+          <div data-i18n="th_id">Ausweis</div>
+          <div data-i18n="th_start">Beginn</div>
+          <div data-i18n="th_end">Ende</div>
+          <div data-i18n="th_vh">Vorhaltung</div>
+        </div>
+
+        <!-- 5 fix sor a backend kompatibilitásért -->
+        <div class="row">
+          <input name="nachname1" id="nachname1" list="dl-lastnames" autocomplete="off">
+          <input name="vorname1"  id="vorname1"  list="dl-firstnames" autocomplete="off">
+          <input name="ausweis1"  id="ausweis1"  list="dl-ids" autocomplete="off">
+          <input name="beginn1"   id="beginn1"   type="time" step="60">
+          <input name="ende1"     id="ende1"     type="time" step="60">
+          <input name="vorhaltung1" id="vorhaltung1" autocomplete="off">
+        </div>
+        <div class="row">
+          <input name="nachname2" id="nachname2" list="dl-lastnames" autocomplete="off">
+          <input name="vorname2"  id="vorname2"  list="dl-firstnames" autocomplete="off">
+          <input name="ausweis2"  id="ausweis2"  list="dl-ids" autocomplete="off">
+          <input name="beginn2"   id="beginn2"   type="time" step="60">
+          <input name="ende2"     id="ende2"     type="time" step="60">
+          <input name="vorhaltung2" id="vorhaltung2" autocomplete="off">
+        </div>
+        <div class="row">
+          <input name="nachname3" id="nachname3" list="dl-lastnames" autocomplete="off">
+          <input name="vorname3"  id="vorname3"  list="dl-firstnames" autocomplete="off">
+          <input name="ausweis3"  id="ausweis3"  list="dl-ids" autocomplete="off">
+          <input name="beginn3"   id="beginn3"   type="time" step="60">
+          <input name="ende3"     id="ende3"     type="time" step="60">
+          <input name="vorhaltung3" id="vorhaltung3" autocomplete="off">
+        </div>
+        <div class="row">
+          <input name="nachname4" id="nachname4" list="dl-lastnames" autocomplete="off">
+          <input name="vorname4"  id="vorname4"  list="dl-firstnames" autocomplete="off">
+          <input name="ausweis4"  id="ausweis4"  list="dl-ids" autocomplete="off">
+          <input name="beginn4"   id="beginn4"   type="time" step="60">
+          <input name="ende4"     id="ende4"     type="time" step="60">
+          <input name="vorhaltung4" id="vorhaltung4" autocomplete="off">
+        </div>
+        <div class="row">
+          <input name="nachname5" id="nachname5" list="dl-lastnames" autocomplete="off">
+          <input name="vorname5"  id="vorname5"  list="dl-firstnames" autocomplete="off">
+          <input name="ausweis5"  id="ausweis5"  list="dl-ids" autocomplete="off">
+          <input name="beginn5"   id="beginn5"   type="time" step="60">
+          <input name="ende5"     id="ende5"     type="time" step="60">
+          <input name="vorhaltung5" id="vorhaltung5" autocomplete="off">
+        </div>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button type="submit" class="primary" data-i18n="btn_excel">Excel generieren</button>
+      <button type="button" id="btn-pdf" data-i18n="btn_pdf">PDF Vorschau</button>
     </div>
+  </form>
+</main>
 
-    <h1 data-i18n="title">Leistungsnachweis</h1>
-
-    <!-- Fő űrlap -->
-    <form id="ln-form" method="post" action="/generate_excel" novalidate>
-      <!-- ezt a JS frissíti a választott nyelvre -->
-      <input type="hidden" name="lang" id="lang_hidden" value="de" />
-
-      <!-- 1) Fejléc mezők -->
-      <section class="card">
-        <div class="grid-2">
-          <div class="field">
-            <label for="datum" data-i18n="date_label">Datum der Leistungsausführung</label>
-            <input id="datum" name="datum" type="date" required />
-          </div>
-          <div class="field">
-            <label for="bau" data-i18n="bau_label">Bau und Ausführungsort</label>
-            <input id="bau" name="bau" type="text" required />
-          </div>
-          <div class="field">
-            <label for="basf_beauftragter" data-i18n="basf_label">BASF-Beauftragter, Org.-Code</label>
-            <input id="basf_beauftragter" name="basf_beauftragter" type="text" required />
-          </div>
-        </div>
-      </section>
-
-      <!-- 2) Leírás -->
-      <section class="card">
-        <div class="field">
-          <label for="beschreibung" data-i18n="beschreibung_label">Beschreibung der ausgeführten Arbeiten</label>
-          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="6" data-i18n-ph="beschreibung_placeholder" placeholder="Max. 1000 Zeichen"></textarea>
-          <div class="muted small" id="besch-count">0 / 1000</div>
-        </div>
-        <!-- A fordítási panelt a script.js DINAMIKUSAN illeszti ide a textarea alá (csak HR nézetben). -->
-      </section>
-
-      <!-- 3) Dolgozók -->
-      <section class="card" id="worker-section">
-        <div id="worker-list">
-          <!-- Mitarbeiter 1 – kell az autocomplete induláshoz -->
-          <fieldset class="worker" data-index="1">
-            <legend data-i18n="mitarbeiter">Mitarbeiter</legend> 1
-            <div class="grid-3">
-              <div class="field">
-                <label data-i18n="vorname">Vorname</label>
-                <input name="vorname1" type="text" />
-              </div>
-              <div class="field">
-                <label data-i18n="nachname">Nachname</label>
-                <input name="nachname1" type="text" />
-              </div>
-              <div class="field">
-                <label data-i18n="ausweis">Ausweis-Nr. / Kennzeichen</label>
-                <input name="ausweis1" type="text" />
-              </div>
-            </div>
-
-            <div class="grid">
-              <div class="field">
-                <label data-i18n="vorhaltung">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
-                <input name="vorhaltung1" type="text" />
-              </div>
-            </div>
-
-            <div class="grid-3">
-              <div class="field">
-                <label data-i18n="beginn">Beginn</label>
-                <input name="beginn1" type="time" />
-              </div>
-              <div class="field">
-                <label data-i18n="ende">Ende</label>
-                <input name="ende1" type="time" />
-              </div>
-              <div class="field">
-                <label data-i18n="stunden">Stunden (auto)</label>
-                <input class="stunden-display" type="text" value="" readonly />
-              </div>
-            </div>
-          </fieldset>
-        </div>
-
-        <div style="margin-top:.75rem;">
-          <button type="button" class="btn secondary" id="add-worker" data-i18n="weitere">+ Weitere Mitarbeiter hinzufügen</button>
-        </div>
-      </section>
-
-      <!-- 4) Szünet és összesítés -->
-      <section class="card">
-        <div class="grid-2">
-          <div class="field">
-            <label class="checkbox">
-              <input type="checkbox" id="break_half" />
-              <span data-i18n="pause_half">Pause nur 0,5 h</span>
-            </label>
-            <div class="muted small" data-i18n="pause_hint">
-              Wenn nicht ausgewählt, zieht das System automatisch 1,00 h Pause ab.
-            </div>
-            <!-- a script ezt olvassa: 30 = fél óra, 60 = 1 óra -->
-            <input type="hidden" id="break_minutes" name="break_minutes" value="60" />
-          </div>
-
-          <div class="field">
-            <label for="gesamtstunden_auto" data-i18n="gesamtstunden">Gesamtstunden (auto)</label>
-            <input id="gesamtstunden_auto" name="gesamtstunden_auto" type="text" value="" readonly />
-            <div class="muted small" data-i18n="gesamt_hint">
-              Automatischer Pausenabzug: standardmäßig 1,00 h. Wenn „Pause nur 0,5 h“ gewählt, werden 0,50 h abgezogen.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 5) Akciók -->
-      <div class="actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
-        <button class="btn primary" type="submit" data-i18n="generate_excel">Excel generieren</button>
-        <!-- Opcionális PDF gomb – a script felismeri és előnézetet nyit -->
-        <button class="btn" type="submit" formaction="/generate_pdf">PDF Vorschau</button>
-      </div>
-    </form>
-  </main>
-
-  <!-- FONTOS: i18n.js előbb, hogy a script.js azonnal használhassa -->
-  <script src="/static/i18n.js"></script>
-  <script src="/static/script.js"></script>
+<script src="/static/i18n.js?v=16"></script>
+<script src="/static/script.js?v=16"></script>
 </body>
 </html>
