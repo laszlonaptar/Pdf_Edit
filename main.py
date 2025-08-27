@@ -22,8 +22,9 @@ import sqlite3
 from pathlib import Path
 from typing import Tuple, Optional, List
 
-# ---- HTTP kliens a fordításhoz ----
+# ÚJ: HTTP kliens + DNS diagnosztika
 import httpx
+import socket
 
 # ---- Google Drive (service account) ----
 GDRIVE_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON", "")
@@ -100,7 +101,8 @@ def _is_admin(request: Request) -> bool:
     return bool(request.session.get("admin_ok") is True)
 
 # ---- Translate beállítások (ENV) ----
-LT_ENDPOINT = os.getenv("LT_ENDPOINT", "https://libretranslate.de/translate").strip()
+# Biztos defaultok + tartalék végpont + timeout
+LT_ENDPOINT = os.getenv("LT_ENDPOINT", "https://libretranslate.com/translate").strip()
 LT_BACKUP_ENDPOINT = os.getenv("LT_BACKUP_ENDPOINT", "https://translate.argosopentech.com/translate").strip()
 try:
     LT_TIMEOUT = float(os.getenv("LT_TIMEOUT", "12"))
@@ -546,7 +548,7 @@ async def generate_excel(
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
     geraet: str = Form(""),
-    beschreibung: str = Form(""),
+    beschrijving: str = Form(""),
     break_minutes: int = Form(60),
     vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
@@ -560,6 +562,7 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
+    # datum -> B2, bau -> B3, basf -> E3
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -577,7 +580,7 @@ async def generate_excel(
             ws.row_dimensions[r].height = 22
 
     inserted = False
-    text_in = (beschreibung or "").strip()
+    text_in = (beschrijving or "").strip()  # mezőnév eltérés nem gond
     if text_in:
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
     if not inserted:
@@ -634,7 +637,6 @@ async def generate_excel(
     excel_path = GEN_DIR / excel_name
     wb.save(excel_path.as_posix())
 
-    # Olvasd be bytes-ba (helyi letöltés + Drive feltöltés is)
     with open(excel_path, "rb") as f:
         excel_bytes = f.read()
 
@@ -648,7 +650,7 @@ async def generate_excel(
         "datum": datum,
         "bau": bau,
         "basf_beauftragter": basf_beauftragter,
-        "beschreibung": beschreibung,
+        "beschreibung": beschrijving,
         "break_minutes": int(break_minutes),
         "workers": [
             {"vorname": locals().get(f"vorname{i}", ""), "nachname": locals().get(f"nachname{i}", ""),
@@ -679,7 +681,7 @@ async def generate_excel(
             )
         """, (
             datetime.utcnow().isoformat(),
-            datum, bau, basf_beauftragter, beschreibung, int(break_minutes),
+            datum, bau, basf_beauftragter, beschrijving, int(break_minutes),
             locals().get("vorname1",""), locals().get("nachname1",""), locals().get("ausweis1",""), locals().get("beginn1",""), locals().get("ende1",""), locals().get("vorhaltung1",""),
             locals().get("vorname2",""), locals().get("nachname2",""), locals().get("ausweis2",""), locals().get("beginn2",""), locals().get("ende2",""), locals().get("vorhaltung2",""),
             locals().get("vorname3",""), locals().get("nachname3",""), locals().get("ausweis3",""), locals().get("beginn3",""), locals().get("ende3",""), locals().get("vorhaltung3",""),
@@ -803,7 +805,6 @@ async def api_translate(payload: dict = Body(...)):
                     jr = r.json()
                 except Exception:
                     jr = {}
-                # LT különböző buildjei eltérő kulcsot adhatnak:
                 translated = jr.get("translatedText") or jr.get("translation") or jr.get("translated") or ""
                 if not translated and isinstance(jr, dict):
                     for k in ("translatedText", "translation", "translated"):
@@ -820,6 +821,83 @@ async def api_translate(payload: dict = Body(...)):
             last_err = repr(e)
 
     return JSONResponse({"error": f"Translator error: {last_err}"}, status_code=502)
+
+# ---------- DIAG: LT endpoint & DNS info ----------
+@app.get("/api/lt_info")
+async def lt_info():
+    """
+    Visszaadja, mit lát a szerver az LT endpointokról + DNS-feloldás eredménye.
+    """
+    out = {"primary": LT_ENDPOINT, "backup": LT_BACKUP_ENDPOINT}
+    check_hosts = []
+    for ep in [LT_ENDPOINT, LT_BACKUP_ENDPOINT]:
+        if not ep:
+            continue
+        try:
+            host = ep.split("://",1)[1].split("/",1)[0]
+        except Exception:
+            host = ""
+        if not host:
+            check_hosts.append({"endpoint": ep, "host": "", "dns_ok": False, "ips": [], "error": "bad endpoint url"})
+            continue
+        try:
+            infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+            ips = sorted({ai[4][0] for ai in infos})
+            check_hosts.append({"endpoint": ep, "host": host, "dns_ok": True, "ips": ips})
+        except Exception as e:
+            check_hosts.append({"endpoint": ep, "host": host, "dns_ok": False, "ips": [], "error": repr(e)})
+    out["dns"] = check_hosts
+    return JSONResponse(out)
+
+# ---------- DIAG: teljes próbahívás részletes nyommal ----------
+@app.post("/api/translate_probe")
+async def translate_probe(payload: dict = Body(...)):
+    """
+    Ugyanaz a POST, mint a /api/translate, de bővebb visszajelzéssel:
+    - melyik endpointot próbálta,
+    - HTTP státusz, content-type,
+    - válasz 200 karakteres részlete,
+    - hiba esetén részletes kivétel.
+    """
+    text = (payload.get("text") or "").strip()
+    source = (payload.get("source") or "hr").strip() or "hr"
+    target = (payload.get("target") or "de").strip() or "de"
+    if not text:
+        return JSONResponse({"ok": True, "note": "empty text, nothing to do", "endpoint_used": None})
+
+    data = {"q": text, "source": source, "target": target, "format": "text"}
+    headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "pdf-edit/diag"}
+
+    tried = []
+    for ep in [LT_ENDPOINT, LT_BACKUP_ENDPOINT]:
+        if not ep:
+            continue
+        rec = {"endpoint": ep}
+        try:
+            with httpx.Client(timeout=LT_TIMEOUT, follow_redirects=True) as cli:
+                r = cli.post(ep, json=data, headers=headers)
+            rec["status"] = r.status_code
+            rec["content_type"] = r.headers.get("content-type","")
+            rec["text_snippet"] = (r.text or "")[:200]
+            if r.status_code == 200:
+                try:
+                    jr = r.json()
+                except Exception:
+                    jr = {}
+                tr = jr.get("translatedText") or jr.get("translation") or jr.get("translated")
+                rec["parsed_translated"] = tr
+                rec["ok"] = bool(tr)
+                tried.append(rec)
+                if tr:
+                    return JSONResponse({"ok": True, "endpoint_used": ep, "translated": tr, "trace": tried})
+            else:
+                rec["ok"] = False
+        except Exception as e:
+            rec["ok"] = False
+            rec["error"] = repr(e)
+        tried.append(rec)
+
+    return JSONResponse({"ok": False, "endpoint_used": None, "trace": tried}, status_code=502)
 
 # ===================== ADMIN =====================
 
