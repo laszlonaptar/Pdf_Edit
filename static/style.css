@@ -33,7 +33,7 @@ h2{margin:14px 2px; font-size:17px; font-weight:650}
   box-shadow:var(--shadow); padding:16px; margin-bottom:16px;
 }
 
-/* Rács – minden mező egységes szélességű */
+/* Rács – egységes szélességű mezők */
 .grid{ display:grid; gap:14px; grid-template-columns:1fr }
 @media (min-width:640px){ .grid{ grid-template-columns:repeat(2,1fr) } }
 @media (min-width:980px){ .grid{ grid-template-columns:repeat(4,1fr) } }
@@ -43,7 +43,7 @@ h2{margin:14px 2px; font-size:17px; font-weight:650}
 .checkbox{display:flex; align-items:center; gap:8px; user-select:none}
 .checkbox input{width:18px; height:18px}
 
-input[type="text"], input[type="date"], textarea, select, input[type="number"]{
+input[type="text"], input[type="date"], input[type="time"], textarea, select{
   width:100%; padding:10px 12px;
   border:1px solid var(--border); border-radius:12px; background:#fff; color:var(--fg);
   transition:border-color .2s ease, box-shadow .2s ease;
@@ -53,14 +53,22 @@ input:focus, textarea:focus, select:focus{
   outline:none; border-color:var(--ring); box-shadow:0 0 0 3px color-mix(in srgb, var(--ring) 20%, transparent);
 }
 
+/* Táblázat – egységes szélesség */
 .table{border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff}
 .trow{display:grid; grid-template-columns: repeat(6, 1fr); gap:10px; padding:10px 12px; border-top:1px solid var(--border)}
 .trow:first-child{border-top:none}
 .trow.thead{background:#f2f2f7; font-weight:600}
-.trow input, .trow select{width:100%}
+.trow input{width:100%}
 
-.time-wrap{display:flex; gap:8px}
-.time-wrap select{flex:1}
+/* Autocomplete – csak gépelésre látható, kompakt panel */
+.ac-wrap{position:relative}
+.ac-list{
+  position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:5;
+  display:none; max-height:220px; overflow:auto; background:#fff; border:1px solid var(--border);
+  border-radius:12px; box-shadow:var(--shadow);
+}
+.ac-item{padding:8px 10px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.ac-item:hover{background:#f5f5f7}
 
 .actions,.form-actions{display:flex; gap:10px; margin-top:12px}
 .btn{
@@ -78,16 +86,6 @@ input:focus, textarea:focus, select:focus{
 .status.err{color:#b00020}
 .status.info{color:#0071e3}
 
-/* Autocomplete overlay */
-.ac-wrap{position:relative}
-.ac-list{
-  position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:5;
-  display:none; max-height:240px; overflow:auto; background:#fff; border:1px solid var(--border);
-  border-radius:12px; box-shadow:var(--shadow);
-}
-.ac-item{padding:8px 10px; cursor:pointer}
-.ac-item:hover{background:#f5f5f7}
-
 /* Login */
 .login{max-width:380px; margin:40px auto; background:#fff; border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); padding:20px}
 .login h1{margin-top:0}
@@ -95,5 +93,5 @@ input:focus, textarea:focus, select:focus{
 .login input{width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:12px}
 .login button{margin-top:10px; width:100%}
 
-/* Placeholder szín */
+/* Placeholder */
 ::placeholder{color:#9a9aa1}
