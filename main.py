@@ -1,14 +1,13 @@
-# main.py  —  FULL MERGED VERSION (auth + admin + DB + Excel/PDF + Drive)
+# main.py  — FULL, működő verzió (auth + admin + DB + Excel/PDF + Drive + fordítás + autocomplete + deploy fixek)
 from fastapi import FastAPI, Request, Form, Response
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse, FileResponse
+from fastapi.responses import (
+    HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse, FileResponse
+)
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-
-# NEW: CORS (stabil mobil/böngésző hívásokhoz, GitHub Pages frontendhez)
 from fastapi.middleware.cors import CORSMiddleware
 
-# NEW: HTTP kliens a fordításhoz
 import httpx
 
 from openpyxl import load_workbook
@@ -50,7 +49,6 @@ if DRIVE_ENABLED:
         drive_svc = None
 
 def drive_upload_bytes(filename: str, data: bytes, mime: str) -> Optional[str]:
-    """Feltölt egy fájlt a megadott Drive mappába. Visszaadja a fileId-t vagy None-t."""
     if not (DRIVE_ENABLED and drive_svc):
         return None
     try:
@@ -85,10 +83,10 @@ except Exception as e:
 # ---- App / statikus / sablonok ----
 app = FastAPI()
 
-# NEW: CORS engedélyezés (állítható)
+# CORS (ha más domainről hívod a backendet – pl. GitHub Pages)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ALLOW_ORIGINS", "*").split(","),  # pl. "https://laszlonaptar.github.io"
+    allow_origins=os.getenv("CORS_ALLOW_ORIGINS", "*").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -365,8 +363,6 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         return False
     try:
         text_s = (text or "")
-        print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
-
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
         colA_w_px = _get_col_pixel_width(ws, 1)
 
@@ -376,7 +372,6 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
         new_h_px = int(block_h_px * BOTTOM_CROP)
 
-        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
         pil_img = _make_description_image(text_s, new_w_px, new_h_px)
         xlimg = _xlimage_from_pil(pil_img)
 
@@ -392,16 +387,12 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
 def set_print_defaults(ws):
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
-
     ws.page_setup.fitToWidth = 0
     ws.page_setup.fitToHeight = 0
     ws.page_setup.scale = 95
     if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
         ws.sheet_properties.pageSetUpPr.fitToPage = False
-
-    ws.page_margins = PageMargins(
-        left=0.2, right=0.2, top=0.2, bottom=0.2, header=0, footer=0
-    )
+    ws.page_margins = PageMargins(left=0.2, right=0.2, top=0.2, bottom=0.2, header=0, footer=0)
 
     last_data_row = 1
     last_data_col = 1
@@ -412,7 +403,6 @@ def set_print_defaults(ws):
                 last_data_col = max(last_data_col, c)
     last_col_letter = get_column_letter(last_data_col)
     ws.print_area = f"A1:{last_col_letter}{last_data_row}"
-
     ws.print_options.horizontalCentered = False
     ws.print_options.verticalCentered = False
 
@@ -420,7 +410,6 @@ def set_print_defaults(ws):
 def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
     if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
         raise RuntimeError("ReportLab vagy PIL nincs telepítve.")
-
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.units import mm
@@ -436,16 +425,10 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     c = canvas.Canvas(buf, pagesize=(pw, ph))
 
     y = ph - margin_top
-
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin_left, y, f"Datum: {date_text}")
-    y -= 16
-    c.setFont("Helvetica", 12)
-    c.drawString(margin_left, y, f"Bau: {bau}")
-    y -= 16
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin_left, y, f"Datum: {date_text}"); y -= 16
+    c.setFont("Helvetica", 12); c.drawString(margin_left, y, f"Bau: {bau}"); y -= 16
     if (basf_beauftragter or "").strip():
-        c.drawString(margin_left, y, f"BASF Beauftragter: {basf_beauftragter}")
-        y -= 10
+        c.drawString(margin_left, y, f"BASF Beauftragter: {basf_beauftragter}"); y -= 10
     y -= 6
 
     block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
@@ -454,14 +437,11 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     new_h_px = int(block_h_px * BOTTOM_CROP)
     pil_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
 
-    w_pt = new_w_px * 0.75
-    h_pt = new_h_px * 0.75
-
+    w_pt = new_w_px * 0.75; h_pt = new_h_px * 0.75
     max_w_pt = pw - margin_left - margin_right
     if w_pt > max_w_pt:
         scale = max_w_pt / w_pt
-        w_pt *= scale
-        h_pt *= scale
+        w_pt *= scale; h_pt *= scale
 
     y -= h_pt
     c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto')
@@ -472,33 +452,24 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     col_widths = [70, 70, 90, 60, 60, 60, 100]
     x = margin_left
     for hdr, w in zip(headers, col_widths):
-        c.drawString(x, y, hdr)
-        x += w
+        c.drawString(x, y, hdr); x += w
     y -= 14
-    c.setLineWidth(0.3)
-    c.line(margin_left, y, margin_left + sum(col_widths), y)
-    y -= 6
+    c.setLineWidth(0.3); c.line(margin_left, y, margin_left + sum(col_widths), y); y -= 6
 
     c.setFont("Helvetica", 10)
     for (vn, nn, aw, bg, en, vh) in workers:
         x = margin_left
         vals = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}", vh]
         for val, w in zip(vals, col_widths):
-            c.drawString(x, y, str(val or ""))
-            x += w
+            c.drawString(x, y, str(val or "")); x += w
         y -= 14
         if y < margin_bottom + 40:
-            c.showPage()
-            y = ph - margin_top
-            c.setFont("Helvetica", 10)
+            c.showPage(); y = ph - margin_top; c.setFont("Helvetica", 10)
 
-    y -= 6
-    c.setFont("Helvetica-Bold", 11)
+    y -= 6; c.setFont("Helvetica-Bold", 11)
     c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
 
-    c.showPage()
-    c.save()
-    buf.seek(0)
+    c.showPage(); c.save(); buf.seek(0)
     return buf.read()
 
 # ---------- User Login / Logout ----------
@@ -511,8 +482,7 @@ async def login_form(request: Request, next: str = "/"):
 @app.post("/login", response_class=HTMLResponse)
 async def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
     if username == APP_USERNAME and password == APP_PASSWORD:
-        request.session.clear()
-        request.session["auth_ok"] = True
+        request.session.clear(); request.session["auth_ok"] = True
         return RedirectResponse(next or "/", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
 
@@ -531,8 +501,7 @@ async def admin_login_form(request: Request, next: str = "/admin"):
 @app.post("/admin/login", response_class=HTMLResponse)
 async def admin_login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/admin")):
     if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-        request.session.clear()
-        request.session["admin_ok"] = True
+        request.session.clear(); request.session["admin_ok"] = True
         return RedirectResponse(next or "/admin", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
 
@@ -548,7 +517,7 @@ async def index(request: Request):
         return RedirectResponse("/login?next=/", status_code=303)
     return templates.TemplateResponse("index.html", {"request": request})
 
-# NEW: Render stabilitás – HEAD / (NE 405-özzön)
+# HEAD / – ne 405 legyen (Render health-hez is jó)
 @app.head("/")
 async def index_head_ok():
     return Response(status_code=200, headers={"Cache-Control": "no-store"})
@@ -649,7 +618,6 @@ async def generate_excel(
     excel_path = GEN_DIR / excel_name
     wb.save(excel_path.as_posix())
 
-    # Olvasd be bytes-ba (helyi letöltés + Drive feltöltés is)
     with open(excel_path, "rb") as f:
         excel_bytes = f.read()
 
@@ -708,7 +676,11 @@ async def generate_excel(
         "Content-Length": str(len(excel_bytes)),
         "Cache-Control": "no-store",
     }
-    return Response(content=excel_bytes, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers
+    )
 
 # ---------- PDF előnézet (opcionális) ----------
 @app.post("/generate_pdf")
@@ -769,7 +741,6 @@ async def generate_pdf(
         date_text=date_text,
         bau=bau,
         basf_beauftragter=basf_beauftragter,
-        beschrijving=beschreibung if 'beschreibung' in locals() else beschreibung,  # backwards safe
         beschreibung=beschreibung,
         ws=ws, r1=r1, c1=c1, r2=r2, c2=c2,
         workers=workers,
@@ -777,32 +748,22 @@ async def generate_pdf(
     )
 
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
-        "Content-Length": str(len(pdf_bytes)),
-        "Cache-Control": "no-store",
-    }
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"', "Content-Length": str(len(pdf_bytes)), "Cache-Control": "no-store"}
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 # ===================== ADMIN =====================
 
-# Kereső oldal (csak admin)
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
     if not _is_admin(request):
         return RedirectResponse("/admin/login?next=/admin", status_code=303)
 
     sql = "SELECT id, created_at, datum, bau, basf_beauftragter, excel_filename FROM submissions "
-    clauses = []
-    params = []
-
+    clauses, params = [], []
     if q_bau.strip():
-        clauses.append("bau LIKE ?")
-        params.append(f"%{q_bau.strip()}%")
+        clauses.append("bau LIKE ?"); params.append(f"%{q_bau.strip()}%")
     if q_date.strip():
-        clauses.append("datum LIKE ?")
-        params.append(f"%{q_date.strip()}%")
-
+        clauses.append("datum LIKE ?"); params.append(f"%{q_date.strip()}%")
     if clauses:
         sql += "WHERE " + " AND ".join(clauses) + " "
     sql += "ORDER BY created_at DESC LIMIT 200"
@@ -810,14 +771,8 @@ async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
     with db_conn() as c:
         rows = c.execute(sql, params).fetchall()
 
-    return templates.TemplateResponse("admin.html", {
-        "request": request,
-        "rows": rows,
-        "q_bau": q_bau,
-        "q_date": q_date
-    })
+    return templates.TemplateResponse("admin.html", {"request": request, "rows": rows, "q_bau": q_bau, "q_date": q_date})
 
-# Részletes nézet (csak admin)
 @app.get("/admin/view/{sid}", response_class=HTMLResponse)
 async def admin_view(request: Request, sid: int):
     if not _is_admin(request):
@@ -833,13 +788,8 @@ async def admin_view(request: Request, sid: int):
     except Exception:
         payload = {}
 
-    return templates.TemplateResponse("admin_detail.html", {
-        "request": request,
-        "sub": row,
-        "payload": payload
-    })
+    return templates.TemplateResponse("admin_detail.html", {"request": request, "sub": row, "payload": payload})
 
-# Excel fájl letöltés (csak admin, helyi fájlról)
 @app.get("/download/{fname}")
 async def download_file(request: Request, fname: str):
     if not _is_admin(request):
@@ -848,15 +798,11 @@ async def download_file(request: Request, fname: str):
     if not fp.exists():
         return PlainTextResponse("Fájl nem található.", status_code=404)
     data = fp.read_bytes()
-    return Response(
-        content=data,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
-    )
+    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
-# ===================== ÚJ: HEALTH + FAVICON + CONFIG + AUTOCOMPLETE + TRANSLATE =====================
+# ===================== ÚJ: HEALTH + FAVICON + CONFIG + AUTOCOMPLETE + TRANSLATE + ALIASOK =====================
 
-# Health endpoint a Renderhez (állítsd be Health Check Path-ként)
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
@@ -865,7 +811,6 @@ def healthz():
 def healthz_head():
     return Response(status_code=200)
 
-# Favikon 404 zaj elkerülésére
 @app.get("/favicon.ico")
 def favicon():
     path = os.path.join("static", "favicon.ico")
@@ -873,7 +818,6 @@ def favicon():
         return FileResponse(path, media_type="image/x-icon")
     return Response(status_code=204)
 
-# Frontend konfiguráció (gombok láthatósága)
 @app.get("/api/config")
 def api_config():
     return {
@@ -881,13 +825,9 @@ def api_config():
             "autocomplete": True,
             "translation_button": True,
         },
-        "i18n": {
-            "default": "de",
-            "available": ["de", "hr", "en"],
-        },
+        "i18n": {"default": "de", "available": ["de", "hr", "en"]},
     }
 
-# Autocomplete adatforrás: WORKERS_JSON env -> workers.json -> fallback
 DEFAULT_WORKERS = [
     {"last_name": "Muster", "first_name": "Max", "id": "A001"},
     {"last_name": "Beispiel", "first_name": "Erika", "id": "A002"},
@@ -919,13 +859,15 @@ def api_workers(q: Optional[str] = None):
     items = load_workers()
     if q:
         ql = q.lower().strip()
-        items = [w for w in items if any(
-            ql in (w.get(k, "") or "").lower() for k in ("last_name", "first_name", "id")
-        )]
+        items = [w for w in items if any(ql in (w.get(k, "") or "").lower() for k in ("last_name", "first_name", "id"))]
     return {"items": items}
 
-# Fordítás proxy – LibreTranslate (vagy kompatibilis)
-# ENV: LT_ENDPOINT = https://libretranslate.de/translate ; (opcionális) LT_API_KEY
+# Backward-compat alias (ha a frontend /workers-t hívja)
+@app.get("/workers")
+def workers_alias(q: Optional[str] = None):
+    return api_workers(q)
+
+# Fordítás proxy – LibreTranslate (ENV: LT_ENDPOINT; opcionálisan LT_API_KEY)
 @app.post("/api/translate")
 async def api_translate(request: Request):
     data = await request.json()
@@ -955,3 +897,10 @@ async def api_translate(request: Request):
         return {"translated": translated}
     except Exception as e:
         return JSONResponse({"error": f"Translator call failed: {e}"}, status_code=502)
+
+# /app alias – ha közvetlenül ezt az utat nyitod
+@app.get("/app", response_class=HTMLResponse)
+async def app_alias(request: Request):
+    if not _is_user(request):
+        return RedirectResponse("/login?next=/app", status_code=303)
+    return templates.TemplateResponse("index.html", {"request": request})
