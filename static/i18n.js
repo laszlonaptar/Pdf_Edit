@@ -1,4 +1,4 @@
-// i18n.js — csak DE és HR; HR nézetben jelenjen meg a fordítás gomb
+// i18n.js — DE és HR; HR nézetben jelenjen meg a fordítás gomb
 (function () {
   const KEY = "pdfedit.lang";
 
@@ -29,10 +29,11 @@
     de: {
       title: "Leistungsnachweis",
       logout: "Abmelden",
-      date: "Datum",
-      site: "Bau / Ausführungsort",
+      date: "Datum der Leistungsausführung",
+      site: "Bau und Ausführungsort",
       bf: "Bauleiter/Fachbauleiter",
       break: "Pausen (Min)",
+      half_break: "Halbstündige Pause (30 Min)",
       desc: "Beschreibung / Was wurde gemacht?",
       translate_to_de: "Auf Deutsch übersetzen",
       workers: "Mitarbeiter",
@@ -51,10 +52,11 @@
     hr: {
       title: "Evidencija rada",
       logout: "Odjava",
-      date: "Datum",
+      date: "Datum izvođenja radova",
       site: "Gradilište / Mjesto izvođenja",
       bf: "Voditelj gradilišta",
       break: "Pauze (min)",
+      half_break: "Pola sata pauze (30 min)",
       desc: "Opis / Što je rađeno?",
       translate_to_de: "Prevedi na njemački",
       workers: "Radnici",
@@ -80,8 +82,6 @@
     }
     const select = document.getElementById("lang-select");
     if (select) select.value = lang;
-
-    // Fordítás gomb: csak HR
     const btn = document.getElementById("btn-translate-hr-de");
     if (btn) btn.style.display = (lang === "hr" ? "" : "none");
   }
@@ -99,6 +99,7 @@
   }
 
   window.__i18n__ = { getLang, applyI18n };
+  window.__i18nDict = L;
 
   document.addEventListener("DOMContentLoaded", () => {
     const lang = getLang();
