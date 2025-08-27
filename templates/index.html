@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <title>PDF-Edit – Leistungsnachweis</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="preload" as="script" href="/static/i18n.js?v=16">
-  <link rel="preload" as="script" href="/static/script.js?v=16">
-  <link rel="stylesheet" href="/static/style.css?v=16">
+  <link rel="preload" as="script" href="/static/i18n.js?v=17">
+  <link rel="preload" as="script" href="/static/script.js?v=17">
+  <link rel="stylesheet" href="/static/style.css?v=17">
 </head>
 <body>
 <header class="topbar">
@@ -16,7 +16,6 @@
     <select id="lang-select" aria-label="Language">
       <option value="de">Deutsch</option>
       <option value="hr">Hrvatski</option>
-      <option value="en">English</option>
     </select>
   </div>
   <nav>
@@ -27,21 +26,21 @@
 <main class="container">
   <h1 data-i18n="title">Leistungsnachweis</h1>
 
-  <form id="main-form" action="/generate_excel" method="post">
-    <section class="row">
-      <div class="col">
+  <form id="main-form" action="/generate_excel" method="post" class="card">
+    <section class="grid">
+      <div class="field">
         <label for="datum" data-i18n="date">Datum</label>
         <input type="date" id="datum" name="datum" required>
       </div>
-      <div class="col">
+      <div class="field">
         <label for="bau" data-i18n="site">Bau / Ausführungsort</label>
-        <input type="text" id="bau" name="bau" required>
+        <input type="text" id="bau" name="bau" required autocomplete="off">
       </div>
-      <div class="col">
+      <div class="field">
         <label for="basf_beauftragter" data-i18n="bf">Bauleiter/Fachbauleiter</label>
-        <input type="text" id="basf_beauftragter" name="basf_beauftragter">
+        <input type="text" id="basf_beauftragter" name="basf_beauftragter" autocomplete="off">
       </div>
-      <div class="col">
+      <div class="field">
         <label for="break_minutes" data-i18n="break">Pausen (Min)</label>
         <input type="number" id="break_minutes" name="break_minutes" value="60" min="0" step="5">
       </div>
@@ -49,28 +48,27 @@
 
     <section>
       <label for="beschreibung" data-i18n="desc">Beschreibung / Was wurde gemacht?</label>
-      <textarea id="beschreibung" name="beschreibung" rows="6"></textarea>
+      <textarea id="beschreibung" name="beschreibung" rows="6" class="textarea"></textarea>
 
-      <!-- HR nézetben látszik -->
       <div class="actions">
-        <button type="button" id="btn-translate-hr-de" style="display:none" data-i18n="translate_to_de">Auf Deutsch übersetzen</button>
+        <!-- HR nyelven látszik -->
+        <button type="button" id="btn-translate-hr-de" class="btn ghost" style="display:none" data-i18n="translate_to_de">Auf Deutsch übersetzen</button>
       </div>
-      <div id="translate-status" class="muted"></div>
-
-      <!-- Opcionális külön kimenet (ha nem akarod felülírni az eredetit, hagyd bekapcsolva) -->
-      <!-- <textarea id="beschreibung_de" rows="6" placeholder="Übersetzung (DE)"></textarea> -->
+      <div id="translate-status" class="status"></div>
+      <!-- Opcionális külön kimenet: ha nem akarod felülírni az eredetit, vedd ki a kommentet -->
+      <!-- <textarea id="beschreibung_de" rows="6" class="textarea" placeholder="Übersetzung (DE)"></textarea> -->
     </section>
 
     <section>
       <h2 data-i18n="workers">Mitarbeiter</h2>
 
-      <!-- Autocomplete datalist források -->
+      <!-- autocomplete datalist források -->
       <datalist id="dl-lastnames"></datalist>
       <datalist id="dl-firstnames"></datalist>
       <datalist id="dl-ids"></datalist>
 
       <div class="table">
-        <div class="row header">
+        <div class="trow thead">
           <div data-i18n="th_last">Name</div>
           <div data-i18n="th_first">Vorname</div>
           <div data-i18n="th_id">Ausweis</div>
@@ -79,8 +77,8 @@
           <div data-i18n="th_vh">Vorhaltung</div>
         </div>
 
-        <!-- 5 fix sor a backend kompatibilitásért -->
-        <div class="row">
+        <!-- 5 fix sor a backend mezőnevekhez -->
+        <div class="trow">
           <input name="nachname1" id="nachname1" list="dl-lastnames" autocomplete="off">
           <input name="vorname1"  id="vorname1"  list="dl-firstnames" autocomplete="off">
           <input name="ausweis1"  id="ausweis1"  list="dl-ids" autocomplete="off">
@@ -88,7 +86,7 @@
           <input name="ende1"     id="ende1"     type="time" step="60">
           <input name="vorhaltung1" id="vorhaltung1" autocomplete="off">
         </div>
-        <div class="row">
+        <div class="trow">
           <input name="nachname2" id="nachname2" list="dl-lastnames" autocomplete="off">
           <input name="vorname2"  id="vorname2"  list="dl-firstnames" autocomplete="off">
           <input name="ausweis2"  id="ausweis2"  list="dl-ids" autocomplete="off">
@@ -96,7 +94,7 @@
           <input name="ende2"     id="ende2"     type="time" step="60">
           <input name="vorhaltung2" id="vorhaltung2" autocomplete="off">
         </div>
-        <div class="row">
+        <div class="trow">
           <input name="nachname3" id="nachname3" list="dl-lastnames" autocomplete="off">
           <input name="vorname3"  id="vorname3"  list="dl-firstnames" autocomplete="off">
           <input name="ausweis3"  id="ausweis3"  list="dl-ids" autocomplete="off">
@@ -104,7 +102,7 @@
           <input name="ende3"     id="ende3"     type="time" step="60">
           <input name="vorhaltung3" id="vorhaltung3" autocomplete="off">
         </div>
-        <div class="row">
+        <div class="trow">
           <input name="nachname4" id="nachname4" list="dl-lastnames" autocomplete="off">
           <input name="vorname4"  id="vorname4"  list="dl-firstnames" autocomplete="off">
           <input name="ausweis4"  id="ausweis4"  list="dl-ids" autocomplete="off">
@@ -112,7 +110,7 @@
           <input name="ende4"     id="ende4"     type="time" step="60">
           <input name="vorhaltung4" id="vorhaltung4" autocomplete="off">
         </div>
-        <div class="row">
+        <div class="trow">
           <input name="nachname5" id="nachname5" list="dl-lastnames" autocomplete="off">
           <input name="vorname5"  id="vorname5"  list="dl-firstnames" autocomplete="off">
           <input name="ausweis5"  id="ausweis5"  list="dl-ids" autocomplete="off">
@@ -123,14 +121,14 @@
       </div>
     </section>
 
-    <div class="actions">
-      <button type="submit" class="primary" data-i18n="btn_excel">Excel generieren</button>
-      <button type="button" id="btn-pdf" data-i18n="btn_pdf">PDF Vorschau</button>
+    <div class="form-actions">
+      <button type="submit" class="btn primary" data-i18n="btn_excel">Excel generieren</button>
+      <button type="button" id="btn-pdf" class="btn" data-i18n="btn_pdf">PDF Vorschau</button>
     </div>
   </form>
 </main>
 
-<script src="/static/i18n.js?v=16"></script>
-<script src="/static/script.js?v=16"></script>
+<script src="/static/i18n.js?v=17"></script>
+<script src="/static/script.js?v=17"></script>
 </body>
 </html>
