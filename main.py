@@ -484,6 +484,18 @@ async def logout(request: Request):
 async def admin_login_form(request: Request, next: str = "/admin"):
     if _is_admin(request):
         return RedirectResponse(next or "/admin", status_code=303)
+    @app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    if not _is_user(request):
+        return RedirectResponse("/login?next=/", status_code=303)
+
+    # nyelv kiválasztása (alap: de)
+    lang = request.session.get("ui_lang", "de")
+
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "lang": lang
+    })
     return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
 
 @app.post("/admin/login", response_class=HTMLResponse)
