@@ -1,71 +1,130 @@
-// static/i18n.js
-window.I18N = {
-  de: {
-    title: "Leistungsnachweis",
-    admin: "Admin",
-    logout: "Abmelden",
-    date_label: "Datum der Leistungsausführung",
-    bau_label: "Bau und Ausführungsort",
-    basf_label: "BASF-Beauftragter, Org.-Code",
-    beschreibung_label: "Beschreibung der ausgeführten Arbeiten",
-    beschreibung_placeholder: "Max. 1000 Zeichen",
-    mitarbeiter: "Mitarbeiter",
-    vorname: "Vorname",
-    nachname: "Nachname",
-    ausweis: "Ausweis-Nr. / Kennzeichen",
-    vorhaltung: "Vorhaltung / beauftragtes Gerät / Fahrzeug",
-    pause_half: "Pause nur 0,5 h",
-    pause_hint: "Wenn nicht ausgewählt, zieht das System automatisch 1,00 h Pause ab.",
-    beginn: "Beginn",
-    ende: "Ende",
-    stunden: "Stunden (auto)",
-    weitere: "+ Weitere Mitarbeiter hinzufügen",
-    gesamtzeit: "Gesamtzeit",
-    gesamtstunden: "Gesamtstunden (auto)",
-    gesamt_hint: "Automatischer Pausenabzug: standardmäßig 1,00 h. Wenn „Pause nur 0,5 h“ gewählt, werden 0,50 h abgezogen.",
-    generate_excel: "Excel generieren",
-    // ÚJ fordítás modul
-    translate_btn: "Ins Deutsche übersetzen",
-    translate_title: "Übersetzung (bearbeitbar)",
-    translate_detected: "Erkannte Sprache",
-    translate_glossary_hits: "Glossar-Treffer",
-    translate_run: "Übersetzen",
-    translate_overwrite_desc: "Übersetzung in Beschreibung kopieren",
-    translating: "Übersetzen…",
-    chars: "Zeichen",
-  },
-  hr: {
-    title: "Izvještaj o radu",
-    admin: "Admin",
-    logout: "Odjava",
-    date_label: "Datum izvođenja radova",
-    bau_label: "Gradilište i mjesto izvođenja",
-    basf_label: "Odgovorna osoba BASF, Org.-kod",
-    beschreibung_label: "Opis izvedenih radova",
-    beschreibung_placeholder: "Maks. 1000 znakova",
-    mitarbeiter: "Radnici",
-    vorname: "Ime",
-    nachname: "Prezime",
-    ausweis: "Broj iskaznice / registracija",
-    vorhaltung: "Oprema / vozilo na raspolaganju",
-    pause_half: "Pauza samo 0,5 h",
-    pause_hint: "Ako nije označeno, sustav automatski oduzima 1,00 h pauze.",
-    beginn: "Početak",
-    ende: "Kraj",
-    stunden: "Sati (auto)",
-    weitere: "+ Dodaj još radnika",
-    gesamtzeit: "Ukupno vrijeme",
-    gesamtstunden: "Ukupno sati (auto)",
-    gesamt_hint: "Automatsko oduzimanje pauze: standardno 1,00 h. Ako je označeno 'Pauza samo 0,5 h', oduzima se 0,50 h.",
-    generate_excel: "Generiraj Excel",
-    // ÚJ fordítás modul
-    translate_btn: "Prevedi na njemački",
-    translate_title: "Prijevod (može se urediti)",
-    translate_detected: "Prepoznati jezik",
-    translate_glossary_hits: "Pogoci iz rječnika",
-    translate_run: "Prevedi",
-    translate_overwrite_desc: "Kopiraj prijevod u opis",
-    translating: "Prevodim…",
-    chars: "Znakova",
-  },
-};
+// i18n.js — nyelvkezelés (URL ?lang=, localStorage, default=de)
+(function () {
+  const KEY = "pdfedit.lang";
+
+  function parseQuery() {
+    const q = {};
+    const s = window.location.search.substring(1);
+    if (!s) return q;
+    for (const part of s.split("&")) {
+      const [k, v] = part.split("=");
+      if (!k) continue;
+      q[decodeURIComponent(k)] = decodeURIComponent(v || "");
+    }
+    return q;
+  }
+
+  function getLang() {
+    const qs = parseQuery();
+    if (qs.lang && ["de", "hr", "en"].includes(qs.lang)) {
+      localStorage.setItem(KEY, qs.lang);
+      return qs.lang;
+    }
+    const saved = localStorage.getItem(KEY);
+    if (saved && ["de", "hr", "en"].includes(saved)) return saved;
+    return "de";
+  }
+
+  const L = {
+    de: {
+      title: "Leistungsnachweis",
+      logout: "Abmelden",
+      date: "Datum",
+      site: "Bau / Ausführungsort",
+      bf: "Bauleiter/Fachbauleiter",
+      break: "Pausen (Min)",
+      desc: "Beschreibung / Was wurde gemacht?",
+      translate_to_de: "Auf Deutsch übersetzen",
+      workers: "Mitarbeiter",
+      th_last: "Name",
+      th_first: "Vorname",
+      th_id: "Ausweis",
+      th_start: "Beginn",
+      th_end: "Ende",
+      th_vh: "Vorhaltung",
+      btn_excel: "Excel generieren",
+      btn_pdf: "PDF Vorschau",
+      t_busy: "Übersetzen...",
+      t_done: "Übersetzung fertig.",
+      t_error: "Übersetzung fehlgeschlagen."
+    },
+    hr: {
+      title: "Evidencija rada",
+      logout: "Odjava",
+      date: "Datum",
+      site: "Gradilište / Mjesto izvođenja",
+      bf: "Voditelj gradilišta",
+      break: "Pauze (min)",
+      desc: "Opis / Što je rađeno?",
+      translate_to_de: "Prevedi na njemački",
+      workers: "Radnici",
+      th_last: "Prezime",
+      th_first: "Ime",
+      th_id: "Iskaznica",
+      th_start: "Početak",
+      th_end: "Kraj",
+      th_vh: "Oprema",
+      btn_excel: "Generiraj Excel",
+      btn_pdf: "PDF pregled",
+      t_busy: "Prevodim...",
+      t_done: "Prijevod gotov.",
+      t_error: "Greška pri prijevodu."
+    },
+    en: {
+      title: "Work report",
+      logout: "Logout",
+      date: "Date",
+      site: "Site / Location",
+      bf: "Site manager",
+      break: "Breaks (min)",
+      desc: "Description / What was done?",
+      translate_to_de: "Translate to German",
+      workers: "Workers",
+      th_last: "Last name",
+      th_first: "First name",
+      th_id: "ID",
+      th_start: "Start",
+      th_end: "End",
+      th_vh: "Equipment",
+      btn_excel: "Generate Excel",
+      btn_pdf: "PDF preview",
+      t_busy: "Translating...",
+      t_done: "Translation done.",
+      t_error: "Translation failed."
+    }
+  };
+
+  function applyI18n(lang) {
+    for (const el of document.querySelectorAll("[data-i18n]")) {
+      const key = el.getAttribute("data-i18n");
+      const val = L[lang][key];
+      if (typeof val === "string") el.textContent = val;
+    }
+    const select = document.getElementById("lang-select");
+    if (select) select.value = lang;
+
+    // Fordítás gomb csak HR nyelvnél
+    const btn = document.getElementById("btn-translate-hr-de");
+    if (btn) btn.style.display = (lang === "hr" ? "" : "none");
+  }
+
+  function initLangSelect() {
+    const select = document.getElementById("lang-select");
+    if (!select) return;
+    select.addEventListener("change", () => {
+      const lang = select.value;
+      localStorage.setItem(KEY, lang);
+      const url = new URL(window.location.href);
+      url.searchParams.set("lang", lang);
+      window.location.replace(url.toString());
+    });
+  }
+
+  window.__i18n__ = { getLang, applyI18n };
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const lang = getLang();
+    applyI18n(lang);
+    initLangSelect();
+  });
+})();
