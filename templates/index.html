@@ -1,139 +1,128 @@
 <!DOCTYPE html>
-<html lang="{{ request.state.lang }}">
+<html lang="{{ request.query_params.get('lang', 'de') }}">
 <head>
   <meta charset="utf-8">
   <title>Leistungsnachweis</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="/static/style.css?v=16" rel="stylesheet">
-  <script defer src="/static/script.js"></script>
-  <script defer src="/static/i18n.js"></script>
+  <link rel="stylesheet" href="/static/style.css?v=18">
+  <script src="/static/i18n.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="container topbar-inner">
-      <div class="topbar-left">
-        <a href="/admin" class="btn small">Admin</a>
+  <div class="container">
+
+    <!-- NAVBAR -->
+    <div class="navbar">
+      <div class="nav-left">
+        <h1>Leistungsnachweis</h1>
       </div>
-      <div class="topbar-right">
-        <form method="get" action="/" class="lang-form">
-          <select name="lang" onchange="this.form.submit()">
-            <option value="de" {% if request.state.lang=='de' %}selected{% endif %}>Deutsch</option>
-            <option value="hr" {% if request.state.lang=='hr' %}selected{% endif %}>Hrvatski</option>
+      <div class="nav-right">
+        <a href="/admin" class="btn secondary">Admin</a>
+        <a href="/logout" class="btn">Abmelden</a>
+        <form method="get" onchange="this.submit()" style="margin:0">
+          <select name="lang">
+            <option value="de" {% if request.query_params.get('lang') == 'de' %}selected{% endif %}>Deutsch</option>
+            <option value="hr" {% if request.query_params.get('lang') == 'hr' %}selected{% endif %}>Hrvatski</option>
           </select>
         </form>
-        <a href="/logout" class="btn small">Abmelden</a>
       </div>
     </div>
-  </header>
 
-  <main class="container narrow">
-    <h1 data-i18n="title">Leistungsnachweis</h1>
-
-    <form id="ln-form" method="post" action="/generate_excel">
-      <div class="card">
-        <div class="grid-2">
-          <div class="field">
-            <label for="datum" data-i18n="datum">Datum der Leistungsausführung</label>
-            <input type="date" id="datum" name="datum">
-          </div>
-          <div class="field">
-            <label for="bau" data-i18n="bau">Bau und Ausführungsort</label>
-            <input type="text" id="bau" name="bau">
-          </div>
+    <!-- CONTENT CARD -->
+    <div class="card">
+      <form id="ln-form" method="post" action="/generate_excel">
+        <!-- dátum -->
+        <div class="field">
+          <label for="datum" data-i18n="datum">Datum der Leistungsausführung</label>
+          <input type="date" id="datum" name="datum">
         </div>
 
-        <div class="grid-2">
-          <div class="field">
-            <label for="basf_beauftragter" data-i18n="bf">BASF-Beauftragter, Org.-Code</label>
-            <input type="text" id="basf_beauftragter" name="basf_beauftragter">
-          </div>
+        <!-- bau -->
+        <div class="field">
+          <label for="bau" data-i18n="bau">Bau und Ausführungsort</label>
+          <input type="text" id="bau" name="bau">
         </div>
 
+        <!-- beauftragter -->
+        <div class="field">
+          <label for="basf_beauftragter" data-i18n="bf">BASF-Beauftragter, Org.-Code</label>
+          <input type="text" id="basf_beauftragter" name="basf_beauftragter">
+        </div>
+
+        <!-- beschreibung -->
         <div class="field">
           <label for="beschreibung" data-i18n="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
-          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="4"></textarea>
-          <div class="muted small"><span id="besch-count">0 / 1000</span></div>
-          {% if request.state.lang == 'hr' %}
-          <button type="button" id="translate-btn" class="btn secondary" style="margin-top:0.5rem">
-            → Deutsch übersetzen
-          </button>
-          <div id="translate-status" class="muted small" style="margin-top:.25rem"></div>
+          <textarea id="beschreibung" name="beschreibung" maxlength="1000"></textarea>
+          <div class="small muted" id="besch-count">0 / 1000</div>
+          {% if request.query_params.get('lang') == 'hr' %}
+          <button type="button" id="translate-btn" class="btn secondary">→ Deutsch übersetzen</button>
+          <div id="translate-status" class="small muted"></div>
           {% endif %}
         </div>
-      </div>
 
-      <div class="card">
+        <!-- worker section -->
         <h2 data-i18n="mitarbeiter">Mitarbeiter</h2>
         <div id="worker-list">
           <fieldset class="worker" data-index="1">
             <legend>Mitarbeiter 1</legend>
             <div class="grid-3">
               <div class="field">
-                <label data-i18n="vorname">Vorname</label>
-                <input name="vorname1" type="text">
+                <label>Vorname</label>
+                <input name="vorname1" type="text" />
               </div>
               <div class="field">
-                <label data-i18n="nachname">Nachname</label>
-                <input name="nachname1" type="text">
+                <label>Nachname</label>
+                <input name="nachname1" type="text" />
               </div>
               <div class="field">
-                <label data-i18n="ausweis">Ausweis-Nr. / Kennzeichen</label>
-                <input name="ausweis1" type="text">
+                <label>Ausweis-Nr. / Kennzeichen</label>
+                <input name="ausweis1" type="text" />
               </div>
             </div>
             <div class="grid">
               <div class="field">
-                <label data-i18n="vorhaltung">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
-                <input name="vorhaltung1" type="text">
+                <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+                <input name="vorhaltung1" type="text" />
               </div>
             </div>
-            <div class="ck-row" style="margin-top:.5rem">
+
+            <div class="ck-row">
               <input type="checkbox" id="break_half" />
-              <label for="break_half" data-i18n="pause05">Pause nur 0,5 h</label>
-              <input type="hidden" id="break_minutes" name="break_minutes" value="60">
+              <label for="break_half">Pause nur 0,5 h</label>
+              <input type="hidden" id="break_minutes" name="break_minutes" value="60" />
             </div>
+
             <div class="grid-3">
               <div class="field">
-                <label data-i18n="beginn">Beginn</label>
-                <input name="beginn1" type="time">
+                <label>Beginn</label>
+                <input name="beginn1" type="time" />
               </div>
               <div class="field">
-                <label data-i18n="ende">Ende</label>
-                <input name="ende1" type="time">
+                <label>Ende</label>
+                <input name="ende1" type="time" />
               </div>
               <div class="field">
-                <label data-i18n="stunden">Stunden (auto)</label>
-                <input class="stunden-display" type="text" value="" readonly>
+                <label>Stunden (auto)</label>
+                <input class="stunden-display" type="text" value="" readonly />
               </div>
             </div>
           </fieldset>
         </div>
-        <button type="button" id="add-worker" class="btn secondary" style="margin-top:1rem" data-i18n="more-worker">
-          + Weitere Mitarbeiter hinzufügen
-        </button>
-      </div>
 
-      <div class="card">
-        <div class="grid-2">
-          <div class="field">
-            <label data-i18n="gesamtzeit">Gesamtzeit</label>
-            <input id="gesamtstunden_auto" type="text" readonly>
-          </div>
-          <div class="field">
-            <label data-i18n="gesamtstunden">Gesamtstunden (auto)</label>
-            <input id="gesamtstunden_auto_copy" type="text" readonly>
-          </div>
+        <button type="button" id="add-worker" class="btn secondary">+ Weitere Mitarbeiter hinzufügen</button>
+
+        <!-- Gesamtzeit -->
+        <div class="field">
+          <label for="gesamtstunden_auto">Gesamtstunden (auto)</label>
+          <input type="text" id="gesamtstunden_auto" readonly />
         </div>
-        <p class="muted small" data-i18n="pausenhinweis">
-          Automatischer Pausenabzug: standardmäßig 1,00 h. Wenn „Pause nur 0,5 h“ gewählt, werden 0,50 h abgezogen.
-        </p>
-      </div>
 
-      <div class="actions">
-        <button type="submit" class="btn primary" data-i18n="excel">Excel generieren</button>
-        <button type="submit" class="btn" formaction="/generate_pdf" data-i18n="pdf">PDF Vorschau</button>
-      </div>
-    </form>
-  </main>
+        <!-- Aktionen -->
+        <div class="actions">
+          <button type="submit" class="btn primary">Excel generieren</button>
+        </div>
+      </form>
+    </div>
+
+  </div>
+  <script src="/static/script.js"></script>
 </body>
 </html>
