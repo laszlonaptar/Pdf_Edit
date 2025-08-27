@@ -22,9 +22,11 @@ import sqlite3
 from pathlib import Path
 from typing import Tuple, Optional, List
 
-# ÚJ: HTTP kliens + DNS diagnosztika
+# Hálózat/HTTP és DNS diag
 import httpx
 import socket
+import re
+from urllib.parse import urlparse
 
 # ---- Google Drive (service account) ----
 GDRIVE_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON", "")
@@ -101,13 +103,28 @@ def _is_admin(request: Request) -> bool:
     return bool(request.session.get("admin_ok") is True)
 
 # ---- Translate beállítások (ENV) ----
-# Biztos defaultok + tartalék végpont + timeout
+# Biztos defaultok + tartalék + timeout
 LT_ENDPOINT = os.getenv("LT_ENDPOINT", "https://libretranslate.com/translate").strip()
-LT_BACKUP_ENDPOINT = os.getenv("LT_BACKUP_ENDPOINT", "https://translate.argosopentech.com/translate").strip()
+LT_BACKUP_ENDPOINT = os.getenv("LT_BACKUP_ENDPOINT", "").strip()
+# Ha IP-t hívunk, ehhez a domainhez állítjuk a Host headert (SNI/CF miatt)
+LT_VIRTUAL_HOST = os.getenv("LT_VIRTUAL_HOST", "libretranslate.com").strip()
 try:
     LT_TIMEOUT = float(os.getenv("LT_TIMEOUT", "12"))
 except Exception:
     LT_TIMEOUT = 12.0
+
+# IP host felismerés & Host-header beállítás
+_IP_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+def _headers_for(endpoint: str, base_headers: dict | None = None) -> dict:
+    """
+    Ha az endpoint hostja IP, beállítjuk a Host headert (default: libretranslate.com).
+    """
+    base = dict(base_headers or {})
+    u = urlparse(endpoint)
+    host = u.hostname or ""
+    if _IP_RE.match(host):
+        base.setdefault("Host", LT_VIRTUAL_HOST or "libretranslate.com")
+    return base
 
 # ---- Tárolók / DB init ----
 BASE_DIR = Path(os.getcwd())
@@ -548,7 +565,7 @@ async def generate_excel(
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
     geraet: str = Form(""),
-    beschrijving: str = Form(""),
+    beschreibung: str = Form(""),
     break_minutes: int = Form(60),
     vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
@@ -562,7 +579,6 @@ async def generate_excel(
     wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
     ws = wb.active
 
-    # datum -> B2, bau -> B3, basf -> E3
     date_text = datum
     try:
         dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
@@ -580,7 +596,7 @@ async def generate_excel(
             ws.row_dimensions[r].height = 22
 
     inserted = False
-    text_in = (beschrijving or "").strip()  # mezőnév eltérés nem gond
+    text_in = (beschreibung or "").strip()
     if text_in:
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
     if not inserted:
@@ -650,7 +666,7 @@ async def generate_excel(
         "datum": datum,
         "bau": bau,
         "basf_beauftragter": basf_beauftragter,
-        "beschreibung": beschrijving,
+        "beschreibung": beschreibung,
         "break_minutes": int(break_minutes),
         "workers": [
             {"vorname": locals().get(f"vorname{i}", ""), "nachname": locals().get(f"nachname{i}", ""),
@@ -681,7 +697,7 @@ async def generate_excel(
             )
         """, (
             datetime.utcnow().isoformat(),
-            datum, bau, basf_beauftragter, beschrijving, int(break_minutes),
+            datum, bau, basf_beauftragter, beschreibung, int(break_minutes),
             locals().get("vorname1",""), locals().get("nachname1",""), locals().get("ausweis1",""), locals().get("beginn1",""), locals().get("ende1",""), locals().get("vorhaltung1",""),
             locals().get("vorname2",""), locals().get("nachname2",""), locals().get("ausweis2",""), locals().get("beginn2",""), locals().get("ende2",""), locals().get("vorhaltung2",""),
             locals().get("vorname3",""), locals().get("nachname3",""), locals().get("ausweis3",""), locals().get("beginn3",""), locals().get("ende3",""), locals().get("vorhaltung3",""),
@@ -776,6 +792,7 @@ async def api_translate(payload: dict = Body(...)):
     """
     HR -> DE fordítás LibreTranslate segítségével.
     - Követi a 301/302 átirányítást
+    - IP-s endpoint esetén automatikus Host header
     - Bemenet: {"text":"...", "source":"hr", "target":"de"}
     - Kimenet: {"translated":"..."} vagy {"error":"..."} (502)
     """
@@ -787,7 +804,7 @@ async def api_translate(payload: dict = Body(...)):
         return JSONResponse({"translated": ""})
 
     data = {"q": text, "source": source, "target": target, "format": "text"}
-    headers = {
+    base_headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
         "User-Agent": "pdf-edit/1.0"
@@ -798,6 +815,7 @@ async def api_translate(payload: dict = Body(...)):
 
     for ep in endpoints:
         try:
+            headers = _headers_for(ep, base_headers)
             with httpx.Client(timeout=LT_TIMEOUT, follow_redirects=True) as cli:
                 r = cli.post(ep, json=data, headers=headers)
             if r.status_code == 200:
@@ -866,7 +884,7 @@ async def translate_probe(payload: dict = Body(...)):
         return JSONResponse({"ok": True, "note": "empty text, nothing to do", "endpoint_used": None})
 
     data = {"q": text, "source": source, "target": target, "format": "text"}
-    headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "pdf-edit/diag"}
+    base_headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "pdf-edit/diag"}
 
     tried = []
     for ep in [LT_ENDPOINT, LT_BACKUP_ENDPOINT]:
@@ -874,6 +892,7 @@ async def translate_probe(payload: dict = Body(...)):
             continue
         rec = {"endpoint": ep}
         try:
+            headers = _headers_for(ep, base_headers)
             with httpx.Client(timeout=LT_TIMEOUT, follow_redirects=True) as cli:
                 r = cli.post(ep, json=data, headers=headers)
             rec["status"] = r.status_code
