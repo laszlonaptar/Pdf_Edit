@@ -1,29 +1,6 @@
-// i18n.js — DE és HR; HR nézetben jelenjen meg a fordítás gomb
+// i18n.js — DE és HR; HR nézetben fordítás gomb
 (function () {
   const KEY = "pdfedit.lang";
-
-  function parseQuery() {
-    const q = {};
-    const s = window.location.search.substring(1);
-    if (!s) return q;
-    for (const part of s.split("&")) {
-      const [k, v] = part.split("=");
-      if (!k) continue;
-      q[decodeURIComponent(k)] = decodeURIComponent(v || "");
-    }
-    return q;
-  }
-
-  function getLang() {
-    const qs = parseQuery();
-    if (qs.lang && ["de", "hr"].includes(qs.lang)) {
-      localStorage.setItem(KEY, qs.lang);
-      return qs.lang;
-    }
-    const saved = localStorage.getItem(KEY);
-    if (saved && ["de", "hr"].includes(saved)) return saved;
-    return "de";
-  }
 
   const L = {
     de: {
@@ -74,6 +51,28 @@
     }
   };
 
+  function parseQuery() {
+    const q = {};
+    const s = window.location.search.substring(1);
+    if (!s) return q;
+    for (const part of s.split("&")) {
+      const [k, v] = part.split("=");
+      q[decodeURIComponent(k)] = decodeURIComponent(v || "");
+    }
+    return q;
+  }
+
+  function getLang() {
+    const qs = parseQuery();
+    if (qs.lang && ["de", "hr"].includes(qs.lang)) {
+      localStorage.setItem(KEY, qs.lang);
+      return qs.lang;
+    }
+    const saved = localStorage.getItem(KEY);
+    if (saved && ["de", "hr"].includes(saved)) return saved;
+    return "de";
+  }
+
   function applyI18n(lang) {
     for (const el of document.querySelectorAll("[data-i18n]")) {
       const key = el.getAttribute("data-i18n");
@@ -82,6 +81,7 @@
     }
     const select = document.getElementById("lang-select");
     if (select) select.value = lang;
+
     const btn = document.getElementById("btn-translate-hr-de");
     if (btn) btn.style.display = (lang === "hr" ? "" : "none");
   }
