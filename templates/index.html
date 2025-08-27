@@ -1,145 +1,139 @@
-<!doctype html>
-<html lang="de">
+<!DOCTYPE html>
+<html lang="{{ request.state.lang }}">
 <head>
   <meta charset="utf-8">
   <title>Leistungsnachweis</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/style.css?v=17">
-  <script defer src="/static/i18n.js"></script>
+  <link href="/static/style.css?v=16" rel="stylesheet">
   <script defer src="/static/script.js"></script>
+  <script defer src="/static/i18n.js"></script>
 </head>
 <body>
-  <div class="container">
-    <!-- TOPBAR -->
-    <div class="topbar">
+  <header class="topbar">
+    <div class="container topbar-inner">
       <div class="topbar-left">
-        <select id="lang-switch" class="btn ghost small">
-          <option value="de">Deutsch</option>
-          <option value="hr">Hrvatski</option>
-        </select>
-        <a class="btn ghost small" href="/admin">Admin</a>
+        <a href="/admin" class="btn small">Admin</a>
       </div>
       <div class="topbar-right">
-        <a class="btn small" href="/logout">Abmelden</a>
+        <form method="get" action="/" class="lang-form">
+          <select name="lang" onchange="this.form.submit()">
+            <option value="de" {% if request.state.lang=='de' %}selected{% endif %}>Deutsch</option>
+            <option value="hr" {% if request.state.lang=='hr' %}selected{% endif %}>Hrvatski</option>
+          </select>
+        </form>
+        <a href="/logout" class="btn small">Abmelden</a>
       </div>
     </div>
+  </header>
 
-    <h1>Leistungsnachweis</h1>
+  <main class="container narrow">
+    <h1 data-i18n="title">Leistungsnachweis</h1>
 
-    <form id="ln-form" method="post" action="/generate_excel" autocomplete="off">
+    <form id="ln-form" method="post" action="/generate_excel">
       <div class="card">
         <div class="grid-2">
           <div class="field">
-            <label>Datum der Leistungsausführung</label>
-            <input type="date" id="datum" name="datum" required autocomplete="off">
+            <label for="datum" data-i18n="datum">Datum der Leistungsausführung</label>
+            <input type="date" id="datum" name="datum">
           </div>
           <div class="field">
-            <label>Bau und Ausführungsort</label>
-            <input type="text" id="bau" name="bau" required autocomplete="off">
+            <label for="bau" data-i18n="bau">Bau und Ausführungsort</label>
+            <input type="text" id="bau" name="bau">
           </div>
         </div>
 
         <div class="grid-2">
           <div class="field">
-            <label>BASF-Beauftragter, Org.-Code</label>
-            <input type="text" id="basf_beauftragter" name="basf_beauftragter" required autocomplete="off">
+            <label for="basf_beauftragter" data-i18n="bf">BASF-Beauftragter, Org.-Code</label>
+            <input type="text" id="basf_beauftragter" name="basf_beauftragter">
           </div>
         </div>
 
         <div class="field">
-          <label>Beschreibung der ausgeführten Arbeiten</label>
-          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="4" autocomplete="off"></textarea>
-
-          <!-- HR→DE gomb és státusz — csak HR nyelven lesz látható a script.js logika szerint -->
-          <div class="actions-top" id="translate-row" style="justify-content:flex-start;margin-top:.5rem">
-            <button type="button" id="translate-hr-de" class="btn secondary">Übersetzen (HR → DE)</button>
-            <span class="muted small" id="translate-status" style="margin-left:.5rem;"></span>
-          </div>
-
-          <div class="field" id="translation-wrap" style="display:none; margin-top:.5rem">
-            <label>Übersetzter Text (DE)</label>
-            <textarea id="beschreibung_de" readonly rows="4"></textarea>
-          </div>
-
+          <label for="beschreibung" data-i18n="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
+          <textarea id="beschreibung" name="beschreibung" maxlength="1000" rows="4"></textarea>
           <div class="muted small"><span id="besch-count">0 / 1000</span></div>
+          {% if request.state.lang == 'hr' %}
+          <button type="button" id="translate-btn" class="btn secondary" style="margin-top:0.5rem">
+            → Deutsch übersetzen
+          </button>
+          <div id="translate-status" class="muted small" style="margin-top:.25rem"></div>
+          {% endif %}
         </div>
       </div>
 
       <div class="card">
-        <h2>Mitarbeiter</h2>
-
+        <h2 data-i18n="mitarbeiter">Mitarbeiter</h2>
         <div id="worker-list">
-          <!-- Mitarbeiter 1 -->
           <fieldset class="worker" data-index="1">
             <legend>Mitarbeiter 1</legend>
-
             <div class="grid-3">
               <div class="field">
-                <label>Vorname</label>
-                <input name="vorname1" type="text" autocomplete="off" />
+                <label data-i18n="vorname">Vorname</label>
+                <input name="vorname1" type="text">
               </div>
               <div class="field">
-                <label>Nachname</label>
-                <input name="nachname1" type="text" autocomplete="off" />
+                <label data-i18n="nachname">Nachname</label>
+                <input name="nachname1" type="text">
               </div>
               <div class="field">
-                <label>Ausweis-Nr. / Kennzeichen</label>
-                <input name="ausweis1" type="text" autocomplete="off" />
+                <label data-i18n="ausweis">Ausweis-Nr. / Kennzeichen</label>
+                <input name="ausweis1" type="text">
               </div>
             </div>
-
             <div class="grid">
               <div class="field">
-                <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
-                <input name="vorhaltung1" type="text" autocomplete="off" />
+                <label data-i18n="vorhaltung">Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+                <input name="vorhaltung1" type="text">
               </div>
             </div>
-
-            <!-- szünet-kapcsoló a munkaidő-blokk FELETT -->
-            <div class="field ck-row" style="margin-top:.5rem">
+            <div class="ck-row" style="margin-top:.5rem">
               <input type="checkbox" id="break_half" />
-              <label for="break_half">Pause nur 0,5&nbsp;h</label>
-              <input type="hidden" id="break_minutes" name="break_minutes" value="60" />
+              <label for="break_half" data-i18n="pause05">Pause nur 0,5 h</label>
+              <input type="hidden" id="break_minutes" name="break_minutes" value="60">
             </div>
-
             <div class="grid-3">
               <div class="field">
-                <label>Beginn</label>
-                <input name="beginn1" type="time" autocomplete="off" />
+                <label data-i18n="beginn">Beginn</label>
+                <input name="beginn1" type="time">
               </div>
               <div class="field">
-                <label>Ende</label>
-                <input name="ende1" type="time" autocomplete="off" />
+                <label data-i18n="ende">Ende</label>
+                <input name="ende1" type="time">
               </div>
               <div class="field">
-                <label>Stunden (auto)</label>
-                <input class="stunden-display" type="text" value="" readonly />
+                <label data-i18n="stunden">Stunden (auto)</label>
+                <input class="stunden-display" type="text" value="" readonly>
               </div>
             </div>
           </fieldset>
         </div>
+        <button type="button" id="add-worker" class="btn secondary" style="margin-top:1rem" data-i18n="more-worker">
+          + Weitere Mitarbeiter hinzufügen
+        </button>
+      </div>
 
-        <div class="actions-top">
-          <button type="button" id="add-worker" class="btn secondary">+ Weitere Mitarbeiter hinzufügen</button>
-        </div>
-
+      <div class="card">
         <div class="grid-2">
           <div class="field">
-            <label>Gesamtzeit</label>
-            <input id="gesamtstunden_auto" type="text" readonly />
+            <label data-i18n="gesamtzeit">Gesamtzeit</label>
+            <input id="gesamtstunden_auto" type="text" readonly>
+          </div>
+          <div class="field">
+            <label data-i18n="gesamtstunden">Gesamtstunden (auto)</label>
+            <input id="gesamtstunden_auto_copy" type="text" readonly>
           </div>
         </div>
-
-        <p class="muted small" style="margin-top:.25rem">
+        <p class="muted small" data-i18n="pausenhinweis">
           Automatischer Pausenabzug: standardmäßig 1,00 h. Wenn „Pause nur 0,5 h“ gewählt, werden 0,50 h abgezogen.
         </p>
       </div>
 
       <div class="actions">
-        <button type="submit" class="btn primary">Excel generieren</button>
-        <button type="submit" class="btn" formaction="/generate_pdf">PDF Vorschau</button>
+        <button type="submit" class="btn primary" data-i18n="excel">Excel generieren</button>
+        <button type="submit" class="btn" formaction="/generate_pdf" data-i18n="pdf">PDF Vorschau</button>
       </div>
     </form>
-  </div>
+  </main>
 </body>
 </html>
