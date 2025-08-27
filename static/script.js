@@ -1,4 +1,4 @@
-/* static/script.js — teljes
+/* static/script.js — teljes (fixelt változat)
    - I18N
    - HR felületen „Prevedi na njemački” gomb (Azure /api/translate)
    - Autocomplete: /api/workers (fallback: /static/workers.csv)
@@ -11,7 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const I18N = (window.I18N || {});
   const DEFAULT_LANG = "de";
   const form  = document.getElementById("ln-form");
-  const besch = document.getElementById("beschreibung");
+  const besch = document.getElementById("beschreibung"); // <— ETTŐL KEZDVE CSAK 'besch'-et használunk
 
   function getLang() {
     const u  = new URL(window.location.href);
@@ -143,7 +143,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function doTranslate(){
-    const text = (beschreibung.value || "").trim();
+    const text = (besch?.value || "").trim();        // <— FIX: besch
     if (!text){ alert("Nincs lefordítható szöveg."); return; }
     lastSrcText = text;
 
@@ -151,11 +151,9 @@ document.addEventListener("DOMContentLoaded", () => {
     translateBtn.disabled = true;
     translateBtn.textContent = (currentLang === "hr") ? "Prevođenje…" : "Übersetze…";
     try{
-      // <<< I T T  A  L É N Y E G >>>  Azure backend:
       const { translated } = await postJSON("/api/translate", {
         text, source: "hr", target: "de"
       });
-
       $("#translate-result").style.display = "block";
       deBox.value = translated || "";
       updateDeCount();
@@ -177,10 +175,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // ---------- Beschreibung számláló ----------
   (function(){
     const out = document.getElementById("besch-count");
-    if (!beschreibung || !out) return;
-    const max = parseInt(beschreibung.getAttribute("maxlength") || "1000", 10);
-    function upd(){ out.textContent = `${beschreibung.value.length} / ${max}`; }
-    upd(); beschreibung.addEventListener("input", upd); beschreibung.addEventListener("change", upd);
+    if (!besch || !out) return;                      // <— FIX: besch
+    const max = parseInt(besch.getAttribute("maxlength") || "1000", 10);
+    function upd(){ out.textContent = `${besch.value.length} / ${max}`; }
+    upd(); besch.addEventListener("input", upd); besch.addEventListener("change", upd);
   })();
 
   // ---------- Autocomplete (API, fallback CSV) ----------
@@ -199,7 +197,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function loadWorkers(){
-    // 1) API-ból megpróbáljuk pár betűvel, ha él, lehozzuk a topot (és cache)
     try{
       const items = await tryApiWorkers("a"); // melegítés
       if (items.length){
@@ -213,7 +210,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
     }catch(_){}
-    // 2) Fallback: CSV
     try{
       const resp = await fetch("/static/workers.csv", { cache:"no-store" });
       if (!resp.ok) return;
@@ -288,7 +284,7 @@ document.addEventListener("DOMContentLoaded", () => {
           hide(); onPick?.(opt.dataset.value, item);
           input.dispatchEvent(new Event("change",{bubbles:true}));
         });
-        opt.addEventListener("mouseover",()=>opt.style.background="#f5f5f5");
+        opt.addEventListener("mouseover",()=>opt.style.background="#f5f5f5"));
         opt.addEventListener("mouseout", ()=>opt.style.background="white");
         dd.appendChild(opt);
       });
@@ -450,6 +446,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  const workerList = document.getElementById("worker-list");
+  const addBtn     = document.getElementById("add-worker");
+  const totalOut   = document.getElementById("gesamtstunden_auto");
+  const breakHalf  = document.getElementById("break_half");
+  const breakHidden= document.getElementById("break_minutes");
+  const MAX_WORKERS=5;
+
   const firstWorker = workerList?.querySelector(".worker");
   if (firstWorker){ setupWorker(firstWorker); recalcAll(); }
 
@@ -491,8 +494,6 @@ document.addEventListener("DOMContentLoaded", () => {
   loadWorkers();
 
   // ---------- Break switch ----------
-  const breakHidden = document.getElementById("break_minutes");
-  const breakHalf   = document.getElementById("break_half");
   function updateBreak(){ if (breakHidden) breakHidden.value = breakHalf?.checked ? "30":"60"; recalcAll(); }
   breakHalf?.addEventListener("change", updateBreak); updateBreak();
 
@@ -518,7 +519,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const datum = trim(document.getElementById("datum")?.value);
       const bau   = trim(document.getElementById("bau")?.value);
       const bf    = trim(document.getElementById("basf_beauftragter")?.value);
-      const beschTxt = trim(beschreibung?.value);
+      const beschTxt = trim(besch?.value); // <— FIX: besch
       if(!datum) errors.push("Bitte das Datum der Leistungsausführung angeben.");
       if(!bau)   errors.push("Bitte Bau und Ausführungsort ausfüllen.");
       if(!bf)    errors.push("Bitte den BASF-Beauftragten (Org.-Code) ausfüllen.");
@@ -541,8 +542,6 @@ document.addEventListener("DOMContentLoaded", () => {
           errors.push(`Bitte Mitarbeiter ${w.idx}: ${missing.join(", ")} ausfüllen.`);
         }
       });
-      if (validWorkers===0) errors.push("Bitte mindestens einen Mitarbeiter vollständig angeben (Vorname, Nachname, Ausweis-Nr., Beginn, Ende).");
-
       if (errors.length){ e.preventDefault(); alert(errors.join("\n")); return false; }
       return true;
     }, false);
@@ -560,7 +559,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function injectTranslation(fd){
       const deTxt=(document.getElementById("beschreibung_de")?.value||"").trim();
       const srcTxt=(lastSrcText||"").trim();
-      if (deTxt){ fd.set("beschreibung_src", srcTxt || (beschreibung?.value||"")); fd.set("beschreibung_de_used","1"); fd.set("beschreibung", deTxt); }
+      if (deTxt){ fd.set("beschreibung_src", srcTxt || (besch?.value||"")); fd.set("beschreibung_de_used","1"); fd.set("beschreibung", deTxt); } // <— FIX: besch
       else fd.set("beschreibung_de_used","0");
     }
     form.addEventListener("submit", async (e)=>{
@@ -590,7 +589,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function injectTranslation(fd){
       const deTxt=(document.getElementById("beschreibung_de")?.value||"").trim();
       const srcTxt=(lastSrcText||"").trim();
-      if (deTxt){ fd.set("beschreibung_src", srcTxt || (beschreibung?.value||"")); fd.set("beschreibung_de_used","1"); fd.set("beschreibung", deTxt); }
+      if (deTxt){ fd.set("beschreibung_src", srcTxt || (besch?.value||"")); fd.set("beschreibung_de_used","1"); fd.set("beschreibung", deTxt); } // <— FIX: besch
       else fd.set("beschreibung_de_used","0");
     }
     pdfBtn.addEventListener("click", async (ev)=>{
