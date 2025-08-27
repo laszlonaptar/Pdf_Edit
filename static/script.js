@@ -6,31 +6,9 @@
    - Validáció elküldés előtt
    - Excel letöltés: fetch + blob
    - (Opcionális) PDF Vorschau: új lap + IFRAME
-   - Fejléc: nyelvváltó + csak HR UI-n jelenjen meg a fordítás gomb
 */
 
 document.addEventListener("DOMContentLoaded", () => {
-  /* ===== TOPBAR: nyelvváltó ===== */
-  (function langSwitcher() {
-    const sel = document.getElementById("lang-switch");
-    if (!sel) return;
-    const cur = (document.documentElement.getAttribute("lang") || "de").toLowerCase();
-    if (sel.value !== cur) sel.value = cur;
-    sel.addEventListener("change", () => {
-      const v = sel.value;
-      const url = new URL(location.href);
-      url.searchParams.set("lang", v);
-      location.href = url.toString();
-    });
-  })();
-
-  /* ===== Fordítás gomb csak HR UI-n ===== */
-  (function toggleTranslateButtonForLang() {
-    const lang = (document.documentElement.getAttribute("lang") || "de").toLowerCase();
-    const row = document.getElementById("translate-row");
-    if (row) row.style.display = (lang === "hr") ? "flex" : "none";
-  })();
-
   const addBtn = document.getElementById("add-worker");
   const workerList = document.getElementById("worker-list");
   const totalOut = document.getElementById("gesamtstunden_auto");
@@ -122,8 +100,12 @@ document.addEventListener("DOMContentLoaded", () => {
     dd.setAttribute("role", "listbox");
     document.body.appendChild(dd);
 
-    function hide() { dd.style.display = "none"; }
-    function show() { dd.style.display = dd.children.length ? "block" : "none"; }
+    function hide() {
+      dd.style.display = "none";
+    }
+    function show() {
+      dd.style.display = dd.children.length ? "block" : "none";
+    }
     function position() {
       const r = input.getBoundingClientRect();
       dd.style.left = `${window.scrollX + r.left}px`;
@@ -157,7 +139,10 @@ document.addEventListener("DOMContentLoaded", () => {
     function filterOptions() {
       const q = input.value.toLowerCase().trim();
       const raw = getOptions();
-      if (!q) { hide(); return; }
+      if (!q) {
+        hide();
+        return;
+      }
       const list = raw
         .filter((v) => (v.label ?? v).toLowerCase().includes(q))
         .map((v) => (typeof v === "string" ? { value: v } : v));
@@ -165,7 +150,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     input.addEventListener("input", filterOptions);
-    input.addEventListener("focus", () => { position(); filterOptions(); });
+    input.addEventListener("focus", () => {
+      position();
+      filterOptions();
+    });
     input.addEventListener("blur", () => setTimeout(hide, 120));
     window.addEventListener("scroll", position, true);
     window.addEventListener("resize", position);
@@ -205,8 +193,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (w2) inpAus.value = w2.ausweis;
       }
     );
-
-    // Nachname
+         // Nachname
     makeAutocomplete(
       inpNach,
       () =>
@@ -426,145 +413,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     recalcAll();
   }
-
-  function enforceNumericKeyboard(input) {
-    input.setAttribute("inputmode", "numeric");
-    input.setAttribute("pattern", "[0-9]*");
-    input.addEventListener("input", () => {
-      input.value = input.value.replace(/\D/g, "");
-    });
-  }
-
-  function wireWorker(workerEl) {
-    const idx = workerEl.getAttribute("data-index");
-
-    // autocomplete
-    setupAutocomplete(workerEl);
-
-    // Ausweis numerikus
-    const ausweis = workerEl.querySelector(`input[name="ausweis${idx}"]`);
-    if (ausweis) enforceNumericKeyboard(ausweis);
-
-    // idő mezők
-    ["beginn", "ende"].forEach((prefix) => {
-      const inp = workerEl.querySelector(`input[name^="${prefix}"]`);
-      if (inp) {
-        enhanceTimePicker(inp);
-        inp.addEventListener("change", recalcAll);
-        inp.addEventListener("input", recalcAll);
-      }
-    });
-
-    const b = workerEl.querySelector(`input[name="beginn${idx}"]`);
-    const e = workerEl.querySelector(`input[name="ende${idx}"]`);
-
-    if (idx === "1") {
-      markSynced(b, false);
-      markSynced(e, false);
-      b?.addEventListener("input", syncFromFirst);
-      e?.addEventListener("input", syncFromFirst);
-      b?.addEventListener("change", syncFromFirst);
-      e?.addEventListener("change", syncFromFirst);
-    } else {
-      setupManualEditUnsync(b);
-      setupManualEditUnsync(e);
-    }
-  }
-
-  // első dolgozó bekötése
-  wireWorker(workerList.querySelector(".worker"));
-  recalcAll();
-
-  // új dolgozó hozzáadása
-  addBtn?.addEventListener("click", () => {
-    const current = workerList.querySelectorAll(".worker").length;
-    if (current >= MAX_WORKERS) return;
-
-    const idx = current + 1;
-    const tpl = document.createElement("fieldset");
-    tpl.className = "worker";
-    tpl.dataset.index = String(idx);
-    tpl.innerHTML = `
-      <legend>Mitarbeiter ${idx}</legend>
-      <div class="grid-3">
-        <div class="field">
-          <label>Vorname</label>
-          <input name="vorname${idx}" type="text" autocomplete="off" />
-        </div>
-        <div class="field">
-          <label>Nachname</label>
-          <input name="nachname${idx}" type="text" autocomplete="off" />
-        </div>
-        <div class="field">
-          <label>Ausweis-Nr. / Kennzeichen</label>
-          <input name="ausweis${idx}" type="text" autocomplete="off" />
-        </div>
-      </div>
-      <div class="grid">
-        <div class="field">
-          <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
-          <input name="vorhaltung${idx}" type="text" autocomplete="off" />
-        </div>
-      </div>
-      <div class="field ck-row" style="margin-top:.5rem">
-        <input type="checkbox" disabled />
-        <label>Pause nur 0,5 h (vom ersten Block gesteuert)</label>
-      </div>
-      <div class="grid-3">
-        <div class="field">
-          <label>Beginn</label>
-          <input name="beginn${idx}" type="time" autocomplete="off" />
-        </div>
-        <div class="field">
-          <label>Ende</label>
-          <input name="ende${idx}" type="time" autocomplete="off" />
-        </div>
-        <div class="field">
-          <label>Stunden (auto)</label>
-          <input class="stunden-display" type="text" value="" readonly />
-        </div>
-      </div>
-    `;
-    workerList.appendChild(tpl);
-
-    // szinkron az 1. dolgozóról
-    const firstBeg = document.querySelector('input[name="beginn1"]')?.value || "";
-    const firstEnd = document.querySelector('input[name="ende1"]')?.value || "";
-    const begNew = tpl.querySelector(`input[name="beginn${idx}"]`);
-    const endNew = tpl.querySelector(`input[name="ende${idx}"]`);
-    if (firstBeg && begNew) begNew.value = firstBeg;
-    if (firstEnd && endNew) endNew.value = firstEnd;
-
-    wireWorker(tpl);
-
-    // frissen beállított értékek tükrözése a selectekben
-    if (begNew && begNew._setFromValue) begNew._setFromValue(begNew.value || "");
-    if (endNew && endNew._setFromValue) endNew._setFromValue(endNew.value || "");
-
-    if (begNew && begNew.value) markSynced(begNew, true);
-    if (endNew && endNew.value) markSynced(endNew, true);
-
-    recalcAll();
-  });
-
-  loadWorkers();
-
-  // ==== Beschreibung számláló ====
-  (function () {
-    const besch = document.getElementById("beschreibung");
-    const out = document.getElementById("besch-count");
-    if (!besch || !out) return;
-    const max = parseInt(besch.getAttribute("maxlength") || "1000", 10);
-    function updateBeschCount() {
-      const len = besch.value.length || 0;
-      out.textContent = `${len} / ${max}`;
-    }
-    updateBeschCount();
-    besch.addEventListener("input", updateBeschCount);
-    besch.addEventListener("change", updateBeschCount);
-  })();
-
-  // ==== Validáció ====
+     // ==== Validáció ====
   (function () {
     if (!form) return;
     const trim = (v) => (v || "").toString().trim();
@@ -803,52 +652,6 @@ document.addEventListener("DOMContentLoaded", () => {
           </head><body>PDF-Erzeugung fehlgeschlagen:\n${(err && err.message) || err}</body></html>
         `);
         win.document.close();
-      }
-    });
-  })();
-
-  /* --- HR → DE fordítás gomb (Azure /api/translate) --- */
-  (function () {
-    const btn = document.getElementById("translate-hr-de");
-    const src = document.getElementById("beschreibung");
-    const outWrap = document.getElementById("translation-wrap");
-    const out = document.getElementById("beschreibung_de");
-    const st = document.getElementById("translate-status");
-    if (!btn || !src || !out || !outWrap) return;
-
-    async function translateOnce(txt) {
-      const res = await fetch("/api/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: txt, source: "hr", target: "de" })
-      });
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${t}`);
-      }
-      const j = await res.json();
-      if (j.translated) return j.translated;
-      if (j.error) throw new Error(j.error);
-      throw new Error("Unbekannte Antwort vom Übersetzungsdienst.");
-    }
-
-    btn.addEventListener("click", async () => {
-      const txt = (src.value || "").trim();
-      if (!txt) { outWrap.style.display = "none"; out.value = ""; return; }
-      try {
-        st.textContent = "Übersetzung läuft…";
-        btn.disabled = true;
-        const tr = await translateOnce(txt);
-        out.value = tr || "";
-        outWrap.style.display = tr ? "block" : "none";
-        st.textContent = tr ? "Fertig." : "Keine Ausgabe.";
-      } catch (err) {
-        console.error(err);
-        st.textContent = "Übersetzung fehlgeschlagen.";
-        alert("Die Übersetzung ist fehlgeschlagen. Bitte später erneut versuchen.");
-      } finally {
-        btn.disabled = false;
-        setTimeout(() => (st.textContent = ""), 2000);
       }
     });
   })();
