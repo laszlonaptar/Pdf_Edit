@@ -1,150 +1,885 @@
-from __future__ import annotations
-
-# ========================== Stdlib & Typing ==========================
-import io
-import os
-import re
-import json
-import smtplib
-import mimetypes
-from email.message import EmailMessage
-from datetime import datetime, time as dtime
-from typing import List, Optional, Dict
-
-# ========================== FastAPI & Friends ==========================
-from fastapi import (
-    FastAPI,
-    Request,
-    Response,
-    HTTPException,
-    Query,
-    Body,
-)
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import (
-    HTMLResponse,
-    FileResponse,
-    StreamingResponse,
-    JSONResponse,
-    RedirectResponse,
-)
+# main.py  —  FULL MERGED VERSION (auth + admin + DB + Excel/PDF + Drive)
+from fastapi import FastAPI, Request, Form, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
-# ========================== Pydantic v2 ==========================
-from pydantic import BaseModel, Field, field_validator
+# NEW: CORS (stabil mobil/böngésző hívásokhoz, GitHub Pages frontendhez)
+from fastapi.middleware.cors import CORSMiddleware
 
-# ========================== HTTP client ==========================
+# NEW: HTTP kliens a fordításhoz
 import httpx
 
-# ========================== Excel ==========================
 from openpyxl import load_workbook
-from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.styles import Alignment
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins
 
-# ========================== Optional Google Drive ==========================
-# Ha NINCS telepítve a kliens, akkor ezek opcionálisak maradnak.
+from datetime import datetime, time
+from io import BytesIO
+import os
+import uuid
+import textwrap
+import traceback
+import json
+import sqlite3
+from pathlib import Path
+from typing import Tuple, Optional, List, Dict
+
+# ---- Google Drive (service account) ----
+GDRIVE_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON", "")
+GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID", "")
+
+DRIVE_ENABLED = bool(GDRIVE_JSON and GDRIVE_FOLDER_ID)
+drive_svc = None
+if DRIVE_ENABLED:
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseUpload
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(GDRIVE_JSON),
+            scopes=["https://www.googleapis.com/auth/drive.file"],
+        )
+        drive_svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+    except Exception as e:
+        print("Drive init failed:", repr(e))
+        DRIVE_ENABLED = False
+        drive_svc = None
+
+def drive_upload_bytes(filename: str, data: bytes, mime: str) -> Optional[str]:
+    """Feltölt egy fájlt a megadott Drive mappába. Visszaadja a fileId-t vagy None-t."""
+    if not (DRIVE_ENABLED and drive_svc):
+        return None
+    try:
+        media = MediaIoBaseUpload(BytesIO(data), mimetype=mime, resumable=False)
+        meta = {"name": filename, "parents": [GDRIVE_FOLDER_ID]}
+        file = drive_svc.files().create(body=meta, media_body=media, fields="id").execute()
+        return file.get("id")
+    except Exception as e:
+        print("Drive upload failed:", repr(e))
+        return None
+
+# ---- PDF (ReportLab) - opcionális előnézet ----
+REPORTLAB_AVAILABLE = False
 try:
-    from google.oauth2.service_account import Credentials as GCreds
-    from googleapiclient.discovery import build as gbuild
-    from googleapiclient.http import MediaIoBaseUpload
-    HAS_GOOGLE = True
-except Exception:
-    HAS_GOOGLE = False
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    REPORTLAB_AVAILABLE = True
+except Exception as e:
+    REPORTLAB_AVAILABLE = False
+    print("PDF: ReportLab not available ->", repr(e))
 
+# ---- Képgenerálás (Pillow) ----
+try:
+    from PIL import Image as PILImage, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except Exception as e:
+    PIL_AVAILABLE = False
+    print("IMG: PIL not available ->", repr(e))
 
-# ======================================================================
-#                           APP KONFIG
-# ======================================================================
-APP_TITLE = "PDF-Edit"
-TZ = "Europe/Berlin"  # információs jellegű
-DEFAULT_TEMPLATE = os.getenv("XLS_TEMPLATE", "GP-t.xlsx")
+# ---- App / statikus / sablonok ----
+app = FastAPI()
 
-app = FastAPI(title=APP_TITLE)
-
-# Statikus és sablon könyvtárak bekötése (ha léteznek)
-if os.path.isdir("static"):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-
-templates = Jinja2Templates(directory="templates") if os.path.isdir("templates") else None
-
-# CORS
+# NEW: CORS engedélyezés (állítható)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ALLOW_ORIGINS", "*").split(","),
+    allow_origins=os.getenv("CORS_ALLOW_ORIGINS", "*").split(","),  # pl. "https://laszlonaptar.github.io"
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ======================================================================
-#                           HEALTH & ROOT
-# ======================================================================
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# ---- Login beállítások (környezeti változókból) ----
+APP_USERNAME = os.getenv("APP_USERNAME", "user")
+APP_PASSWORD = os.getenv("APP_PASSWORD", "user")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
+
+SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-dev-secret")
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
+
+def _is_user(request: Request) -> bool:
+    return bool(request.session.get("auth_ok") is True)
+
+def _is_admin(request: Request) -> bool:
+    return bool(request.session.get("admin_ok") is True)
+
+# ---- Tárolók / DB init ----
+BASE_DIR = Path(os.getcwd())
+DATA_DIR = BASE_DIR / "data"
+GEN_DIR = BASE_DIR / "generated"
+DATA_DIR.mkdir(exist_ok=True)
+GEN_DIR.mkdir(exist_ok=True)
+DB_PATH = DATA_DIR / "app.db"
+
+def db_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    with db_conn() as c:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            datum TEXT,
+            bau TEXT,
+            basf_beauftragter TEXT,
+            beschreibung TEXT,
+            break_minutes INTEGER,
+            vorname1 TEXT, nachname1 TEXT, ausweis1 TEXT, beginn1 TEXT, ende1 TEXT, vorhaltung1 TEXT,
+            vorname2 TEXT, nachname2 TEXT, ausweis2 TEXT, beginn2 TEXT, ende2 TEXT, vorhaltung2 TEXT,
+            vorname3 TEXT, nachname3 TEXT, ausweis3 TEXT, beginn3 TEXT, ende3 TEXT, vorhaltung3 TEXT,
+            vorname4 TEXT, nachname4 TEXT, ausweis4 TEXT, beginn4 TEXT, ende4 TEXT, vorhaltung4 TEXT,
+            vorname5 TEXT, nachname5 TEXT, ausweis5 TEXT, beginn5 TEXT, ende5 TEXT, vorhaltung5 TEXT,
+            excel_filename TEXT,
+            payload_json TEXT
+        )
+        """)
+init_db()
+
+# ---------- helpers for merged cells ----------
+def merged_ranges(ws):
+    return [(r.min_row, r.min_col, r.max_row, r.max_col) for r in ws.merged_cells.ranges]
+
+def in_range(rng, r, c):
+    r1, c1, r2, c2 = rng
+    return (r1 <= r <= r2) and (c1 <= c <= c2)
+
+def block_of(ws, r, c):
+    for rng in merged_ranges(ws):
+        if in_range(rng, r, c):
+            return rng
+    return (r, c, r, c)
+
+def top_left_of_block(ws, r, c):
+    r1, c1, _, _ = block_of(ws, r, c)
+    return r1, c1
+
+def set_text(ws, r, c, text, wrap=False, align_left=False, valign_top=False):
+    rr, cc = top_left_of_block(ws, r, c)
+    cell = ws.cell(row=rr, column=cc)
+    cell.value = text
+    cell.alignment = Alignment(
+        wrap_text=wrap,
+        horizontal=("left" if align_left else "center"),
+        vertical=("top" if valign_top else cell.alignment.vertical or "center"),
+    )
+
+def set_text_addr(ws, addr, text, *, wrap=False, horizontal="left", vertical="center"):
+    cell = ws[addr]
+    rr, cc = top_left_of_block(ws, cell.row, cell.column)
+    tgt = ws.cell(row=rr, column=cc)
+    tgt.value = text
+    tgt.alignment = Alignment(wrap_text=wrap, horizontal=horizontal, vertical=vertical)
+
+# ---------- time & hours ----------
+def parse_hhmm(s: str) -> Optional[time]:
+    s = (s or "").strip()
+    if not s:
+        return None
+    hh, mm = s.split(":")
+    return time(int(hh), int(mm))
+
+def overlap_minutes(a1: time, a2: time, b1: time, b2: time) -> int:
+    dt = datetime(2000,1,1)
+    A1 = dt.replace(hour=a1.hour, minute=a1.minute)
+    A2 = dt.replace(hour=a2.hour, minute=a2.minute)
+    B1 = dt.replace(hour=b1.hour, minute=b1.minute)
+    B2 = dt.replace(hour=b2.hour, minute=b2.minute)
+    start = max(A1, B1)
+    end   = min(A2, B2)
+    if end <= start:
+        return 0
+    return int((end - start).total_seconds() // 60)
+
+def hours_with_breaks(beg: Optional[time], end: Optional[time], pause_min: int = 60) -> float:
+    if not beg or not end:
+        return 0.0
+    dt = datetime(2000,1,1)
+    start = dt.replace(hour=beg.hour, minute=beg.minute)
+    finish = dt.replace(hour=end.hour, minute=end.minute)
+    if finish <= start:
+        return 0.0
+    total_min = int((finish - start).total_seconds() // 60)
+    if pause_min >= 60:
+        minus = overlap_minutes(beg, end, time(9,0), time(9,15)) \
+              + overlap_minutes(beg, end, time(12,0), time(12,45))
+    else:
+        minus = min(total_min, 30)
+    return max(0.0, (total_min - minus) / 60.0)
+
+# ---------- table helpers ----------
+def find_header_positions(ws):
+    pos = {}
+    header_row = None
+    for row in ws.iter_rows(min_row=1, max_row=120):
+        for cell in row:
+            v = cell.value
+            if isinstance(v, str):
+                t = v.strip()
+                if t == "Name":
+                    pos["name_col"] = cell.column
+                    header_row = cell.row
+                if t == "Vorname":
+                    pos["vorname_col"] = cell.column
+                if "Ausweis" in t or "Kennzeichen" in t:
+                    pos["ausweis_col"] = cell.column
+                if t == "Beginn":
+                    pos["beginn_col"] = cell.column
+                    pos["subheader_row"] = cell.row
+                if t == "Ende":
+                    pos["ende_col"] = cell.column
+                if "Anzahl Stunden" in t:
+                    pos["stunden_col"] = cell.column
+                if t.lower().startswith("vorhaltung") or "beauftragtes gerät" in t.lower():
+                    pos["vorhaltung_col"] = cell.column
+        if all(k in pos for k in ["name_col","vorname_col","ausweis_col","beginn_col","ende_col","stunden_col","subheader_row"]):
+            break
+    pos["data_start_row"] = pos.get("subheader_row", header_row) + 1
+    return pos
+
+def find_total_cells(ws, stunden_col):
+    total_row = None
+    right_of_label = None
+    for row in ws.iter_rows(min_row=1, max_row=200):
+        for cell in row:
+            if isinstance(cell.value, str) and "Gesamtstunden" in cell.value:
+                total_row = cell.row
+                r_neighbor, c_neighbor = total_row, cell.column + 1
+                rr, cc = top_left_of_block(ws, r_neighbor, c_neighbor)
+                right_of_label = (rr, cc)
+                break
+        if total_row:
+            break
+    stunden_total = None
+    if total_row:
+        rr, cc = top_left_of_block(ws, total_row, stunden_col)
+        stunden_total = (rr, cc)
+    return right_of_label, stunden_total
+
+# --- Fix Beschreibung-blokk: A6–G15 ---
+def find_description_block(ws) -> Tuple[int,int,int,int]:
+    return (6, 1, 15, 7)  # A6..G15
+
+# ---------- pixel helpers ----------
+def _excel_col_width_to_pixels(width):
+    if width is None:
+        width = 8.43
+    return int(round(7 * width + 5))
+
+def _excel_row_height_to_pixels(height):
+    if height is None:
+        height = 15.0
+    return int(round(height * 96 / 72))
+
+def _get_block_pixel_size(ws, r1, c1, r2, c2):
+    w_px = 0
+    for c in range(c1, c2 + 1):
+        letter = get_column_letter(c)
+        cd = ws.column_dimensions.get(letter)
+        w_px += _excel_col_width_to_pixels(getattr(cd, "width", None))
+    h_px = 0
+    for r in range(r1, r2 + 1):
+        rd = ws.row_dimensions.get(r)
+        h_px += _excel_row_height_to_pixels(getattr(rd, "height", None))
+    w_px = max(40, w_px)
+    h_px = max(40, h_px)
+    return w_px, h_px
+
+def _get_col_pixel_width(ws, col_index):
+    letter = get_column_letter(col_index)
+    cd = ws.column_dimensions.get(letter)
+    return _excel_col_width_to_pixels(getattr(cd, "width", None))
+
+# ---------- image (Beschreibung) ----------
+LEFT_INSET_PX = 25
+BOTTOM_CROP   = 0.92
+
+def _make_description_image(text, w_px, h_px):
+    img = PILImage.new("RGB", (w_px, h_px), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    font = None
+    for name in ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"]:
+        try:
+            font = ImageFont.truetype(name, 14)
+            break
+        except Exception:
+            font = None
+    if font is None:
+        font = ImageFont.load_default()
+
+    pad_left, pad_top, pad_right, pad_bottom = 12, 10, 0, 10
+    avail_w = max(10, w_px - (pad_left + pad_right))
+    avail_h = max(10, h_px - (pad_top + pad_bottom))
+
+    sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;-"
+    avg_w = max(6, sum(draw.textlength(ch, font=font) for ch in sample) / len(sample))
+    avg_w_eff = avg_w * 0.90
+    max_chars_per_line = max(10, int(avail_w / avg_w_eff))
+
+    paragraphs = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines = []
+    for para in paragraphs:
+        if not para:
+            lines.append("")
+            continue
+        lines.extend(textwrap.wrap(
+            para,
+            width=max_chars_per_line,
+            replace_whitespace=False,
+            break_long_words=False
+        ))
+
+    ascent, descent = font.getmetrics()
+    line_h = ascent + descent + 4
+    max_lines = max(1, int(avail_h // line_h))
+    if len(lines) > max_lines:
+        lines = lines[:max_lines - 1] + ["…"]
+
+    x = pad_left
+    y = pad_top
+    for ln in lines:
+        draw.text((x, y), ln, fill=(0, 0, 0), font=font)
+        y += line_h
+    return img
+
+def _xlimage_from_pil(pil_img):
+    buf = BytesIO()
+    pil_img.save(buf, format="PNG")
+    buf.seek(0)
+    return XLImage(buf)
+
+def insert_description_as_image(ws, r1, c1, r2, c2, text):
+    if not PIL_AVAILABLE:
+        print("IMG: PIL not available at runtime")
+        return False
+    try:
+        text_s = (text or "")
+        print(f"IMG: will insert, text_len={len(text_s)} at {get_column_letter(c1)}{r1}-{get_column_letter(c2)}{r2}")
+
+        block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+        colA_w_px = _get_col_pixel_width(ws, 1)
+
+        anchor_col = c1 + 1  # B6
+        anchor = f"{get_column_letter(anchor_col)}{r1}"
+
+        new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
+        new_h_px = int(block_h_px * BOTTOM_CROP)
+
+        print(f"IMG: new size w={new_w_px}, h={new_h_px}, anchor={anchor}")
+        pil_img = _make_description_image(text_s, new_w_px, new_h_px)
+        xlimg = _xlimage_from_pil(pil_img)
+
+        ws.add_image(xlimg, anchor)
+        set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
+        return True
+    except Exception as e:
+        print("IMG: insert FAILED ->", repr(e))
+        traceback.print_exc()
+        return False
+
+# ---------- Nyomtatási beállítások ----------
+def set_print_defaults(ws):
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+
+    ws.page_setup.fitToWidth = 0
+    ws.page_setup.fitToHeight = 0
+    ws.page_setup.scale = 95
+    if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
+        ws.sheet_properties.pageSetUpPr.fitToPage = False
+
+    ws.page_margins = PageMargins(
+        left=0.2, right=0.2, top=0.2, bottom=0.2, header=0, footer=0
+    )
+
+    last_data_row = 1
+    last_data_col = 1
+    for r in range(1, ws.max_row + 1):
+        for c in range(1, ws.max_column + 1):
+            if ws.cell(row=r, column=c).value not in (None, ""):
+                last_data_row = max(last_data_row, r)
+                last_data_col = max(last_data_col, c)
+    last_col_letter = get_column_letter(last_data_col)
+    ws.print_area = f"A1:{last_col_letter}{last_data_row}"
+
+    ws.print_options.horizontalCentered = False
+    ws.print_options.verticalCentered = False
+
+# ---------- PDF előnézet ----------
+def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
+    if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
+        raise RuntimeError("ReportLab vagy PIL nincs telepítve.")
+
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+
+    pw, ph = landscape(A4)
+    margin_left = 12 * mm
+    margin_right = 12 * mm
+    margin_top = 12 * mm
+    margin_bottom = 12 * mm
+
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=(pw, ph))
+
+    y = ph - margin_top
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin_left, y, f"Datum: {date_text}")
+    y -= 16
+    c.setFont("Helvetica", 12)
+    c.drawString(margin_left, y, f"Bau: {bau}")
+    y -= 16
+    if (basf_beauftragter or "").strip():
+        c.drawString(margin_left, y, f"BASF Beauftragter: {basf_beauftragter}")
+        y -= 10
+    y -= 6
+
+    block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+    colA_w_px = _get_col_pixel_width(ws, 1)
+    new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
+    new_h_px = int(block_h_px * BOTTOM_CROP)
+    pil_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
+
+    w_pt = new_w_px * 0.75
+    h_pt = new_h_px * 0.75
+
+    max_w_pt = pw - margin_left - margin_right
+    if w_pt > max_w_pt:
+        scale = max_w_pt / w_pt
+        w_pt *= scale
+        h_pt *= scale
+
+    y -= h_pt
+    c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto')
+    y -= 12
+
+    c.setFont("Helvetica-Bold", 11)
+    headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
+    col_widths = [70, 70, 90, 60, 60, 60, 100]
+    x = margin_left
+    for hdr, w in zip(headers, col_widths):
+        c.drawString(x, y, hdr)
+        x += w
+    y -= 14
+    c.setLineWidth(0.3)
+    c.line(margin_left, y, margin_left + sum(col_widths), y)
+    y -= 6
+
+    c.setFont("Helvetica", 10)
+    for (vn, nn, aw, bg, en, vh) in workers:
+        x = margin_left
+        vals = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}", vh]
+        for val, w in zip(vals, col_widths):
+            c.drawString(x, y, str(val or ""))
+            x += w
+        y -= 14
+        if y < margin_bottom + 40:
+            c.showPage()
+            y = ph - margin_top
+            c.setFont("Helvetica", 10)
+
+    y -= 6
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+# ---------- User Login / Logout ----------
+@app.get("/login", response_class=HTMLResponse)
+async def login_form(request: Request, next: str = "/"):
+    if _is_user(request):
+        return RedirectResponse(next or "/", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
+    if username == APP_USERNAME and password == APP_PASSWORD:
+        request.session.clear()
+        request.session["auth_ok"] = True
+        return RedirectResponse(next or "/", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
+
+# ---------- Admin Login / Logout ----------
+@app.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_form(request: Request, next: str = "/admin"):
+    if _is_admin(request):
+        return RedirectResponse(next or "/admin", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
+
+@app.post("/admin/login", response_class=HTMLResponse)
+async def admin_login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/admin")):
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        request.session.clear()
+        request.session["admin_ok"] = True
+        return RedirectResponse(next or "/admin", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
+
+@app.get("/admin/logout")
+async def admin_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/admin/login", status_code=303)
+
+# ---------- Főoldal (űrlap) ----------
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    if not _is_user(request):
+        return RedirectResponse("/login?next=/", status_code=303)
+    return templates.TemplateResponse("index.html", {"request": request})
+
+# NEW: Render stabilitás – HEAD / (NE 405-özzön)
+@app.head("/")
+async def index_head_ok():
+    return Response(status_code=200, headers={"Cache-Control": "no-store"})
+
+# ---------- Excel generálás + DB mentés + Drive feltöltés ----------
+@app.post("/generate_excel")
+async def generate_excel(
+    request: Request,
+    datum: str = Form(...),
+    bau: str = Form(...),
+    basf_beauftragter: str = Form(""),
+    geraet: str = Form(""),
+    beschreibung: str = Form(""),
+    break_minutes: int = Form(60),
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
+):
+    if not _is_user(request):
+        return RedirectResponse("/login?next=/", status_code=303)
+
+    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
+    ws = wb.active
+
+    date_text = datum
+    try:
+        dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
+        date_text = dt.strftime("%d.%m.%Y")
+    except Exception:
+        pass
+    set_text_addr(ws, "B2", date_text, horizontal="left")
+    set_text_addr(ws, "B3", bau,        horizontal="left")
+    if (basf_beauftragter or "").strip():
+        set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
+
+    r1, c1, r2, c2 = find_description_block(ws)
+    for r in range(r1, r2 + 1):
+        if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
+            ws.row_dimensions[r].height = 22
+
+    inserted = False
+    text_in = (beschreibung or "").strip()
+    if text_in:
+        inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
+    if not inserted:
+        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)
+
+    pos = find_header_positions(ws)
+    row = pos["data_start_row"]
+    vorhaltung_col = pos.get("vorhaltung_col", None)
+
+    workers: List[Tuple[str,str,str,str,str,str]] = []
+    for i in range(1, 6):
+        vn = locals().get(f"vorname{i}", "") or ""
+        nn = locals().get(f"nachname{i}", "") or ""
+        aw = locals().get(f"ausweis{i}", "") or ""
+        bg = locals().get(f"beginn{i}", "") or ""
+        en = locals().get(f"ende{i}", "") or ""
+        vh = locals().get(f"vorhaltung{i}", "") or ""
+        if not (vn or nn or aw or bg or en or vh):
+            continue
+        workers.append((vn, nn, aw, bg, en, vh))
+
+    total_hours = 0.0
+    for (vn, nn, aw, bg, en, vh) in workers:
+        set_text(ws, row, pos["name_col"], nn, wrap=False, align_left=True)
+        set_text(ws, row, pos["vorname_col"], vn, wrap=False, align_left=True)
+        set_text(ws, row, pos["ausweis_col"], aw, wrap=False, align_left=True)
+        set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
+        set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
+
+        if vorhaltung_col and (vh or "").strip():
+            set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
+
+        hb = parse_hhmm(bg)
+        he = parse_hhmm(en)
+        h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
+        total_hours += h
+        set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
+        row += 1
+
+    right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
+    if stunden_total:
+        tr, tc = stunden_total
+        set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
+    if right_of_label:
+        rr, rc = right_of_label
+        set_text(ws, rr, rc, "", wrap=False, align_left=True)
+
+    try:
+        set_print_defaults(ws)
+    except Exception as e:
+        print("PRINT SETUP WARN:", repr(e))
+
+    excel_name = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
+    excel_path = GEN_DIR / excel_name
+    wb.save(excel_path.as_posix())
+
+    # Olvasd be bytes-ba (helyi letöltés + Drive feltöltés is)
+    with open(excel_path, "rb") as f:
+        excel_bytes = f.read()
+
+    drive_file_id = drive_upload_bytes(
+        filename=excel_name,
+        data=excel_bytes,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    payload = {
+        "datum": datum,
+        "bau": bau,
+        "basf_beauftragter": basf_beauftragter,
+        "beschreibung": beschreibung,
+        "break_minutes": int(break_minutes),
+        "workers": [
+            {"vorname": locals().get(f"vorname{i}", ""), "nachname": locals().get(f"nachname{i}", ""),
+             "ausweis": locals().get(f"ausweis{i}", ""), "beginn": locals().get(f"beginn{i}", ""),
+             "ende": locals().get(f"ende{i}", ""), "vorhaltung": locals().get(f"vorhaltung{i}", "")}
+            for i in range(1, 6)
+        ],
+        "drive_file_id": drive_file_id
+    }
+    with db_conn() as c:
+        c.execute("""
+            INSERT INTO submissions (
+                created_at, datum, bau, basf_beauftragter, beschreibung, break_minutes,
+                vorname1, nachname1, ausweis1, beginn1, ende1, vorhaltung1,
+                vorname2, nachname2, ausweis2, beginn2, ende2, vorhaltung2,
+                vorname3, nachname3, ausweis3, beginn3, ende3, vorhaltung3,
+                vorname4, nachname4, ausweis4, beginn4, ende4, vorhaltung4,
+                vorname5, nachname5, ausweis5, beginn5, ende5, vorhaltung5,
+                excel_filename, payload_json
+            ) VALUES (
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?
+            )
+        """, (
+            datetime.utcnow().isoformat(),
+            datum, bau, basf_beauftragter, beschreibung, int(break_minutes),
+            locals().get("vorname1",""), locals().get("nachname1",""), locals().get("ausweis1",""), locals().get("beginn1",""), locals().get("ende1",""), locals().get("vorhaltung1",""),
+            locals().get("vorname2",""), locals().get("nachname2",""), locals().get("ausweis2",""), locals().get("beginn2",""), locals().get("ende2",""), locals().get("vorhaltung2",""),
+            locals().get("vorname3",""), locals().get("nachname3",""), locals().get("ausweis3",""), locals().get("beginn3",""), locals().get("ende3",""), locals().get("vorhaltung3",""),
+            locals().get("vorname4",""), locals().get("nachname4",""), locals().get("ausweis4",""), locals().get("beginn4",""), locals().get("ende4",""), locals().get("vorhaltung4",""),
+            locals().get("vorname5",""), locals().get("nachname5",""), locals().get("ausweis5",""), locals().get("beginn5",""), locals().get("ende5",""), locals().get("vorhaltung5",""),
+            excel_name, json.dumps(payload, ensure_ascii=False)
+        ))
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{excel_name}"',
+        "Content-Length": str(len(excel_bytes)),
+        "Cache-Control": "no-store",
+    }
+    return Response(content=excel_bytes, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+
+# ---------- PDF előnézet (opcionális) ----------
+@app.post("/generate_pdf")
+async def generate_pdf(
+    request: Request,
+    datum: str = Form(...),
+    bau: str = Form(...),
+    basf_beauftragter: str = Form(""),
+    geraet: str = Form(""),
+    beschreibung: str = Form(""),
+    break_minutes: int = Form(60),
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
+):
+    if not _is_user(request):
+        return RedirectResponse("/login?next=/", status_code=303)
+
+    if not REPORTLAB_AVAILABLE or not PIL_AVAILABLE:
+        return PlainTextResponse(
+            "PDF előállítás nem elérhető: telepítsd a 'reportlab' csomagot (és a PIL-t). Add hozzá a requirements.txt-hez: reportlab",
+            status_code=501
+        )
+
+    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
+    ws = wb.active
+
+    date_text = datum
+    try:
+        dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
+        date_text = dt.strftime("%d.%m.%Y")
+    except Exception:
+        pass
+
+    r1, c1, r2, c2 = find_description_block(ws)
+
+    workers = []
+    for i in range(1, 6):
+        vn = locals().get(f"vorname{i}", "") or ""
+        nn = locals().get(f"nachname{i}", "") or ""
+        aw = locals().get(f"ausweis{i}", "") or ""
+        bg = locals().get(f"beginn{i}", "") or ""
+        en = locals().get(f"ende{i}", "") or ""
+        vh = locals().get(f"vorhaltung{i}", "") or ""
+        if not (vn or nn or aw or bg or en or vh):
+            continue
+        workers.append((vn, nn, aw, bg, en, vh))
+
+    total_hours = 0.0
+    for (_, _, _, bg, en, _) in workers:
+        hb = parse_hhmm(bg)
+        he = parse_hhmm(en)
+        total_hours += hours_with_breaks(hb, he, int(break_minutes))
+
+    pdf_bytes = _build_pdf_preview(
+        date_text=date_text,
+        bau=bau,
+        basf_beauftragter=basf_beauftragter,
+        beschrijving=beschreibung if 'beschreibung' in locals() else beschreibung,  # backwards safe
+        beschreibung=beschreibung,
+        ws=ws, r1=r1, c1=c1, r2=r2, c2=c2,
+        workers=workers,
+        total_hours=total_hours
+    )
+
+    fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Content-Length": str(len(pdf_bytes)),
+        "Cache-Control": "no-store",
+    }
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+# ===================== ADMIN =====================
+
+# Kereső oldal (csak admin)
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
+    if not _is_admin(request):
+        return RedirectResponse("/admin/login?next=/admin", status_code=303)
+
+    sql = "SELECT id, created_at, datum, bau, basf_beauftragter, excel_filename FROM submissions "
+    clauses = []
+    params = []
+
+    if q_bau.strip():
+        clauses.append("bau LIKE ?")
+        params.append(f"%{q_bau.strip()}%")
+    if q_date.strip():
+        clauses.append("datum LIKE ?")
+        params.append(f"%{q_date.strip()}%")
+
+    if clauses:
+        sql += "WHERE " + " AND ".join(clauses) + " "
+    sql += "ORDER BY created_at DESC LIMIT 200"
+
+    with db_conn() as c:
+        rows = c.execute(sql, params).fetchall()
+
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "rows": rows,
+        "q_bau": q_bau,
+        "q_date": q_date
+    })
+
+# Részletes nézet (csak admin)
+@app.get("/admin/view/{sid}", response_class=HTMLResponse)
+async def admin_view(request: Request, sid: int):
+    if not _is_admin(request):
+        return RedirectResponse(f"/admin/login?next=/admin/view/{sid}", status_code=303)
+
+    with db_conn() as c:
+        row = c.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
+        if not row:
+            return PlainTextResponse("Nincs ilyen bejegyzés.", status_code=404)
+
+    try:
+        payload = json.loads(row["payload_json"] or "{}")
+    except Exception:
+        payload = {}
+
+    return templates.TemplateResponse("admin_detail.html", {
+        "request": request,
+        "sub": row,
+        "payload": payload
+    })
+
+# Excel fájl letöltés (csak admin, helyi fájlról)
+@app.get("/download/{fname}")
+async def download_file(request: Request, fname: str):
+    if not _is_admin(request):
+        return RedirectResponse(f"/admin/login?next=/download/{fname}", status_code=303)
+    fp = GEN_DIR / fname
+    if not fp.exists():
+        return PlainTextResponse("Fájl nem található.", status_code=404)
+    data = fp.read_bytes()
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+    )
+
+# ===================== ÚJ: HEALTH + FAVICON + CONFIG + AUTOCOMPLETE + TRANSLATE =====================
+
+# Health endpoint a Renderhez (állítsd be Health Check Path-ként)
 @app.get("/healthz")
-def healthz_get():
+def healthz():
     return {"ok": True}
 
 @app.head("/healthz")
 def healthz_head():
     return Response(status_code=200)
 
-LANDING_HTML = """<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PDF-Edit – Start</title>
-</head>
-<body>
-  <main>
-    <h1>PDF-Edit ist online</h1>
-    <p>Weiter zur Anwendung: <a href="/app">/app</a></p>
-  </main>
-</body>
-</html>"""
-
-@app.get("/", response_class=HTMLResponse)
-def index_get():
-    resp = HTMLResponse(content=LANDING_HTML, status_code=200)
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-@app.head("/")
-def index_head():
-    resp = Response(status_code=200)
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-@app.get("/app", response_class=HTMLResponse)
-def app_page(request: Request):
-    if templates and os.path.exists(os.path.join("templates", "index.html")):
-        resp = templates.TemplateResponse("index.html", {"request": request})
-    else:
-        resp = HTMLResponse("<h2>App</h2><p>templates/index.html nicht gefunden.</p>", status_code=200)
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
+# Favikon 404 zaj elkerülésére
 @app.get("/favicon.ico")
 def favicon():
-    path = "static/favicon.ico"
+    path = os.path.join("static", "favicon.ico")
     if os.path.exists(path):
         return FileResponse(path, media_type="image/x-icon")
     return Response(status_code=204)
 
-
-# ======================================================================
-#                           FEATURE CONFIG
-# ======================================================================
+# Frontend konfiguráció (gombok láthatósága)
 @app.get("/api/config")
 def api_config():
-    """
-    A frontend ezt olvassa ki: mit jelenítsen meg.
-    """
     return {
         "features": {
             "autocomplete": True,
             "translation_button": True,
-            "email_send": bool(os.getenv("SMTP_HOST")),     # csak ha be van állítva SMTP
-            "drive_upload": bool(os.getenv("GDRIVE_FOLDER_ID") and os.getenv("GDRIVE_SA_JSON")),
         },
         "i18n": {
             "default": "de",
@@ -152,10 +887,7 @@ def api_config():
         },
     }
 
-
-# ======================================================================
-#                           AUTOCOMPLETE
-# ======================================================================
+# Autocomplete adatforrás: WORKERS_JSON env -> workers.json -> fallback
 DEFAULT_WORKERS = [
     {"last_name": "Muster", "first_name": "Max", "id": "A001"},
     {"last_name": "Beispiel", "first_name": "Erika", "id": "A002"},
@@ -163,12 +895,6 @@ DEFAULT_WORKERS = [
 ]
 
 def load_workers() -> List[Dict[str, str]]:
-    """
-    Források prioritása:
-    1) WORKERS_JSON környezeti változó (JSON lista)
-    2) workers.json fájl
-    3) beépített DEFAULT_WORKERS
-    """
     env_json = os.getenv("WORKERS_JSON")
     if env_json:
         try:
@@ -177,9 +903,10 @@ def load_workers() -> List[Dict[str, str]]:
                 return data
         except Exception:
             pass
-    if os.path.exists("workers.json"):
+    file_path = "workers.json"
+    if os.path.exists(file_path):
         try:
-            with open("workers.json", "r", encoding="utf-8") as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):
                     return data
@@ -188,371 +915,43 @@ def load_workers() -> List[Dict[str, str]]:
     return DEFAULT_WORKERS
 
 @app.get("/api/workers")
-def api_workers(q: Optional[str] = Query(default=None, description="Name oder Ausweis-ID Filter")):
-    workers = load_workers()
-    if not q:
-        return {"items": workers}
-    q_low = q.lower().strip()
-    filtered = [
-        w for w in workers if any(
-            q_low in (w.get(k, "") or "").lower() for k in ("last_name", "first_name", "id")
-        )
-    ]
-    return {"items": filtered}
+def api_workers(q: Optional[str] = None):
+    items = load_workers()
+    if q:
+        ql = q.lower().strip()
+        items = [w for w in items if any(
+            ql in (w.get(k, "") or "").lower() for k in ("last_name", "first_name", "id")
+        )]
+    return {"items": items}
 
-
-# ======================================================================
-#                           TRANSLATION (proxy)
-# ======================================================================
-class TranslateReq(BaseModel):
-    text: str = Field(..., description="Input text")
-    source: Optional[str] = Field(None, description="Source language, e.g. 'hr'")
-    target: str = Field(..., description="Target language, e.g. 'de'")
-
+# Fordítás proxy – LibreTranslate (vagy kompatibilis)
+# ENV: LT_ENDPOINT = https://libretranslate.de/translate ; (opcionális) LT_API_KEY
 @app.post("/api/translate")
-async def api_translate(req: TranslateReq):
-    """
-    LibreTranslate (vagy kompatibilis) proxy.
-    Env:
-      LT_ENDPOINT = 'https://libretranslate.de/translate' (példa)
-      LT_API_KEY  = '...' (opcionális)
-    """
+async def api_translate(request: Request):
+    data = await request.json()
+    text = (data.get("text") or "").strip()
+    source = (data.get("source") or "auto").strip()
+    target = (data.get("target") or "de").strip()
+
     endpoint = os.getenv("LT_ENDPOINT")
     if not endpoint:
-        raise HTTPException(status_code=501, detail="Translation backend not configured (LT_ENDPOINT).")
+        return JSONResponse({"error": "Translation backend not configured (LT_ENDPOINT)."}, status_code=501)
 
-    payload = {"q": req.text, "source": req.source or "auto", "target": req.target, "format": "text"}
+    payload = {"q": text, "source": source or "auto", "target": target, "format": "text"}
     headers = {"Content-Type": "application/json"}
     api_key = os.getenv("LT_API_KEY")
     if api_key:
         payload["api_key"] = api_key
-    timeout = httpx.Timeout(10.0, connect=5.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(endpoint, json=payload, headers=headers)
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+            r = await client.post(endpoint, json=payload, headers=headers)
         if r.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Translator error: {r.status_code}")
-        data = r.json()
-        translated = data.get("translatedText")
+            return JSONResponse({"error": f"Translator error: {r.status_code}"}, status_code=502)
+        resp = r.json()
+        translated = resp.get("translatedText")
         if not translated:
-            raise HTTPException(status_code=502, detail="Invalid response from translator")
+            return JSONResponse({"error": "Invalid response from translator"}, status_code=502)
         return {"translated": translated}
-
-
-# ======================================================================
-#                           EXCEL GENERÁLÁS
-# ======================================================================
-BREAKS = [
-    (dtime(9, 0), dtime(9, 15), 0.25),
-    (dtime(12, 0), dtime(12, 45), 0.75),
-]
-
-def parse_hhmm(t: str) -> dtime:
-    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", t or "")
-    if not m:
-        raise ValueError("Ungültiges Zeitformat, erwartet HH:MM")
-    hh = int(m.group(1)); mm = int(m.group(2))
-    if not (0 <= hh < 24 and 0 <= mm < 60):
-        raise ValueError("Ungültige Stunde/Minute")
-    return dtime(hh, mm)
-
-def overlap_minutes(a_start: dtime, a_end: dtime, b_start: dtime, b_end: dtime) -> int:
-    a0 = a_start.hour*60 + a_start.minute
-    a1 = a_end.hour*60 + a_end.minute
-    b0 = b_start.hour*60 + b_start.minute
-    b1 = b_end.hour*60 + b_end.minute
-    lo = max(a0, b0); hi = min(a1, b1)
-    return max(0, hi - lo)
-
-def compute_hours(start: dtime, end: dtime) -> float:
-    if end <= start:
-        raise ValueError("Ende muss nach Beginn sein")
-    total_min = (end.hour*60 + end.minute) - (start.hour*60 + start.minute)
-    deduct = 0
-    for b0, b1, hrs in BREAKS:
-        minutes = overlap_minutes(start, end, b0, b1)
-        if minutes > 0:
-            deduct += hrs * min(1.0, minutes / ((b1.hour*60 + b1.minute) - (b0.hour*60 + b0.minute)))
-    net_hours = max(0.0, total_min/60.0 - deduct)
-    return round(net_hours, 2)
-
-class WorkerIn(BaseModel):
-    last_name: str
-    first_name: str
-    id: str = Field(..., description="Ausweis-Nr.")
-    start: Optional[str] = None
-    end: Optional[str] = None
-    vorhaltung: Optional[str] = None
-
-class GenerateExcelIn(BaseModel):
-    date: str = Field(..., description="YYYY-MM-DD")
-    project: str = Field(..., description="Bau und Ausführungsort")
-    bf: str = Field(..., description="Bauleiter/Fachbauleiter")
-    description: str = Field(..., description="Was wurde gemacht?")
-    workers: List[WorkerIn]
-    copy_first_worker_time: bool = Field(default=True, description="Copy first worker time to others if missing")
-
-    @field_validator("workers")
-    @classmethod
-    def at_least_one_worker(cls, v):
-        if not v or len(v) < 1:
-            raise ValueError("Mindestens 1 Arbeiter erforderlich")
-        if len(v) > 5:
-            raise ValueError("Maximal 5 Arbeiter unterstützt")
-        return v
-
-def fill_description(ws: Worksheet, text: str):
-    """
-    A6–A15 sorok (10 sor) – egyszerű 70 karakteres wrap.
-    Ha más cellakiosztást használtok, itt kell igazítani.
-    """
-    lines: List[str] = []
-    words = re.split(r"(\s+)", (text or "").strip())
-    current = ""
-    for token in words:
-        if len(current) + len(token) > 70 and current:
-            lines.append(current)
-            current = token.lstrip()
-        else:
-            current += token
-    if current:
-        lines.append(current)
-    for i in range(10):
-        cell = f"A{6+i}"
-        ws[cell] = lines[i] if i < len(lines) else ""
-
-def write_workers(ws: Worksheet, workers: List[WorkerIn]):
-    """
-    Feltételezett mapping:
-      Sorok: 18..22 (max 5 dolgozó)
-      Oszlopok: A=Nachname, B=Vorname, C=Ausweis, D=Beginn, E=Ende, F=Std (nettó), G=Vorhaltung
-    """
-    base_row = 18
-    first_time = None
-    if workers and workers[0].start and workers[0].end:
-        first_time = (workers[0].start, workers[0].end)
-
-    for idx in range(5):
-        r = base_row + idx
-        w = workers[idx] if idx < len(workers) else None
-        if not w:
-            for col in "ABCDEFG":
-                ws[f"{col}{r}"] = ""
-            continue
-
-        ws[f"A{r}"] = w.last_name
-        ws[f"B{r}"] = w.first_name
-        ws[f"C{r}"] = w.id
-
-        s = w.start or (first_time[0] if (first_time and idx > 0) else None)
-        e = w.end or (first_time[1] if (first_time and idx > 0) else None)
-        ws[f"D{r}"] = s or ""
-        ws[f"E{r}"] = e or ""
-
-        net = ""
-        if s and e:
-            try:
-                net = compute_hours(parse_hhmm(s), parse_hhmm(e))
-            except Exception:
-                net = ""
-        ws[f"F{r}"] = net
-        ws[f"G{r}"] = w.vorhaltung or ""
-
-def write_header(ws: Worksheet, date_str: str, project: str, bf: str):
-    ws["C2"] = project
-    ws["C3"] = bf
-    try:
-        d = datetime.strptime(date_str, "%Y-%m-%d").date()
-        ws["C1"] = d.strftime("%d.%m.%Y")
-    except Exception:
-        ws["C1"] = date_str
-
-@app.post("/generate_excel")
-def generate_excel(payload: GenerateExcelIn):
-    template_path = DEFAULT_TEMPLATE
-    if not os.path.exists(template_path):
-        raise HTTPException(status_code=500, detail=f"Template nicht gefunden: {template_path}")
-
-    try:
-        wb = load_workbook(template_path)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Vorlage kann nicht geöffnet werden: {e}")
-
-    ws = wb.active
-
-    write_header(ws, payload.date, payload.project, payload.bf)
-    fill_description(ws, payload.description or "")
-    write_workers(ws, payload.workers)
-
-    # Összóra: F18..F22 → F23 (szükség esetén igazítsd a cél cellát)
-    try:
-        total = 0.0
-        for r in range(18, 23):
-            v = ws[f"F{r}"].value
-            if isinstance(v, (int, float)):
-                total += float(v)
-            elif isinstance(v, str):
-                try:
-                    total += float(v.replace(",", "."))
-                except Exception:
-                    pass
-        ws["F23"] = round(total, 2)
-    except Exception:
-        pass
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-
-    filename = f"Arbeitsnachweis_{payload.date}.xlsx"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
-        "Cache-Control": "no-store",
-    }
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers,
-    )
-
-
-# ======================================================================
-#                           E-MAIL KÜLDÉS (opcionális)
-# ======================================================================
-class EmailPayload(BaseModel):
-    to: str
-    subject: str
-    body: str
-    filename: Optional[str] = None  # opcionális csatolmány fájlnév (a /generate_excelből kapott)
-    content_b64: Optional[str] = None  # vagy base64 tartalom közvetlen (nem kötelező)
-
-def _smtp_send(msg: EmailMessage):
-    host = os.getenv("SMTP_HOST")
-    port = int(os.getenv("SMTP_PORT", "587"))
-    user = os.getenv("SMTP_USER")
-    pwd  = os.getenv("SMTP_PASS")
-    tls  = os.getenv("SMTP_TLS", "1") == "1"
-    if not host:
-        raise HTTPException(status_code=500, detail="SMTP nincs konfigurálva")
-
-    with smtplib.SMTP(host, port) as s:
-        if tls:
-            s.starttls()
-        if user:
-            s.login(user, pwd or "")
-        s.send_message(msg)
-
-@app.post("/api/send_email")
-def api_send_email(p: EmailPayload):
-    """
-    Egyszerű SMTP e-mail küldés.
-    Env:
-      SMTP_HOST, SMTP_PORT(=587), SMTP_USER, SMTP_PASS, SMTP_FROM, SMTP_TLS(=1)
-    """
-    from_addr = os.getenv("SMTP_FROM", os.getenv("SMTP_USER", "noreply@example.com"))
-    msg = EmailMessage()
-    msg["From"] = from_addr
-    msg["To"] = p.to
-    msg["Subject"] = p.subject
-    msg.set_content(p.body or "")
-
-    # Ha csatolmányt is küldenénk base64 nélkül, akkor a frontend küldje be a tartalmat base64-ben.
-    # Jelen verzióban csak sima szövegküldésre optimális.
-    # (Ha kell bővíthetjük fájlolvasással a szerveren, de ez általában nem kívánatos.)
-
-    _smtp_send(msg)
-    return {"ok": True}
-
-
-# ======================================================================
-#                           GOOGLE DRIVE FELTÖLTÉS (opcionális)
-# ======================================================================
-class DriveUploadIn(BaseModel):
-    filename: str
-    content_b64: str  # a kliens küldi base64-ben
-    folder_id: Optional[str] = None  # ha nincs megadva, GDRIVE_FOLDER_ID env
-
-@app.post("/api/drive_upload")
-def api_drive_upload(p: DriveUploadIn):
-    """
-    Service Account alapú Drive feltöltés.
-    Env:
-      GDRIVE_SA_JSON   = a service account JSON tartalma (egysoros JSON)
-      GDRIVE_FOLDER_ID = alapértelmezett mappa ID
-    """
-    if not HAS_GOOGLE:
-        raise HTTPException(status_code=501, detail="Google kliens nincs telepítve ezen a környezeten")
-
-    sa_json = os.getenv("GDRIVE_SA_JSON")
-    if not sa_json:
-        raise HTTPException(status_code=500, detail="GDRIVE_SA_JSON nincs beállítva")
-
-    folder_id = p.folder_id or os.getenv("GDRIVE_FOLDER_ID")
-    if not folder_id:
-        raise HTTPException(status_code=400, detail="Nincs Drive mappa ID (folder_id vagy GDRIVE_FOLDER_ID)")
-
-    try:
-        info = json.loads(sa_json)
-    except Exception:
-        raise HTTPException(status_code=500, detail="GDRIVE_SA_JSON hibás formátum")
-
-    creds = GCreds.from_service_account_info(
-        info,
-        scopes=["https://www.googleapis.com/auth/drive.file"],
-    )
-    service = gbuild("drive", "v3", credentials=creds)
-
-    # base64 dekód
-    import base64
-    raw = base64.b64decode(p.content_b64)
-
-    media = MediaIoBaseUpload(io.BytesIO(raw), mimetype=mimetypes.guess_type(p.filename)[0] or "application/octet-stream")
-    file_metadata = {"name": p.filename, "parents": [folder_id]}
-    r = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink, webContentLink").execute()
-
-    # Publikus olvasás (opcionális – ha kell publikus link)
-    try:
-        service.permissions().create(
-            fileId=r["id"],
-            body={"role": "reader", "type": "anyone"},
-        ).execute()
-        pub = service.files().get(fileId=r["id"], fields="webViewLink, webContentLink").execute()
-    except Exception:
-        pub = {"webViewLink": None, "webContentLink": None}
-
-    return {"id": r.get("id"), "view": pub.get("webViewLink"), "download": pub.get("webContentLink")}
-
-
-# ======================================================================
-#                   BACKWARD-COMPAT / ALIAS ENDPOINTOK
-# ======================================================================
-@app.get("/config")
-def _alias_config():
-    return api_config()
-
-@app.get("/workers")
-def _alias_workers(q: Optional[str] = Query(default=None)):
-    return api_workers(q=q)
-
-@app.post("/api/translate_text")
-async def _alias_translate(req: TranslateReq):
-    return await api_translate(req)
-
-@app.post("/api/generate_excel")
-def _alias_generate_excel(payload: GenerateExcelIn):
-    return generate_excel(payload)
-
-
-# ======================================================================
-#                           UVICORN INDÍTÁS
-# ======================================================================
-def _port() -> int:
-    try:
-        return int(os.getenv("PORT", "10000"))
-    except Exception:
-        return 10000
-
-if __name__ == "__main__":
-    # Notebook/fejlesztői környezetben csak explicit kérésre induljon
-    if os.getenv("RUN_UVICORN", "0") == "1":
-        import uvicorn
-        uvicorn.run(app, host="0.0.0.0", port=_port())
+        return JSONResponse({"error": f"Translator call failed: {e}"}, status_code=502)
