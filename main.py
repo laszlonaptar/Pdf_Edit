@@ -92,7 +92,22 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
 SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-dev-secret")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
-
+# --- Nyelv middleware: a ?lang=de/hr felülírja a sessiont ---
+@app.middleware("http")
+async def ui_language_from_query(request: Request, call_next):
+    try:
+        qlang = request.query_params.get("lang", "").lower()
+        if qlang in ("de", "hr"):
+            # a query-ből jövő nyelv MINDIG írja a sessiont
+            request.session["ui_lang"] = qlang
+    except Exception:
+        pass
+    response = await call_next(request)
+    try:
+        response.headers["Cache-Control"] = "no-store"
+    except Exception:
+        pass
+    return response
 def _is_user(request: Request) -> bool:
     return bool(request.session.get("auth_ok") is True)
 
