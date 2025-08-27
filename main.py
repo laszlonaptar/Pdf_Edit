@@ -89,7 +89,14 @@ except Exception as e:
 #                                   App / statikus / sablonok
 # ============================================================================
 app = FastAPI()
+from starlette.middleware.sessions import SessionMiddleware
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SESSION_SECRET_KEY", "supersecret"),
+    same_site="lax",
+    https_only=False
+)
 # —— SESSIONS: erős alapértelmezett kulcs + env felülírhatóság ——
 # Megadok egy erős alapértelmezett kulcsot; felülírható: SESSION_SECRET env
 SESSION_SECRET = os.getenv(
