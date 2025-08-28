@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI, Request, Form, Response, Body
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -84,7 +83,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ---- Session (egyszer, a legelején) ----
+# ---- Session a bejelentkezéshez (NYELVHEZ NEM HASZNÁLJUK) ----
 SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-dev-secret")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
 
@@ -99,20 +98,6 @@ def _is_user(request: Request) -> bool:
 
 def _is_admin(request: Request) -> bool:
     return bool(request.session.get("admin_ok") is True)
-
-# ---------- Nyelvkezelés (SESSION + ?lang=) ----------
-def get_ui_lang(request: Request) -> str:
-    """Elsőbbség: ?lang= param -> session-be mentjük; egyébként session -> default 'de'"""
-    q = (request.query_params.get("lang") or "").strip().lower()
-    if q in {"de", "hr"}:
-        request.session["ui_lang"] = q
-    lang = (request.session.get("ui_lang") or "de").strip().lower()
-    return lang if lang in {"de", "hr"} else "de"
-
-@app.middleware("http")
-async def lang_middleware(request: Request, call_next):
-    _ = get_ui_lang(request)  # inicializáljuk/mentjük a nyelvet session-be
-    return await call_next(request)
 
 # ---------- TRANSLATOR BEÁLLÍTÁSOK ----------
 # Azure (ELSŐDLEGES)
@@ -498,12 +483,14 @@ async def admin_logout(request: Request):
     request.session.clear()
     return RedirectResponse("/admin/login", status_code=303)
 
-# ---------- Főoldal ----------
+# ---------- Főoldal (NYELV: csak queryből; default: de) ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     if not _is_user(request):
         return RedirectResponse("/login?next=/", status_code=303)
-    lang = get_ui_lang(request)
+    lang = (request.query_params.get("lang") or "").strip().lower()
+    if lang not in {"de", "hr"}:
+        lang = "de"
     return templates.TemplateResponse("index.html", {"request": request, "lang": lang})
 
 # ---------- Excel generálás + DB mentés + Drive feltöltés ----------
@@ -655,7 +642,7 @@ async def generate_pdf(
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
     geraet: str = Form(""),
-    beschreibung: str = Form(""),
+    beschrijving: str = Form(""),
     break_minutes: int = Form(60),
     vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
     vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
@@ -692,7 +679,7 @@ async def generate_pdf(
         hb = parse_hhmm(bg); he = parse_hhmm(en); total_hours += hours_with_breaks(hb, he, int(break_minutes))
 
     pdf_bytes = _build_pdf_preview(
-        date_text=date_text, bau=bau, basf_beauftragter=basf_beauftragter, beschreibung=beschreibung,
+        date_text=date_text, bau=bau, basf_beauftragter=basf_beauftragter, beschreibung=beschrijving,
         ws=ws, r1=r1, c1=c1, r2=r2, c2=c2, workers=workers, total_hours=total_hours
     )
 
