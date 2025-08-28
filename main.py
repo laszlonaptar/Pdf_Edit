@@ -1,4 +1,4 @@
-# main.py  (PART 1/3)
+# main.py
 from fastapi import FastAPI, Request, Form, Response, Body
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,13 +22,13 @@ import sqlite3
 from pathlib import Path
 from typing import Tuple, Optional, List
 
-# Hálózat / fordítás
+# Hálózat/HTTP és DNS diag
 import httpx
 import socket
 import re
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse, urlencode
 
-# ================= Google Drive (service account) =================
+# ---- Google Drive (service account) ----
 GDRIVE_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON", "")
 GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID", "")
 
@@ -61,7 +61,7 @@ def drive_upload_bytes(filename: str, data: bytes, mime: str) -> Optional[str]:
         print("Drive upload failed:", repr(e))
         return None
 
-# ================= PDF (ReportLab) – opcionális =================
+# ---- PDF (ReportLab) - opcionális előnézet ----
 REPORTLAB_AVAILABLE = False
 try:
     from reportlab.pdfgen import canvas
@@ -72,26 +72,27 @@ try:
 except Exception:
     REPORTLAB_AVAILABLE = False
 
-# ================= Képgenerálás (Pillow) =================
+# ---- Képgenerálás (Pillow) ----
 try:
     from PIL import Image as PILImage, ImageDraw, ImageFont
     PIL_AVAILABLE = True
 except Exception:
     PIL_AVAILABLE = False
 
-# ================= App / statikus / sablonok =================
+# ---- App / statikus / sablonok ----
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ================= Login beállítások =================
-APP_USERNAME   = os.getenv("APP_USERNAME", "user")
-APP_PASSWORD   = os.getenv("APP_PASSWORD", "user")
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
-
+# ---- Session (egyszer, a legelején) ----
 SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-dev-secret")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
+
+# ---- Login beállítások ----
+APP_USERNAME = os.getenv("APP_USERNAME", "user")
+APP_PASSWORD = os.getenv("APP_PASSWORD", "user")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
 def _is_user(request: Request) -> bool:
     return bool(request.session.get("auth_ok") is True)
@@ -99,8 +100,9 @@ def _is_user(request: Request) -> bool:
 def _is_admin(request: Request) -> bool:
     return bool(request.session.get("admin_ok") is True)
 
-# ================= Nyelv (session + ?lang=) =================
+# ---------- Nyelvkezelés (SESSION + ?lang=) ----------
 def get_ui_lang(request: Request) -> str:
+    """Elsőbbség: ?lang= param -> session-be mentjük; egyébként session -> default 'de'"""
     q = (request.query_params.get("lang") or "").strip().lower()
     if q in {"de", "hr"}:
         request.session["ui_lang"] = q
@@ -109,25 +111,19 @@ def get_ui_lang(request: Request) -> str:
 
 @app.middleware("http")
 async def lang_middleware(request: Request, call_next):
-    _ = get_ui_lang(request)
+    _ = get_ui_lang(request)  # inicializáljuk/mentjük a nyelvet session-be
     return await call_next(request)
 
-# ================= Azure + LT fordító beállítások =================
-# elfogadjuk mindkét env név-változatot
-def _env(*names: str) -> str:
-    for n in names:
-        v = os.getenv(n, "").strip()
-        if v:
-            return v
-    return ""
+# ---------- TRANSLATOR BEÁLLÍTÁSOK ----------
+# Azure (ELSŐDLEGES)
+AZURE_EP  = os.getenv("AZURE_TRANSLATOR_ENDPOINT", "").strip().rstrip("/")
+AZURE_KEY = os.getenv("AZURE_TRANSLATOR_KEY", "").strip()
+AZURE_RG  = os.getenv("AZURE_TRANSLATOR_REGION", "").strip()
 
-AZURE_EP  = _env("AZURE_TRANSLATE_ENDPOINT", "AZURE_TRANSLATOR_ENDPOINT").rstrip("/")
-AZURE_KEY = _env("AZURE_TRANSLATE_KEY", "AZURE_TRANSLATOR_KEY")
-AZURE_RG  = _env("AZURE_TRANSLATE_REGION", "AZURE_TRANSLATOR_REGION")
-
-LT_ENDPOINT        = os.getenv("LT_ENDPOINT", "").strip()
+# LibreTranslate (OPCIONÁLIS BACKUP)
+LT_ENDPOINT = os.getenv("LT_ENDPOINT", "").strip()
 LT_BACKUP_ENDPOINT = os.getenv("LT_BACKUP_ENDPOINT", "").strip()
-LT_VIRTUAL_HOST    = os.getenv("LT_VIRTUAL_HOST", "libretranslate.com").strip()
+LT_VIRTUAL_HOST = os.getenv("LT_VIRTUAL_HOST", "libretranslate.com").strip()
 try:
     LT_TIMEOUT = float(os.getenv("LT_TIMEOUT", "12"))
 except Exception:
@@ -144,10 +140,10 @@ def _headers_for(endpoint: str, base_headers: dict | None = None) -> dict:
 def azure_ready() -> bool:
     return bool(AZURE_EP and AZURE_KEY and AZURE_RG)
 
-# ================= Adattárak / DB =================
+# ---- Tárolók / DB init ----
 BASE_DIR = Path(os.getcwd())
 DATA_DIR = BASE_DIR / "data"
-GEN_DIR  = BASE_DIR / "generated"
+GEN_DIR = BASE_DIR / "generated"
 DATA_DIR.mkdir(exist_ok=True)
 GEN_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
@@ -179,7 +175,7 @@ def init_db():
         """)
 init_db()
 
-# ================= Excel / segédfüggvények =================
+# ---------- helpers (Excel stb.) ----------
 def merged_ranges(ws):
     return [(r.min_row, r.min_col, r.max_row, r.max_col) for r in ws.merged_cells.ranges]
 
@@ -412,7 +408,59 @@ def set_print_defaults(ws):
     ws.print_options.horizontalCentered = False
     ws.print_options.verticalCentered = False
 
-# ================= Login / Logout oldalak =================
+def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, c1, r2, c2, workers, total_hours):
+    if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
+        raise RuntimeError("ReportLab/PIL missing")
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+
+    pw, ph = landscape(A4)
+    margin_left = 12 * mm; margin_right = 12 * mm; margin_top = 12 * mm; margin_bottom = 12 * mm
+    buf = BytesIO(); c = canvas.Canvas(buf, pagesize=(pw, ph))
+    y = ph - margin_top
+
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin_left, y, f"Datum: {date_text}"); y -= 16
+    c.setFont("Helvetica", 12); c.drawString(margin_left, y, f"Bau: {bau}"); y -= 16
+    if (basf_beauftragter or "").strip():
+        c.drawString(margin_left, y, f"BASF Beauftragter: {basf_beauftragter}"); y -= 10
+    y -= 6
+
+    block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
+    colA_w_px = _get_col_pixel_width(ws, 1)
+    new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
+    new_h_px = int(block_h_px * BOTTOM_CROP)
+    pil_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
+    w_pt = new_w_px * 0.75; h_pt = new_h_px * 0.75
+    max_w_pt = pw - margin_left - margin_right
+    if w_pt > max_w_pt:
+        scale = max_w_pt / w_pt; w_pt *= scale; h_pt *= scale
+    y -= h_pt
+    c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto'); y -= 12
+
+    c.setFont("Helvetica-Bold", 11)
+    headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
+    col_widths = [70, 70, 90, 60, 60, 60, 100]
+    x = margin_left
+    for hdr, w in zip(headers, col_widths):
+        c.drawString(x, y, hdr); x += w
+    y -= 14; c.setLineWidth(0.3); c.line(margin_left, y, margin_left + sum(col_widths), y); y -= 6
+
+    c.setFont("Helvetica", 10)
+    for (vn, nn, aw, bg, en, vh) in workers:
+        x = margin_left
+        vals = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}", vh]
+        for val, w in zip(vals, col_widths):
+            c.drawString(x, y, str(val or "")); x += w
+        y -= 14
+        if y < margin_bottom + 40:
+            c.showPage(); y = ph - margin_top; c.setFont("Helvetica", 10)
+
+    y -= 6; c.setFont("Helvetica-Bold", 11); c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
+    c.showPage(); c.save(); buf.seek(0); return buf.read()
+
+# ---------- User Login / Logout ----------
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request, next: str = "/"):
     if _is_user(request):
@@ -431,7 +479,7 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
-# ================= Admin login/logout =================
+# ---------- Admin Login / Logout ----------
 @app.get("/admin/login", response_class=HTMLResponse)
 async def admin_login_form(request: Request, next: str = "/admin"):
     if _is_admin(request):
@@ -450,7 +498,7 @@ async def admin_logout(request: Request):
     request.session.clear()
     return RedirectResponse("/admin/login", status_code=303)
 
-# ================= Főoldal =================
+# ---------- Főoldal ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     if not _is_user(request):
@@ -458,352 +506,212 @@ async def index(request: Request):
     lang = get_ui_lang(request)
     return templates.TemplateResponse("index.html", {"request": request, "lang": lang})
 
-# ======= A KÖVETKEZŐ RÉSZBEN FOLYT. (PART 2/3): generate_excel / generate_pdf =======
-# ======= generate_excel / generate_pdf =======
-
-from typing import Dict
-
+# ---------- Excel generálás + DB mentés + Drive feltöltés ----------
 @app.post("/generate_excel")
 async def generate_excel(
     request: Request,
     datum: str = Form(...),
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
+    geraet: str = Form(""),
     beschreibung: str = Form(""),
     break_minutes: int = Form(60),
-    # workers 1..5
-    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""),
-    beginn1: str = Form(""),  ende1: str = Form(""),  vorhaltung1: str = Form(""),
-    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""),
-    beginn2: str = Form(""),  ende2: str = Form(""),  vorhaltung2: str = Form(""),
-    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""),
-    beginn3: str = Form(""),  ende3: str = Form(""),  vorhaltung3: str = Form(""),
-    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""),
-    beginn4: str = Form(""),  ende4: str = Form(""),  vorhaltung4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""),
-    beginn5: str = Form(""),  ende5: str = Form(""),  vorhaltung5: str = Form(""),
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), vorhaltung5: str = Form(""),
 ):
     if not _is_user(request):
         return RedirectResponse("/login?next=/", status_code=303)
 
-    # sablon betöltése
-    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
-    ws = wb.active
+    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx")); ws = wb.active
 
-    # dátum formázott
     date_text = datum
     try:
-        dt = datetime.strptime((datum or "").strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")
+        dt = datetime.strptime(datum.strip(), "%Y-%m-%d"); date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
+    set_text_addr(ws, "B2", date_text, horizontal="left")
+    set_text_addr(ws, "B3", bau,        horizontal="left")
+    if (basf_beauftragter or "").strip():
+        set_text_addr(ws, "E3", basf_beauftragter, horizontal="left")
 
-    # fejléc mezők
-    set_text_addr(ws, "B3", date_text, horizontal="left")
-    set_text_addr(ws, "D3", bau,       horizontal="left")
-    set_text_addr(ws, "F3", basf_beauftragter, horizontal="left")
-
-    # leírás blokk
     r1, c1, r2, c2 = find_description_block(ws)
-    # adunk minimális sor magasságot, hogy kép jól férjen
     for r in range(r1, r2 + 1):
-        rd = ws.row_dimensions.get(r)
-        if rd is None or rd.height is None:
+        if ws.row_dimensions.get(r) is None or ws.row_dimensions[r].height is None:
             ws.row_dimensions[r].height = 22
 
-    text_in = (beschreibung or "").strip()
     inserted = False
+    text_in = (beschreibung or "").strip()
     if text_in:
         inserted = insert_description_as_image(ws, r1, c1, r2, c2, text_in)
     if not inserted:
-        # visszaesés: sima szöveg, tördelve
-        set_text(ws, r1, c1, text_in, wrap=True, align_left=True, valign_top=True)
+        set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)
 
-    # dolgozó sorok kitöltése
-    pos: Dict[str, int] = find_header_positions(ws)
-    start_row = pos["data_start_row"]
-    stunden_col = pos["stunden_col"]
-    vorhaltung_col = pos.get("vorhaltung_col")
+    pos = find_header_positions(ws); row = pos["data_start_row"]
+    vorhaltung_col = pos.get("vorhaltung_col", None)
 
-    workers = [
-        (vorname1, nachname1, ausweis1, beginn1, ende1, vorhaltung1),
-        (vorname2, nachname2, ausweis2, beginn2, ende2, vorhaltung2),
-        (vorname3, nachname3, ausweis3, beginn3, ende3, vorhaltung3),
-        (vorname4, nachname4, ausweis4, beginn4, ende4, vorhaltung4),
-        (vorname5, nachname5, ausweis5, beginn5, ende5, vorhaltung5),
-    ]
+    workers: List[Tuple[str,str,str,str,str,str]] = []
+    for i in range(1, 6):
+        vn = locals().get(f"vorname{i}", "") or ""
+        nn = locals().get(f"nachname{i}", "") or ""
+        aw = locals().get(f"ausweis{i}", "") or ""
+        bg = locals().get(f"beginn{i}", "") or ""
+        en = locals().get(f"ende{i}", "") or ""
+        vh = locals().get(f"vorhaltung{i}", "") or ""
+        if not (vn or nn or aw or bg or en or vh): continue
+        workers.append((vn, nn, aw, bg, en, vh))
 
     total_hours = 0.0
-    row = start_row
     for (vn, nn, aw, bg, en, vh) in workers:
-        any_filled = any([(vn or nn or aw or bg or en or vh)])
-        if not any_filled:
-            continue
-
+        set_text(ws, row, pos["name_col"], nn, wrap=False, align_left=True)
         set_text(ws, row, pos["vorname_col"], vn, wrap=False, align_left=True)
-        set_text(ws, row, pos["name_col"],    nn, wrap=False, align_left=True)
         set_text(ws, row, pos["ausweis_col"], aw, wrap=False, align_left=True)
-        set_text(ws, row, pos["beginn_col"],  bg, wrap=False, align_left=True)
-        set_text(ws, row, pos["ende_col"],    en, wrap=False, align_left=True)
-        if vorhaltung_col:
+        set_text(ws, row, pos["beginn_col"], bg, wrap=False, align_left=True)
+        set_text(ws, row, pos["ende_col"], en, wrap=False, align_left=True)
+        if vorhaltung_col and (vh or "").strip():
             set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
-
         hb = parse_hhmm(bg); he = parse_hhmm(en)
-        hours = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
-        total_hours += hours
-        set_text(ws, row, stunden_col, f"{hours:.2f}", wrap=False, align_left=True)
-        row += 1
+        h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
+        total_hours += h; set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True); row += 1
 
-    # "Gesamtstunden" sor
-    right_of_label, stunden_total = find_total_cells(ws, stunden_col)
+    right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
     if stunden_total:
-        rr, cc = stunden_total
-        ws.cell(rr, cc).value = f"{total_hours:.2f}"
+        tr, tc = stunden_total; set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
     if right_of_label:
-        rr, cc = right_of_label
-        ws.cell(rr, cc).value = "h"
+        rr, rc = right_of_label; set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
-    # nyomtatási alapok
     try:
         set_print_defaults(ws)
     except Exception as e:
-        print("print defaults warn:", repr(e))
+        print("PRINT SETUP WARN:", repr(e))
 
-    # mentés + (opcionális) Drive feltöltés
-    out_name = f"arbeitsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
-    out_path = GEN_DIR / out_name
-    wb.save(out_path.as_posix())
-    data = out_path.read_bytes()
+    excel_name = f"leistungsnachweis_{uuid.uuid4().hex[:8]}.xlsx"
+    excel_path = GEN_DIR / excel_name
+    wb.save(excel_path.as_posix())
+    with open(excel_path, "rb") as f:
+        excel_bytes = f.read()
 
-    drive_id = drive_upload_bytes(
-        out_name, data,
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    drive_file_id = drive_upload_bytes(
+        filename=excel_name,
+        data=excel_bytes,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # DB mentés
+    payload = {
+        "datum": datum, "bau": bau, "basf_beauftragter": basf_beauftragter,
+        "beschreibung": beschreibung, "break_minutes": int(break_minutes),
+        "workers": [
+            {"vorname": locals().get(f"vorname{i}", ""), "nachname": locals().get(f"nachname{i}", ""),
+             "ausweis": locals().get(f"ausweis{i}", ""), "beginn": locals().get(f"beginn{i}", ""),
+             "ende": locals().get(f"ende{i}", ""), "vorhaltung": locals().get(f"vorhaltung{i}", "")}
+            for i in range(1, 6)
+        ],
+        "drive_file_id": drive_file_id
+    }
     with db_conn() as c:
         c.execute("""
-        INSERT INTO submissions (
-            created_at, datum, bau, basf_beauftragter, beschreibung, break_minutes,
-            vorname1,nachname1,ausweis1,beginn1,ende1,vorhaltung1,
-            vorname2,nachname2,ausweis2,beginn2,ende2,vorhaltung2,
-            vorname3,nachname3,ausweis3,beginn3,ende3,vorhaltung3,
-            vorname4,nachname4,ausweis4,beginn4,ende4,vorhaltung4,
-            vorname5,nachname5,ausweis5,beginn5,ende5,vorhaltung5,
-            excel_filename, payload_json
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO submissions (
+                created_at, datum, bau, basf_beauftragter, beschreibung, break_minutes,
+                vorname1, nachname1, ausweis1, beginn1, ende1, vorhaltung1,
+                vorname2, nachname2, ausweis2, beginn2, ende2, vorhaltung2,
+                vorname3, nachname3, ausweis3, beginn3, ende3, vorhaltung3,
+                vorname4, nachname4, ausweis4, beginn4, ende4, vorhaltung4,
+                vorname5, nachname5, ausweis5, beginn5, ende5, vorhaltung5,
+                excel_filename, payload_json
+            ) VALUES (
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,?,?,?,
+                ?,?
+            )
         """, (
             datetime.utcnow().isoformat(),
             datum, bau, basf_beauftragter, beschreibung, int(break_minutes),
-            vorname1, nachname1, ausweis1, beginn1, ende1, vorhaltung1,
-            vorname2, nachname2, ausweis2, beginn2, ende2, vorhaltung2,
-            vorname3, nachname3, ausweis3, beginn3, ende3, vorhaltung3,
-            vorname4, nachname4, ausweis4, beginn4, ende4, vorhaltung4,
-            vorname5, nachname5, ausweis5, beginn5, ende5, vorhaltung5,
-            out_name, json.dumps({
-                "datum": datum,
-                "bau": bau,
-                "basf_beauftragter": basf_beauftragter,
-                "beschreibung": beschreibung,
-                "break_minutes": int(break_minutes),
-                "workers": [
-                    {"vorname": vorname1, "nachname": nachname1, "ausweis": ausweis1, "beginn": beginn1, "ende": ende1, "vorhaltung": vorhaltung1},
-                    {"vorname": vorname2, "nachname": nachname2, "ausweis": ausweis2, "beginn": beginn2, "ende": ende2, "vorhaltung": vorhaltung2},
-                    {"vorname": vorname3, "nachname": nachname3, "ausweis": ausweis3, "beginn": beginn3, "ende": ende3, "vorhaltung": vorhaltung3},
-                    {"vorname": vorname4, "nachname": nachname4, "ausweis": ausweis4, "beginn": beginn4, "ende": ende4, "vorhaltung": vorhaltung4},
-                    {"vorname": vorname5, "nachname": nachname5, "ausweis": ausweis5, "beginn": beginn5, "ende": ende5, "vorhaltung": vorhaltung5},
-                ],
-                "drive_file_id": drive_id
-            }, ensure_ascii=False)
+            locals().get("vorname1",""), locals().get("nachname1",""), locals().get("ausweis1",""), locals().get("beginn1",""), locals().get("ende1",""), locals().get("vorhaltung1",""),
+            locals().get("vorname2",""), locals().get("nachname2",""), locals().get("ausweis2",""), locals().get("beginn2",""), locals().get("ende2",""), locals().get("vorhaltung2",""),
+            locals().get("vorname3",""), locals().get("nachname3",""), locals().get("ausweis3",""), locals().get("beginn3",""), locals().get("ende3",""), locals().get("vorhaltung3",""),
+            locals().get("vorname4",""), locals().get("nachname4",""), locals().get("ausweis4",""), locals().get("beginn4",""), locals().get("ende4",""), locals().get("vorhaltung4",""),
+            locals().get("vorname5",""), locals().get("nachname5",""), locals().get("ausweis5",""), locals().get("beginn5",""), locals().get("ende5",""), locals().get("vorhaltung5",""),
+            excel_name, json.dumps(payload, ensure_ascii=False)
         ))
-        c.commit()
 
     headers = {
-        "Content-Disposition": f'attachment; filename="{out_name}"',
-        "Content-Length": str(len(data)),
+        "Content-Disposition": f'attachment; filename="{excel_name}"',
+        "Content-Length": str(len(excel_bytes)),
         "Cache-Control": "no-store",
     }
-    return Response(
-        content=data,
-        headers=headers,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    return Response(content=excel_bytes, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
-
+# ---------- PDF előnézet ----------
 @app.post("/generate_pdf")
 async def generate_pdf(
     request: Request,
     datum: str = Form(...),
     bau: str = Form(...),
     basf_beauftragter: str = Form(""),
+    geraet: str = Form(""),
     beschreibung: str = Form(""),
     break_minutes: int = Form(60),
-    # workers
-    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""),
-    beginn1: str = Form(""),  ende1: str = Form(""),  vorhaltung1: str = Form(""),
-    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""),
-    beginn2: str = Form(""),  ende2: str = Form(""),  vorhaltung2: str = Form(""),
-    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""),
-    beginn3: str = Form(""),  ende3: str = Form(""),  vorhaltung3: str = Form(""),
-    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""),
-    beginn4: str = Form(""),  ende4: str = Form(""),  vorhaltung4: str = Form(""),
-    vorname5: str = Form(""), nachname5: str = Form(""), ausweis5: str = Form(""),
-    beginn5: str = Form(""),  ende5: str = Form(""),  vorhaltung5: str = Form(""),
+    vorname1: str = Form(""), nachname1: str = Form(""), ausweis1: str = Form(""), beginn1: str = Form(""), ende1: str = Form(""), vorhaltung1: str = Form(""),
+    vorname2: str = Form(""), nachname2: str = Form(""), ausweis2: str = Form(""), beginn2: str = Form(""), ende2: str = Form(""), vorhaltung2: str = Form(""),
+    vorname3: str = Form(""), nachname3: str = Form(""), ausweis3: str = Form(""), beginn3: str = Form(""), ende3: str = Form(""), vorhaltung3: str = Form(""),
+    vorname4: str = Form(""), nachname4: str = Form(""), ausweis4: str = Form(""), beginn4: str = Form(""), ende4: str = Form(""), vorhaltung4: str = Form(""),
+    vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
 ):
     if not _is_user(request):
         return RedirectResponse("/login?next=/", status_code=303)
     if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
-        return PlainTextResponse("PDF előállítás nem elérhető ezen a szerveren.", status_code=501)
+        return PlainTextResponse("PDF előállítás nem elérhető (telepítsd: reportlab, pillow).", status_code=501)
 
-    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
-    ws = wb.active
-
+    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx")); ws = wb.active
     date_text = datum
     try:
-        dt = datetime.strptime((datum or "").strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")
+        dt = datetime.strptime(datum.strip(), "%Y-%m-%d"); date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
 
     r1, c1, r2, c2 = find_description_block(ws)
-
-    # összegyűjtjük a kitöltött sorokat
     workers = []
     for i in range(1, 6):
         vn = locals().get(f"vorname{i}", "") or ""
         nn = locals().get(f"nachname{i}", "") or ""
         aw = locals().get(f"ausweis{i}", "") or ""
-        bg = locals().get(f"beginn{i}", "")  or ""
-        en = locals().get(f"ende{i}", "")    or ""
+        bg = locals().get(f"beginn{i}", "") or ""
+        en = locals().get(f"ende{i}", "") or ""
         vh = locals().get(f"vorhaltung{i}", "") or ""
-        if not (vn or nn or aw or bg or en or vh):
-            continue
+        if not (vn or nn or aw or bg or en or vh): continue
         workers.append((vn, nn, aw, bg, en, vh))
 
     total_hours = 0.0
     for (_, _, _, bg, en, _) in workers:
-        hb = parse_hhmm(bg); he = parse_hhmm(en)
-        total_hours += hours_with_breaks(hb, he, int(break_minutes))
+        hb = parse_hhmm(bg); he = parse_hhmm(en); total_hours += hours_with_breaks(hb, he, int(break_minutes))
 
-    # PDF felépítése (képbe ágyazott leírás + táblázat)
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.units import mm
-    from reportlab.lib.utils import ImageReader
-
-    pw, ph = landscape(A4)
-    m = 12 * mm
-    buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=(pw, ph))
-
-    y = ph - m
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(m, y, f"Datum: {date_text}"); y -= 16
-    c.setFont("Helvetica", 12)
-    c.drawString(m, y, f"Bau: {bau}"); y -= 16
-    if (basf_beauftragter or "").strip():
-        c.drawString(m, y, f"BASF-Beauftragter: {basf_beauftragter}"); y -= 10
-    y -= 6
-
-    # leírás mint kép
-    block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
-    colA_w_px = _get_col_pixel_width(ws, 1)
-    new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
-    new_h_px = int(block_h_px * BOTTOM_CROP)
-    pil_img = _make_description_image((beschreibung or ""), new_w_px, new_h_px)
-
-    w_pt = new_w_px * 0.75
-    h_pt = new_h_px * 0.75
-    max_w_pt = pw - 2 * m
-    if w_pt > max_w_pt:
-        sc = max_w_pt / w_pt
-        w_pt *= sc; h_pt *= sc
-    y -= h_pt
-    c.drawImage(ImageReader(pil_img), m, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask="auto")
-    y -= 14
-
-    # táblázat fejlécek
-    c.setFont("Helvetica-Bold", 11)
-    headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
-    colw    = [70,       70,        90,        60,       60,     60,        110]
-    x = m
-    for h, w in zip(headers, colw):
-        c.drawString(x, y, h); x += w
-    y -= 14
-    c.setLineWidth(0.3); c.line(m, y, m + sum(colw), y); y -= 6
-
-    # sorok
-    c.setFont("Helvetica", 10)
-    for (vn, nn, aw, bg, en, vh) in workers:
-        x = m
-        vals = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en), int(break_minutes)):.2f}", vh]
-        for val, w in zip(vals, colw):
-            c.drawString(x, y, str(val or "")); x += w
-        y -= 14
-        if y < (m + 40):
-            c.showPage(); y = ph - m; c.setFont("Helvetica", 10)
-
-    y -= 8
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(m, y, f"Gesamtstunden: {total_hours:.2f}")
-
-    c.showPage()
-    c.save()
-    buf.seek(0)
-    pdf = buf.read()
+    pdf_bytes = _build_pdf_preview(
+        date_text=date_text, bau=bau, basf_beauftragter=basf_beauftragter, beschreibung=beschreibung,
+        ws=ws, r1=r1, c1=c1, r2=r2, c2=c2, workers=workers, total_hours=total_hours
+    )
 
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
-        "Content-Length": str(len(pdf)),
-        "Cache-Control": "no-store",
-    }
-    return Response(content=pdf, media_type="application/pdf", headers=headers)
-    # ======= Translator (Azure first, LT fallback) =======
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"', "Content-Length": str(len(pdf_bytes)), "Cache-Control": "no-store"}
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
-import re
-from urllib.parse import urlencode, urlparse
-
-AZURE_EP  = os.getenv("AZURE_TRANSLATOR_ENDPOINT", "").strip().rstrip("/")
-AZURE_KEY = os.getenv("AZURE_TRANSLATOR_KEY", "").strip()
-AZURE_RG  = os.getenv("AZURE_TRANSLATOR_REGION", "").strip()
-
-LT_ENDPOINT        = os.getenv("LT_ENDPOINT", "").strip()
-LT_BACKUP_ENDPOINT = os.getenv("LT_BACKUP_ENDPOINT", "").strip()
-LT_VIRTUAL_HOST    = os.getenv("LT_VIRTUAL_HOST", "libretranslate.com").strip()
-
-try:
-    LT_TIMEOUT = float(os.getenv("LT_TIMEOUT", "12"))
-except Exception:
-    LT_TIMEOUT = 12.0
-
-_ip_re = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
-
-
-def azure_ready() -> bool:
-    return bool(AZURE_EP and AZURE_KEY and AZURE_RG)
-
-
-def _headers_for(endpoint: str, base: dict | None = None) -> dict:
-    """LT reverse-proxy esetén Host header-injektálás (ha IP-re megy a kérés)."""
-    hdr = dict(base or {})
-    host = (urlparse(endpoint).hostname or "").strip()
-    if _ip_re.match(host):
-        hdr.setdefault("Host", LT_VIRTUAL_HOST or "libretranslate.com")
-    return hdr
-
-
+# ---------- TRANSLATE: AZURE + (opcionális) LT fallback ----------
 def _azure_translate(text: str, source: str, target: str, timeout: float = 12.0) -> str:
     if not azure_ready():
-        raise RuntimeError("Azure translator nincs konfigurálva")
+        raise RuntimeError("Azure translator not configured")
     url = f"{AZURE_EP}/translate"
     qs = {"api-version": "3.0", "from": source, "to": target}
     headers = {
         "Ocp-Apim-Subscription-Key": AZURE_KEY,
         "Ocp-Apim-Subscription-Region": AZURE_RG,
-        "Content-Type": "application/json; charset=utf-8",
+        "Content-Type": "application/json; charset=UTF-8",
         "Accept": "application/json",
-        "User-Agent": "pdf-edit/azure",
+        "User-Agent": "pdf-edit/azure"
     }
     body = [{"text": text}]
     with httpx.Client(timeout=timeout, follow_redirects=True) as cli:
@@ -816,18 +724,13 @@ def _azure_translate(text: str, source: str, target: str, timeout: float = 12.0)
     except Exception:
         raise RuntimeError(f"Azure parse error: {jr}")
 
-
 def _lt_translate(text: str, source: str, target: str, timeout: float = 12.0) -> str:
-    eps = [e for e in (LT_ENDPOINT, LT_BACKUP_ENDPOINT) if e]
+    eps = [e for e in [LT_ENDPOINT, LT_BACKUP_ENDPOINT] if e]
     if not eps:
-        raise RuntimeError("LibreTranslate endpoint nincs konfigurálva")
-    base_headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "pdf-edit/lt",
-    }
+        raise RuntimeError("LibreTranslate endpoint not configured")
+    base_headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "pdf-edit/lt"}
     data = {"q": text, "source": source, "target": target, "format": "text"}
-    last_err = None
+    last = None
     for ep in eps:
         try:
             headers = _headers_for(ep, base_headers)
@@ -835,56 +738,22 @@ def _lt_translate(text: str, source: str, target: str, timeout: float = 12.0) ->
                 r = cli.post(ep, headers=headers, json=data)
             if r.status_code == 200:
                 jr = r.json()
-                for k in ("translatedText", "translation", "translated"):
-                    if isinstance(jr, dict) and isinstance(jr.get(k), str) and jr[k]:
-                        return jr[k]
+                for key in ("translatedText", "translation", "translated"):
+                    if isinstance(jr, dict) and isinstance(jr.get(key), str) and jr.get(key):
+                        return jr[key]
                 raise RuntimeError(f"LT parse error: {jr}")
-            last_err = f"LT HTTP {r.status_code}: {(r.text or '')[:200]}"
+            last = f"LT HTTP {r.status_code}: {(r.text or '')[:200]}"
         except Exception as e:
-            last_err = repr(e)
-    raise RuntimeError(last_err or "LT unknown error")
-
+            last = repr(e)
+    raise RuntimeError(last or "LT unknown error")
 
 @app.post("/api/translate")
-async def api_translate():
-    try:
-        payload = await (await Request.body.__get__(None, Request))  # type: ignore
-    except Exception:
-        payload = None
-
-    try:
-        data = await app.router.default.ResponseClass().json()  # dummy to keep type hints happy
-    except Exception:
-        data = None  # not used, we parse below
-
-    try:
-        body = await app.router.default.ResponseClass()  # noqa
-    except Exception:
-        body = None  # noqa
-
-    # tényleges beolvasás
-    try:
-        payload = await Request.json.__get__(None, Request)  # type: ignore
-    except Exception:
-        pass  # not used
-
-    # robust: olvassuk közvetlenül a kérést
-    try:
-        req = Request  # noqa
-    except Exception:
-        pass
-
-    # egyszerű: kérjük ki explicit a body-t a FastAPI-tól
-    # (egyszerűbb: használjunk dependency-t)
-    from fastapi import Body as _Body
-
-    p: dict = await _Body(..., embed=False)  # type: ignore
-
-    text   = (p.get("text") or "").strip()
-    source = (p.get("source") or "hr").strip() or "hr"
-    target = (p.get("target") or "de").strip() or "de"
+async def api_translate(payload: dict = Body(...)):
+    text   = (payload.get("text") or "").strip()
+    source = (payload.get("source") or "hr").strip() or "hr"
+    target = (payload.get("target") or "de").strip() or "de"
     if not text:
-        return JSONResponse({"translated": "", "engine": "none"})
+        return JSONResponse({"translated": ""})
 
     # 1) Azure first
     try:
@@ -893,7 +762,7 @@ async def api_translate():
     except Exception as e1:
         err_az = repr(e1)
 
-    # 2) LT fallback (ha van)
+    # 2) Optional LT fallback
     try:
         tr = _lt_translate(text, source, target, timeout=LT_TIMEOUT)
         return JSONResponse({"translated": tr, "engine": "libretranslate", "azure_error": err_az})
@@ -902,49 +771,85 @@ async def api_translate():
 
     return JSONResponse({"error": f"Translator error. azure={err_az}; lt={err_lt}"}, status_code=502)
 
-
-# Egyszerű diagnosztika – hasznos Renderen:
+# ---------- DIAG ----------
 @app.get("/api/translator_info")
 async def translator_info():
-    info = {
+    out = {
         "azure": {
             "configured": azure_ready(),
             "endpoint": AZURE_EP,
             "region": AZURE_RG[:8] + "..." if AZURE_RG else "",
-            "key_present": bool(AZURE_KEY),
+            "key_present": bool(AZURE_KEY)
         },
         "lt": {
-            "primary": LT_ENDPOINT,
-            "backup": LT_BACKUP_ENDPOINT,
-            "virtual_host": LT_VIRTUAL_HOST,
-            "timeout": LT_TIMEOUT,
-        },
+            "primary": LT_ENDPOINT, "backup": LT_BACKUP_ENDPOINT, "virtual_host": LT_VIRTUAL_HOST, "timeout": LT_TIMEOUT
+        }
     }
-    # opcionális DNS check LT-hez
-    import socket
     dns = []
     for ep in [LT_ENDPOINT, LT_BACKUP_ENDPOINT]:
-        if not ep:
-            continue
+        if not ep: continue
         host = ""
         try:
-            host = ep.split("://", 1)[1].split("/", 1)[0]
-        except Exception:
-            pass
+            host = ep.split("://",1)[1].split("/",1)[0]
+        except Exception: pass
         if not host:
-            dns.append({"endpoint": ep, "host": "", "dns_ok": False, "ips": [], "error": "bad url"})
-            continue
+            dns.append({"endpoint": ep, "host": "", "dns_ok": False, "ips": [], "error": "bad url"}); continue
         try:
             infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
             ips = sorted({ai[4][0] for ai in infos})
             dns.append({"endpoint": ep, "host": host, "dns_ok": True, "ips": ips})
         except Exception as e:
             dns.append({"endpoint": ep, "host": host, "dns_ok": False, "ips": [], "error": repr(e)})
-    info["lt_dns"] = dns
-    return JSONResponse(info)
+    out["lt_dns"] = dns
+    return JSONResponse(out)
 
+@app.post("/api/translate_probe")
+async def translate_probe(payload: dict = Body(...)):
+    text   = (payload.get("text") or "").strip()
+    source = (payload.get("source") or "hr").strip() or "hr"
+    target = (payload.get("target") or "de").strip() or "de"
+    if not text:
+        return JSONResponse({"ok": True, "note": "empty text"})
 
-# ======= Admin kiegészítők: részletes nézet + letöltés =======
+    trace = []
+    a = {"engine": "azure", "endpoint": AZURE_EP, "region": AZURE_RG, "configured": azure_ready()}
+    try:
+        if azure_ready():
+            tr = _azure_translate(text, source, target, timeout=LT_TIMEOUT)
+            a["ok"] = True; a["translated"] = tr; trace.append(a)
+            return JSONResponse({"ok": True, "engine_used": "azure", "translated": tr, "trace": trace})
+        else:
+            a["ok"] = False; a["error"] = "not configured"; trace.append(a)
+    except Exception as e:
+        a["ok"] = False; a["error"] = repr(e); trace.append(a)
+
+    l = {"engine": "libretranslate", "endpoints": [LT_ENDPOINT, LT_BACKUP_ENDPOINT]}
+    try:
+        tr = _lt_translate(text, source, target, timeout=LT_TIMEOUT)
+        l["ok"] = True; l["translated"] = tr; trace.append(l)
+        return JSONResponse({"ok": True, "engine_used": "libretranslate", "translated": tr, "trace": trace})
+    except Exception as e:
+        l["ok"] = False; l["error"] = repr(e); trace.append(l)
+
+    return JSONResponse({"ok": False, "trace": trace}, status_code=502)
+
+# ===================== ADMIN =====================
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
+    if not _is_admin(request):
+        return RedirectResponse("/admin/login?next=/admin", status_code=303)
+    sql = "SELECT id, created_at, datum, bau, basf_beauftragter, excel_filename FROM submissions "
+    clauses = []; params = []
+    if q_bau.strip():
+        clauses.append("bau LIKE ?"); params.append(f"%{q_bau.strip()}%")
+    if q_date.strip():
+        clauses.append("datum LIKE ?"); params.append(f"%{q_date.strip()}%")
+    if clauses: sql += "WHERE " + " AND ".join(clauses) + " "
+    sql += "ORDER BY created_at DESC LIMIT 200"
+    with db_conn() as c:
+        rows = c.execute(sql, params).fetchall()
+    return templates.TemplateResponse("admin.html", {"request": request, "rows": rows, "q_bau": q_bau, "q_date": q_date})
 
 @app.get("/admin/view/{sid}", response_class=HTMLResponse)
 async def admin_view(request: Request, sid: int):
@@ -952,14 +857,13 @@ async def admin_view(request: Request, sid: int):
         return RedirectResponse(f"/admin/login?next=/admin/view/{sid}", status_code=303)
     with db_conn() as c:
         row = c.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
-    if not row:
-        return PlainTextResponse("Nincs ilyen bejegyzés.", status_code=404)
+        if not row:
+            return PlainTextResponse("Nincs ilyen bejegyzés.", status_code=404)
     try:
         payload = json.loads(row["payload_json"] or "{}")
     except Exception:
         payload = {}
     return templates.TemplateResponse("admin_detail.html", {"request": request, "sub": row, "payload": payload})
-
 
 @app.get("/download/{fname}")
 async def download_file(request: Request, fname: str):
@@ -975,30 +879,13 @@ async def download_file(request: Request, fname: str):
         headers={"Content-Disposition": f'attachment; filename="{fname}"'}
     )
 
-
-# ======= Health + hibakezelők =======
-
+# ---------- Health ----------
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
 
-@app.exception_handler(404)
-async def not_found(request: Request, exc):
-    return PlainTextResponse("404 Not Found", status_code=404)
-
-@app.exception_handler(500)
-async def internal_err(request: Request, exc):
-    # fejlesztés közben ne nyeljük el – rövid üzenet:
-    return PlainTextResponse("500 Internal Server Error", status_code=500)
-
-
-# ======= Dev futtatás =======
-
+# ---------- Main ----------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "10000")),
-        reload=True
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "10000")), reload=True)
+    
