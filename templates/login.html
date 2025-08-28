@@ -12,7 +12,7 @@
   {% if error %}
   <div class="error">Fehler: Ungültiger Benutzername oder Passwort.</div>
   {% endif %}
-  <form method="post" action="/login">
+  <form method="post" action="{{ action or '/login' }}">
     <input type="hidden" name="next" value="{{ next }}">
     <label>Benutzername
       <input type="text" name="username" required>
