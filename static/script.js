@@ -17,6 +17,51 @@ document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("ln-form");
   const MAX_WORKERS = 5;
 
+  // ==== HR → DE fordító + karakter számláló ====
+  const besch = document.getElementById("beschreibung");
+  const beschCount = document.getElementById("besch-count");
+  const trBtn = document.getElementById("translate-btn");
+  const trStatus = document.getElementById("translate-status");
+
+  function updateBeschCount() {
+    if (!besch || !beschCount) return;
+    const len = (besch.value || "").length;
+    beschCount.textContent = `${len} / 1000`;
+  }
+  besch?.addEventListener("input", updateBeschCount);
+  updateBeschCount();
+
+  if (trBtn && besch) {
+    trBtn.addEventListener("click", async () => {
+      const txt = (besch.value || "").trim();
+      if (!txt) {
+        trStatus && (trStatus.textContent = "Nincs szöveg a fordításhoz.");
+        return;
+      }
+      trBtn.disabled = true;
+      trStatus && (trStatus.textContent = "Fordítás folyamatban…");
+      try {
+        const res = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: txt, source: "hr", target: "de" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data && data.ok && typeof data.translated === "string") {
+          besch.value = data.translated;
+          besch.dispatchEvent(new Event("input", { bubbles: true }));
+          trStatus && (trStatus.textContent = "Kész ✓");
+        } else {
+          trStatus && (trStatus.textContent = "Fordítás sikertelen.");
+        }
+      } catch (e) {
+        trStatus && (trStatus.textContent = "Hálózati hiba a fordításnál.");
+      } finally {
+        trBtn.disabled = false;
+      }
+    });
+  }
+
   // ===== AUTOCOMPLETE =====
   let WORKERS = [];
   const byAusweis = new Map();
@@ -193,7 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (w2) inpAus.value = w2.ausweis;
       }
     );
-         // Nachname
+    // Nachname
     makeAutocomplete(
       inpNach,
       () =>
@@ -413,7 +458,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     recalcAll();
   }
-     // ==== Validáció ====
+
+  // ==== Validáció ====
   (function () {
     if (!form) return;
     const trim = (v) => (v || "").toString().trim();
@@ -655,4 +701,84 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   })();
+
+  // Indításkor dolgozók betöltése
+  loadWorkers();
+
+  // már meglévő time inputok fejlesztése
+  document.querySelectorAll('input[type="time"]').forEach(enhanceTimePicker);
+
+  // új dolgozó hozzáadása gomb
+  addBtn?.addEventListener("click", () => {
+    const count = workerList.querySelectorAll(".worker").length;
+    if (count >= MAX_WORKERS) return;
+
+    const next = count + 1;
+    const tpl = `
+      <fieldset class="worker" data-index="${next}">
+        <legend>Mitarbeiter ${next}</legend>
+        <div class="grid-3">
+          <div class="field">
+            <label>Vorname</label>
+            <input name="vorname${next}" type="text" />
+          </div>
+          <div class="field">
+            <label>Nachname</label>
+            <input name="nachname${next}" type="text" />
+          </div>
+          <div class="field">
+            <label>Ausweis-Nr. / Kennzeichen</label>
+            <input name="ausweis${next}" type="text" />
+          </div>
+        </div>
+        <div class="grid">
+          <div class="field">
+            <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+            <input name="vorhaltung${next}" type="text" />
+          </div>
+        </div>
+        <div class="grid-3">
+          <div class="field">
+            <label>Beginn</label>
+            <input name="beginn${next}" type="time" />
+          </div>
+          <div class="field">
+            <label>Ende</label>
+            <input name="ende${next}" type="time" />
+          </div>
+          <div class="field">
+            <label>Stunden (auto)</label>
+            <input class="stunden-display" type="text" value="" readonly />
+          </div>
+        </div>
+      </fieldset>
+    `;
+    const div = document.createElement("div");
+    div.innerHTML = tpl;
+    const fs = div.firstElementChild;
+    workerList.appendChild(fs);
+
+    // time pickerek fejlesztése
+    fs.querySelectorAll('input[type="time"]').forEach((inp) => {
+      enhanceTimePicker(inp);
+      setupManualEditUnsync(inp);
+    });
+
+    // autocomplete új mezőkre
+    setupAutocomplete(fs);
+
+    // szinkron az első dolgozóról (ha értelmes)
+    syncFromFirst();
+
+    // átlag újraszámolás
+    recalcAll();
+  });
+
+  // minden meglévő time input bekötése és kézi szerkesztés figyelése
+  document.querySelectorAll('input[type="time"]').forEach((inp) => {
+    setupManualEditUnsync(inp);
+    inp.addEventListener("change", recalcAll);
+    inp.addEventListener("input", recalcAll);
+  });
+  recalcAll();
 });
