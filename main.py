@@ -450,14 +450,22 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
 async def login_form(request: Request, next: str = "/"):
     if _is_user(request):
         return RedirectResponse(next or "/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
+    # sima user login GET
+return templates.TemplateResponse(
+    "login.html",
+    {"request": request, "error": False, "next": next, "action": "/login"}
+)
 
 @app.post("/login", response_class=HTMLResponse)
 async def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
     if username == APP_USERNAME and password == APP_PASSWORD:
         request.session.clear(); request.session["auth_ok"] = True
         return RedirectResponse(next or "/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
+    # admin login GET
+return templates.TemplateResponse(
+    "login.html",
+    {"request": request, "error": False, "next": next, "action": "/admin/login"}
+)
 
 @app.get("/logout")
 async def logout(request: Request):
