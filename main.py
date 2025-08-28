@@ -445,7 +445,35 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     y -= 6; c.setFont("Helvetica-Bold", 11); c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
     c.showPage(); c.save(); buf.seek(0); return buf.read()
 
-# ---------- User Login / Logout ----------
+# ---------- User & Admin Login / Logout (cookie-alapú, session nélkül) ----------
+import hmac, hashlib, base64
+
+_LOGIN_SECRET = os.getenv("LOGIN_SECRET", os.getenv("SESSION_SECRET", "change-me-dev-secret")).encode()
+
+def _make_token(kind: str, username: str) -> str:
+    data = f"{kind}:{username}".encode()
+    sig  = hmac.new(_LOGIN_SECRET, data, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(data + b"." + sig).decode()
+
+def _check_token(kind: str, token: str | None) -> bool:
+    if not token: return False
+    try:
+        raw = base64.urlsafe_b64decode(token.encode())
+        data, sig = raw.rsplit(b".", 1)
+        if not hmac.compare_digest(hmac.new(_LOGIN_SECRET, data, hashlib.sha256).digest(), sig):
+            return False
+        return data.decode().startswith(f"{kind}:")
+    except Exception:
+        return False
+
+# kompatibilitás: ezekkel ellenőrizzük a védett oldalaknál
+def _is_user(request: Request) -> bool:
+    return _check_token("user", request.cookies.get("ua"))
+
+def _is_admin(request: Request) -> bool:
+    return _check_token("admin", request.cookies.get("aa"))
+
+# ------- User login -------
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request, next: str = "/"):
     if _is_user(request):
@@ -453,18 +481,29 @@ async def login_form(request: Request, next: str = "/"):
     return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
 
 @app.post("/login", response_class=HTMLResponse)
-async def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
+async def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form("/")
+):
     if username == APP_USERNAME and password == APP_PASSWORD:
-        request.session.clear(); request.session["auth_ok"] = True
-        return RedirectResponse(next or "/", status_code=303)
+        resp = RedirectResponse(next or "/", status_code=303)
+        resp.set_cookie(
+            "ua", _make_token("user", username),
+            httponly=True, secure=True, samesite="lax", max_age=60*60*12, path="/"
+        )
+        return resp
     return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
 
 @app.get("/logout")
 async def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse("/login", status_code=303)
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie("ua", path="/")
+    resp.delete_cookie("aa", path="/")
+    return resp
 
-# ---------- Admin Login / Logout ----------
+# ------- Admin login -------
 @app.get("/admin/login", response_class=HTMLResponse)
 async def admin_login_form(request: Request, next: str = "/admin"):
     if _is_admin(request):
@@ -472,17 +511,26 @@ async def admin_login_form(request: Request, next: str = "/admin"):
     return templates.TemplateResponse("login.html", {"request": request, "error": False, "next": next})
 
 @app.post("/admin/login", response_class=HTMLResponse)
-async def admin_login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/admin")):
+async def admin_login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form("/admin")
+):
     if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-        request.session.clear(); request.session["admin_ok"] = True
-        return RedirectResponse(next or "/admin", status_code=303)
+        resp = RedirectResponse(next or "/admin", status_code=303)
+        resp.set_cookie(
+            "aa", _make_token("admin", username),
+            httponly=True, secure=True, samesite="lax", max_age=60*60*12, path="/"
+        )
+        return resp
     return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
 
 @app.get("/admin/logout")
 async def admin_logout(request: Request):
-    request.session.clear()
-    return RedirectResponse("/admin/login", status_code=303)
-
+    resp = RedirectResponse("/admin/login", status_code=303)
+    resp.delete_cookie("aa", path="/")
+    return resp
 # ---------- Főoldal (NYELV: csak queryből; default: de) ----------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
