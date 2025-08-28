@@ -816,3 +816,38 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 })();
+
+// --- HR → DE fordítás gomb (egyszerű, megbízható) ---
+(() => {
+  const btn = document.getElementById("translate-btn");
+  const ta  = document.getElementById("beschreibung");
+  const st  = document.getElementById("translate-status");
+  if (!btn || !ta) return;
+
+  btn.addEventListener("click", async () => {
+    const text = (ta.value || "").trim();
+    if (!text) { st && (st.textContent = "Nincs szöveg."); return; }
+    st && (st.textContent = "Fordítás folyamatban…");
+    btn.disabled = true;
+
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, source: "hr", target: "de" })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data && data.translated) {
+        ta.value = data.translated;
+        st && (st.textContent = "Kész ✓");
+      } else {
+        st && (st.textContent = "Nem sikerült lefordítani.");
+      }
+    } catch (e) {
+      console.error(e);
+      st && (st.textContent = "Hálózati hiba.");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
