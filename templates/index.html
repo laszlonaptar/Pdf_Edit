@@ -1,27 +1,28 @@
 <!DOCTYPE html>
-<html lang="{{ lang or 'de' }}">
+<html lang="{{ lang }}">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Leistungsnachweis</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/style.css?v=18">
-  <script src="/static/i18n.js"></script>
 </head>
 <body>
   <div class="container">
+
     <!-- NAVBAR -->
     <div class="navbar">
       <div class="nav-left">
         <h1>Leistungsnachweis</h1>
       </div>
       <div class="nav-right">
-        <!-- Admin link maradhat, ha nem kell, később kivesszük -->
         <a href="/admin" class="btn secondary">Admin</a>
         <a href="/logout" class="btn">Abmelden</a>
-        <form method="get" onchange="this.submit()" style="margin:0">
+
+        <!-- nyelvválasztó: session-be mentjük a ?lang= segítségével -->
+        <form method="get" action="" onchange="this.submit()" style="margin:0">
           <select name="lang">
-            <option value="de" {{ 'selected' if (lang=='de') else '' }}>Deutsch</option>
-            <option value="hr" {{ 'selected' if (lang=='hr') else '' }}>Hrvatski</option>
+            <option value="de" {% if lang == 'de' %}selected{% endif %}>Deutsch</option>
+            <option value="hr" {% if lang == 'hr' %}selected{% endif %}>Hrvatski</option>
           </select>
         </form>
       </div>
@@ -30,100 +31,118 @@
     <!-- CONTENT CARD -->
     <div class="card">
       <form id="ln-form" method="post" action="/generate_excel">
-        <!-- dátum -->
+        <!-- DÁTUM -->
         <div class="field">
-          <label for="datum" data-i18n="datum">Datum der Leistungsausführung</label>
+          <label for="datum">
+            {% if lang == 'hr' %}Datum izvođenja radova{% else %}Datum der Leistungsausführung{% endif %}
+          </label>
           <input type="date" id="datum" name="datum">
         </div>
 
-        <!-- bau -->
+        <!-- BAU -->
         <div class="field">
-          <label for="bau" data-i18n="bau">Bau und Ausführungsort</label>
+          <label for="bau">
+            {% if lang == 'hr' %}Gradilište i lokacija izvođenja{% else %}Bau und Ausführungsort{% endif %}
+          </label>
           <input type="text" id="bau" name="bau">
         </div>
 
-        <!-- beauftragter -->
+        <!-- BEAUFTRAGTER -->
         <div class="field">
-          <label for="basf_beauftragter" data-i18n="bf">BASF-Beauftragter, Org.-Code</label>
+          <label for="basf_beauftragter">
+            {% if lang == 'hr' %}Voditelj gradilišta (Org.-Code){% else %}BASF-Beauftragter, Org.-Code{% endif %}
+          </label>
           <input type="text" id="basf_beauftragter" name="basf_beauftragter">
         </div>
 
-        <!-- beschreibung -->
+        <!-- BESCHREIBUNG -->
         <div class="field">
-          <label for="beschreibung" data-i18n="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
+          <label for="beschreibung">
+            {% if lang == 'hr' %}Opis izvedenih radova{% else %}Beschreibung der ausgeführten Arbeiten{% endif %}
+          </label>
           <textarea id="beschreibung" name="beschreibung" maxlength="1000"></textarea>
           <div class="small muted" id="besch-count">0 / 1000</div>
-          {% if (lang or 'de') == 'hr' %}
-          <button type="button" id="translate-btn" class="btn secondary">→ Deutsch übersetzen</button>
-          <div id="translate-status" class="small muted"></div>
+
+          {% if lang == 'hr' %}
+            <!-- HR nézetben jelenjen meg a fordító -->
+            <button type="button" id="translate-btn" class="btn secondary">→ Deutsch übersetzen</button>
+            <div id="translate-status" class="small muted"></div>
           {% endif %}
         </div>
 
-        <!-- worker section -->
-        <h2 data-i18n="mitarbeiter">Mitarbeiter</h2>
+        <!-- MUNKATÁRSAK -->
+        <h2>{% if lang == 'hr' %}Zaposlenici{% else %}Mitarbeiter{% endif %}</h2>
+
         <div id="worker-list">
           <fieldset class="worker" data-index="1">
-            <legend>Mitarbeiter 1</legend>
+            <legend>{% if lang == 'hr' %}Zaposlenik 1{% else %}Mitarbeiter 1{% endif %}</legend>
+
             <div class="grid-3">
               <div class="field">
-                <label>Vorname</label>
+                <label>{% if lang == 'hr' %}Ime{% else %}Vorname{% endif %}</label>
                 <input name="vorname1" type="text" />
               </div>
               <div class="field">
-                <label>Nachname</label>
+                <label>{% if lang == 'hr' %}Prezime{% else %}Nachname{% endif %}</label>
                 <input name="nachname1" type="text" />
               </div>
               <div class="field">
-                <label>Ausweis-Nr. / Kennzeichen</label>
+                <label>{% if lang == 'hr' %}Broj iskaznice / Registracija{% else %}Ausweis-Nr. / Kennzeichen{% endif %}</label>
                 <input name="ausweis1" type="text" />
               </div>
             </div>
+
             <div class="grid">
               <div class="field">
-                <label>Vorhaltung / beauftragtes Gerät / Fahrzeug</label>
+                <label>{% if lang == 'hr' %}Oprema / dodijeljeno vozilo{% else %}Vorhaltung / beauftragtes Gerät / Fahrzeug{% endif %}</label>
                 <input name="vorhaltung1" type="text" />
               </div>
             </div>
 
             <div class="ck-row">
               <input type="checkbox" id="break_half" />
-              <label for="break_half">Pause nur 0,5 h</label>
+              <label for="break_half">{% if lang == 'hr' %}Pauza samo 0,5 h{% else %}Pause nur 0,5 h{% endif %}</label>
               <input type="hidden" id="break_minutes" name="break_minutes" value="60" />
             </div>
 
             <div class="grid-3">
               <div class="field">
-                <label>Beginn</label>
+                <label>{% if lang == 'hr' %}Početak{% else %}Beginn{% endif %}</label>
                 <input name="beginn1" type="time" />
               </div>
               <div class="field">
-                <label>Ende</label>
+                <label>{% if lang == 'hr' %}Kraj{% else %}Ende{% endif %}</label>
                 <input name="ende1" type="time" />
               </div>
               <div class="field">
-                <label>Stunden (auto)</label>
+                <label>{% if lang == 'hr' %}Sati (auto){% else %}Stunden (auto){% endif %}</label>
                 <input class="stunden-display" type="text" value="" readonly />
               </div>
             </div>
           </fieldset>
         </div>
 
-        <button type="button" id="add-worker" class="btn secondary">+ Weitere Mitarbeiter hinzufügen</button>
+        <button type="button" id="add-worker" class="btn secondary">
+          {% if lang == 'hr' %}+ Dodaj još zaposlenika{% else %}+ Weitere Mitarbeiter hinzufügen{% endif %}
+        </button>
 
-        <!-- Gesamtzeit -->
         <div class="field">
-          <label for="gesamtstunden_auto">Gesamtstunden (auto)</label>
+          <label for="gesamtstunden_auto">
+            {% if lang == 'hr' %}Ukupno sati (auto){% else %}Gesamtstunden (auto){% endif %}
+          </label>
           <input type="text" id="gesamtstunden_auto" readonly />
         </div>
 
-        <!-- Aktionen -->
         <div class="actions">
-          <button type="submit" class="btn primary">Excel generieren</button>
+          <button type="submit" class="btn primary">
+            {% if lang == 'hr' %}Generiraj Excel{% else %}Excel generieren{% endif %}
+          </button>
         </div>
       </form>
     </div>
 
   </div>
-  <script src="/static/script.js"></script>
+
+  <script src="/static/script.js?v=7"></script>
 </body>
 </html>
