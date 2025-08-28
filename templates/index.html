@@ -1,26 +1,27 @@
 <!DOCTYPE html>
-<html lang="{{ request.query_params.get('lang', 'de') }}">
+<html lang="{{ lang or 'de' }}">
 <head>
   <meta charset="utf-8">
   <title>Leistungsnachweis</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/style.css?v=18">
   <script src="/static/i18n.js"></script>
 </head>
 <body>
   <div class="container">
-
     <!-- NAVBAR -->
     <div class="navbar">
       <div class="nav-left">
         <h1>Leistungsnachweis</h1>
       </div>
       <div class="nav-right">
+        <!-- Admin link maradhat, ha nem kell, később kivesszük -->
         <a href="/admin" class="btn secondary">Admin</a>
         <a href="/logout" class="btn">Abmelden</a>
         <form method="get" onchange="this.submit()" style="margin:0">
           <select name="lang">
-            <option value="de" {% if request.query_params.get('lang') == 'de' %}selected{% endif %}>Deutsch</option>
-            <option value="hr" {% if request.query_params.get('lang') == 'hr' %}selected{% endif %}>Hrvatski</option>
+            <option value="de" {{ 'selected' if (lang=='de') else '' }}>Deutsch</option>
+            <option value="hr" {{ 'selected' if (lang=='hr') else '' }}>Hrvatski</option>
           </select>
         </form>
       </div>
@@ -52,7 +53,7 @@
           <label for="beschreibung" data-i18n="beschreibung">Beschreibung der ausgeführten Arbeiten</label>
           <textarea id="beschreibung" name="beschreibung" maxlength="1000"></textarea>
           <div class="small muted" id="besch-count">0 / 1000</div>
-          {% if request.query_params.get('lang') == 'hr' %}
+          {% if (lang or 'de') == 'hr' %}
           <button type="button" id="translate-btn" class="btn secondary">→ Deutsch übersetzen</button>
           <div id="translate-status" class="small muted"></div>
           {% endif %}
