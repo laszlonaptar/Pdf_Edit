@@ -782,3 +782,37 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   recalcAll();
 });
+
+// ---- HR -> DE fordítás gomb ----
+(() => {
+  const btn = document.getElementById("translate-btn");
+  const ta  = document.getElementById("beschreibung");
+  const st  = document.getElementById("translate-status");
+  if (!btn || !ta) return;
+
+  btn.addEventListener("click", async () => {
+    const text = (ta.value || "").trim();
+    if (!text) { st && (st.textContent = "Nincs szöveg."); return; }
+    st && (st.textContent = "Fordítás…");
+    btn.disabled = true;
+    try {
+      const r = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, source: "hr", target: "de" })
+      });
+      const data = await r.json();
+      if (data && data.ok) {
+        ta.value = data.translated || text;
+        st && (st.textContent = "Kész ✓");
+      } else {
+        st && (st.textContent = "Hiba: " + (data && data.error || "ismeretlen"));
+      }
+    } catch (e) {
+      st && (st.textContent = "Hálózati hiba");
+      console.error(e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
