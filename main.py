@@ -477,9 +477,9 @@ def set_print_defaults(ws):
 #                               Translation helpers
 # ============================================================================
 LT_ENDPOINT = os.getenv("LT_ENDPOINT", "https://libretranslate.com/translate")
-AZURE_ENDPOINT = os.getenv("AZURE_TRANSLATE_ENDPOINT", "")
-AZURE_KEY = os.getenv("AZURE_TRANSLATE_KEY", "")
-AZURE_REGION = os.getenv("AZURE_TRANSLATE_REGION", "")
+AZURE_ENDPOINT = (os.getenv("AZURE_TRANSLATE_ENDPOINT")  or os.getenv("AZURE_TRANSLATOR_ENDPOINT")  or "").strip().rstrip("/")
+AZURE_KEY      = (os.getenv("AZURE_TRANSLATE_KEY")       or os.getenv("AZURE_TRANSLATOR_KEY")       or "").strip()
+AZURE_REGION   = (os.getenv("AZURE_TRANSLATE_REGION")    or os.getenv("AZURE_TRANSLATOR_REGION")    or "").strip()
 
 async def translate_text(text: str, source: str, target: str) -> str:
     """Fordítás: elsődlegesen Azure, fallback LT"""
