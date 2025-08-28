@@ -1,6 +1,6 @@
 # main.py
 from fastapi import FastAPI, Request, Form, Response
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -20,7 +20,7 @@ import traceback
 import json
 import sqlite3
 from pathlib import Path
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional
 
 # ---- HTTP kliens a fordításhoz ----
 import httpx
@@ -89,19 +89,11 @@ except Exception as e:
 #                                   App / statikus / sablonok
 # ============================================================================
 app = FastAPI()
-from starlette.middleware.sessions import SessionMiddleware
 
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=os.getenv("SESSION_SECRET_KEY", "supersecret"),
-    same_site="lax",
-    https_only=False
-)
-# —— SESSIONS: erős alapértelmezett kulcs + env felülírhatóság ——
-# Megadok egy erős alapértelmezett kulcsot; felülírható: SESSION_SECRET env
+# —— SESSIONS: egy, stabil példány ——
 SESSION_SECRET = os.getenv(
     "SESSION_SECRET",
-    "u0N0dVX8mP9q2sL7wYz4K1rB5tH3c6Q8"  # 32 hosszú, véletlenszerű base
+    "u0N0dVX8mP9q2sL7wYz4K1rB5tH3c6Q8"  # 32 hosszú alapértelmezett
 )
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
 
@@ -117,22 +109,47 @@ APP_PASSWORD = os.getenv("APP_PASSWORD", "user")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
+def _safe_session(request: Request):
+    """Starlette akkor dob AssertError-t, ha nincs SessionMiddleware. Kezeljük finoman."""
+    try:
+        _ = request.session
+        return request.session
+    except AssertionError:
+        return None
+
 def _is_user(request: Request) -> bool:
-    return bool(request.session.get("auth_ok") is True)
+    sess = _safe_session(request)
+    return bool(sess and sess.get("auth_ok") is True)
 
 def _is_admin(request: Request) -> bool:
-    return bool(request.session.get("admin_ok") is True)
+    sess = _safe_session(request)
+    return bool(sess and sess.get("admin_ok") is True)
 
 # ============================================================================
 #                       Nyelvkezelés (session + ?lang= támogatás)
 # ============================================================================
 def get_ui_lang(request: Request) -> str:
-    """Elsőbbség: ?lang= param -> session-be mentjük; egyébként session -> default 'de'"""
+    """
+    Elsőbbség: ?lang= param -> (ha van session) elmentjük.
+    Egyébként session->lang vagy alapértelmezett 'de'.
+    Session hiányában is működik – query param alapján.
+    """
     q = (request.query_params.get("lang") or "").strip().lower()
-    if q in {"de", "hr"}:
-        request.session["ui_lang"] = q
-    lang = (request.session.get("ui_lang") or "de").strip().lower()
-    return lang if lang in {"de", "hr"} else "de"
+    if q not in {"de", "hr"}:
+        q = ""
+
+    sess = _safe_session(request)
+    if q:
+        if sess is not None:
+            sess["ui_lang"] = q
+        return q
+
+    if sess is not None:
+        lang = (sess.get("ui_lang") or "de").strip().lower()
+        return lang if lang in {"de", "hr"} else "de"
+
+    # ha nincs session, essünk vissza a query-re vagy 'de'-re
+    return (request.query_params.get("lang") or "de").strip().lower() in {"hr"} and "hr" or "de"
 
 @app.middleware("http")
 async def lang_middleware(request: Request, call_next):
@@ -455,7 +472,8 @@ def set_print_defaults(ws):
 
     ws.print_options.horizontalCentered = False
     ws.print_options.verticalCentered = False
-    # ============================================================================
+
+# ============================================================================
 #                               Translation helpers
 # ============================================================================
 LT_ENDPOINT = os.getenv("LT_ENDPOINT", "https://libretranslate.com/translate")
@@ -527,18 +545,32 @@ async def login_do(
     next: str = Form("/"),
 ):
     if username == APP_USERNAME and password == APP_PASSWORD:
-        request.session["auth_ok"] = True
+        sess = _safe_session(request)
+        if sess is not None:
+            sess["auth_ok"] = True
         return RedirectResponse(next, status_code=303)
     if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-        request.session["admin_ok"] = True
-        request.session["auth_ok"] = True
+        sess = _safe_session(request)
+        if sess is not None:
+            sess["admin_ok"] = True
+            sess["auth_ok"] = True
         return RedirectResponse(next, status_code=303)
     return PlainTextResponse("Login failed", status_code=403)
 
 @app.get("/logout")
 async def logout(request: Request, next: str = "/"):
-    request.session.clear()
+    sess = _safe_session(request)
+    if sess is not None:
+        sess.clear()
     return RedirectResponse(next, status_code=303)
+
+# kompatibilitás az admin.html-ben lévő linkkel
+@app.get("/admin/logout")
+async def admin_logout(request: Request):
+    sess = _safe_session(request)
+    if sess is not None:
+        sess.clear()
+    return RedirectResponse("/login?next=/admin", status_code=303)
 
 # ============================================================================
 #                                  Index route
@@ -559,7 +591,7 @@ async def admin_page(request: Request):
         return RedirectResponse("/login?next=/admin", status_code=303)
     with db_conn() as c:
         rows = c.execute("SELECT * FROM submissions ORDER BY id DESC LIMIT 200").fetchall()
-    return templates.TemplateResponse("admin.html", {"request": request, "rows": rows})
+    return templates.TemplateResponse("admin.html", {"request": request, "rows": rows, "q_bau":"", "q_date":""})
 
 # ============================================================================
 #                          Excel generálás / form feldolgozás
@@ -670,7 +702,8 @@ async def generate_excel(
                 out_name, json.dumps({
                     "datum": datum, "bau": bau,
                     "basf_beauftragter": basf_beauftragter,
-                    "beschreibung": beschreibung
+                    "beschreibung": beschreibung,
+                    "drive_link": drive_link
                 })
             ))
             c.commit()
@@ -681,42 +714,10 @@ async def generate_excel(
     except Exception as e:
         traceback.print_exc()
         return PlainTextResponse("Error: " + repr(e), status_code=500)
-        # ============================================================================
+
+# ============================================================================
 #                                Health check
 # ============================================================================
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
-
-# ============================================================================
-#                                Static routes
-# ============================================================================
-@app.get("/static/{path:path}")
-async def static_files(path: str):
-    full_path = STATIC_DIR / path
-    if not full_path.exists():
-        return PlainTextResponse("Not found", status_code=404)
-    return FileResponse(full_path)
-
-# ============================================================================
-#                               Error handlers
-# ============================================================================
-@app.exception_handler(404)
-async def not_found(request: Request, exc):
-    return PlainTextResponse("404 Not Found", status_code=404)
-
-@app.exception_handler(500)
-async def internal_err(request: Request, exc):
-    return PlainTextResponse("500 Internal Server Error", status_code=500)
-
-# ============================================================================
-#                                 Main run
-# ============================================================================
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "10000")),
-        reload=True
-    )
