@@ -98,10 +98,15 @@ def _is_admin(request: Request) -> bool:
 
 # ---- Tartós tároló / DB init ----
 # FONTOS: Renderen állíts be egy Persistent Disk-et és/vagy a DATA_DIR környezeti változót.
-DATA_DIR = Path(os.getenv("DATA_DIR", "/var/data"))
-GEN_DIR = DATA_DIR / "generated"
+# ---- Tartós tároló / DB init ----
+# Írható hely: a projekt saját könyvtára
+BASE_DIR = Path(os.getcwd())
+DATA_DIR = Path(os.getenv("DATA_DIR", (BASE_DIR / "data").as_posix()))
+GEN_DIR  = Path(os.getenv("GEN_DIR",  (BASE_DIR / "generated").as_posix()))
+
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 GEN_DIR.mkdir(parents=True, exist_ok=True)
+
 DB_PATH = DATA_DIR / "app.db"
 
 def db_conn():
