@@ -30,7 +30,7 @@ from urllib.parse import urlparse, urlencode
 
 # ---- Google Drive (service account) ----
 GDRIVE_JSON = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON", "")
-GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID", "")
+GDRIVE_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID", "").strip()
 
 DRIVE_ENABLED = bool(GDRIVE_JSON and GDRIVE_FOLDER_ID)
 drive_svc = None
