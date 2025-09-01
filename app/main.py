@@ -22,7 +22,7 @@ import sqlite3
 from pathlib import Path
 from typing import Tuple, Optional, List
 
-# Hálózat/HTTP és DNS diag
+# Hálózat/HTTP
 import httpx
 import socket
 import re
