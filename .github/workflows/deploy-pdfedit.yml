@@ -8,25 +8,24 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Write SSH key from secret
+      - name: Write SSH key from base64 secret
         run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
+          echo "${{ secrets.SSH_PRIVATE_KEY_B64 }}" | base64 -d > key.pem
           chmod 600 key.pem
 
       - name: Trust server host key
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan 91.98.121.223 >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy over SSH
         run: |
-          ssh -i key.pem root@91.98.121.223 '
-            set -e
-            cd /opt/pdfedit
-            git reset --hard
-            git pull
+          ssh -i key.pem ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} '
+            cd /opt/pdfedit &&
+            git fetch origin main &&
+            git reset --hard origin/main &&
             systemctl restart pdfedit
           '
