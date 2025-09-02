@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI, Request, Form, Response, Body
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -549,11 +548,17 @@ async def admin_logout(request: Request):
     request.session.clear()
     return RedirectResponse("/admin/login", status_code=303)
 
-# ---------- Főoldal (NYELV: csak queryből; default: de) ----------
+# ---------- Public Home (hero) ----------
 @app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("home.html", {"request": request})
+
+# ---------- Főoldal (NYELV: csak queryből; default: de) ----------
+# EREDTI: @app.get("/", response_class=HTMLResponse)
+@app.get("/form", response_class=HTMLResponse)
 async def index(request: Request):
     if not _is_user(request):
-        return RedirectResponse("/login?next=/", status_code=303)
+        return RedirectResponse("/login?next=/form", status_code=303)
     lang = (request.query_params.get("lang") or "").strip().lower()
     if lang not in {"de", "hr"}:
         lang = "de"
@@ -654,7 +659,8 @@ async def generate_excel(
 
     payload = {
         "datum": datum, "bau": bau, "basf_beauftragter": basf_beauftragter,
-        "beschreibung": beschreibung, "break_minutes": int(break_minutes),
+        "beschreibung": beschrijving if 'beschrijving' in locals() else (beschreibung if 'beschreibung' in locals() else ""),
+        "break_minutes": int(break_minutes),
         "workers": [
             {"vorname": locals().get(f"vorname{i}", ""), "nachname": locals().get(f"nachname{i}", ""),
              "ausweis": locals().get(f"ausweis{i}", ""), "beginn": locals().get(f"beginn{i}", ""),
@@ -684,7 +690,7 @@ async def generate_excel(
             )
         """, (
             datetime.utcnow().isoformat(),
-            datum, bau, basf_beauftragter, beschreibung, int(break_minutes),
+            datum, bau, basf_beauftragter, payload.get("beschreibung",""), int(break_minutes),
             locals().get("vorname1",""), locals().get("nachname1",""), locals().get("ausweis1",""), locals().get("beginn1",""), locals().get("ende1",""), locals().get("vorhaltung1",""),
             locals().get("vorname2",""), locals().get("nachname2",""), locals().get("ausweis2",""), locals().get("beginn2",""), locals().get("ende2",""), locals().get("vorhaltung2",""),
             locals().get("vorname3",""), locals().get("nachname3",""), locals().get("ausweis3",""), locals().get("beginn3",""), locals().get("ende3",""), locals().get("vorhaltung3",""),
@@ -697,7 +703,7 @@ async def generate_excel(
     sync_db_to_drive()
 
     headers = {
-        "Content-Disposition": f'attachment; filename="{excel_name}"',
+        "Content-Disposition": f'attachment; filename=\"{excel_name}\"",
         "Content-Length": str(len(excel_bytes)),
         "Cache-Control": "no-store",
     }
@@ -720,7 +726,7 @@ async def generate_pdf(
     vorname5: str = Form(""), nachname5: str = Form(""), beginn5: str = Form(""), ende5: str = Form(""), ausweis5: str = Form(""), vorhaltung5: str = Form(""),
 ):
     if not _is_user(request):
-        return RedirectResponse("/login?next=/", status_code=303)
+        return RedirectResponse("/login?next=/form", status_code=303)
     if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
         return PlainTextResponse("PDF előállítás nem elérhető (telepítsd: reportlab, pillow).", status_code=501)
 
@@ -753,7 +759,7 @@ async def generate_pdf(
     )
 
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
-    headers = {"Content-Disposition": f'attachment; filename="{fname}"', "Content-Length": str(len(pdf_bytes)), "Cache-Control": "no-store"}
+    headers = {"Content-Disposition": f'attachment; filename=\"{fname}\"", "Content-Length": str(len(pdf_bytes)), "Cache-Control": "no-store"}
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 # ---------- TRANSLATE: AZURE + (opcionális) LT fallback ----------
@@ -967,4 +973,3 @@ async def healthz():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "10000")), reload=True)
-    
