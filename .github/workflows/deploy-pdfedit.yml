@@ -9,18 +9,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          host: 91.98.121.223
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy
+        run: |
+          ssh -o StrictHostKeyChecking=no root@91.98.121.223 '
+            set -e
             cd /opt/pdfedit
             git reset --hard
             git pull
-            sudo systemctl restart pdfedit
-          known_hosts: |
-            91.98.121.223 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGZiCY+A5o+OXvBLqmVq0dTnivb/r+7sYlz5Ess/kQMy
+            systemctl restart pdfedit
+          '
