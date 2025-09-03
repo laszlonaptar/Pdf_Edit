@@ -10,8 +10,6 @@
     :root{
       --ink:#1d1d1f; --ink-quiet:#6e6e73; --line:#e5e5ea;
       --topbar-h:50px;
-      --overlay-top: rgba(0,0,0,.35);   /* finom olvashatósági overlay */
-      --overlay-rest: rgba(0,0,0,.10);
     }
     body{
       margin:0; color:var(--ink);
@@ -29,28 +27,30 @@
     .topbar__logo img{height:26px;width:auto;display:block}
     .topbar__center{text-align:center;font-weight:600;letter-spacing:.02em;color:var(--ink-quiet)}
 
-    /* --- Hero: PNG domináns + animáció fölötte --- */
+    /* --- Hero --- */
     .hero{
       position:relative; min-height:calc(100vh - var(--topbar-h));
       display:grid; place-items:center; padding:clamp(16px,4vw,40px);
       isolation:isolate; overflow:hidden;
-      background:#0b2239; /* csak alap, a PNG viszi a látványt */
+      background:#0b2239;
     }
+
     /* Domináns PNG háttér */
     .hero__bg{
       position:absolute; inset:0; z-index:-3;
       background:url("hero-bg.png") center/cover no-repeat fixed;
-      opacity:1; /* TELJES erővel */
-      filter:saturate(112%) contrast(110%);
+      opacity:1;
+      filter:saturate(115%) contrast(112%);
     }
-    /* Finom sötétítő overlay – felül erősebb a jobb olvashatósághoz */
+
+    /* Finom overlay csak felül */
     .hero::after{
       content:""; position:absolute; inset:0; z-index:-1;
-      background: linear-gradient(180deg, var(--overlay-top) 0%, var(--overlay-rest) 35%, transparent 70%);
+      background: linear-gradient(180deg, rgba(0,0,0,.15) 0%, rgba(0,0,0,.05) 30%, transparent 60%);
       pointer-events:none;
     }
 
-    /* SVG háló (animáció) – a PNG felett */
+    /* SVG animáció */
     .net{ position:absolute; inset:0; z-index:-2; pointer-events:none; opacity:.55 }
 
     /* Szlogen */
@@ -65,7 +65,7 @@
       font-size:clamp(1rem,1.3vw + .2rem,1.25rem); letter-spacing:.01em;
     }
 
-    /* Diszkrét alsó „adatfutás” csík (opcionális) */
+    /* Alsó futófény csík */
     .flowline{
       position:absolute; left:50%; transform:translateX(-50%);
       bottom: clamp(40px, 8vh, 120px);
@@ -83,7 +83,6 @@
 
     footer{position:absolute;bottom:10px;left:0;right:0;text-align:center;color:rgba(255,255,255,.65);font-size:.95rem;z-index:1}
 
-    /* Motion-reduced: animációk kikapcsolása */
     @media (prefers-reduced-motion: reduce){
       .flowline::before{animation:none}
       .net .dash{animation:none}
@@ -93,19 +92,16 @@
 </head>
 <body>
 
-  <!-- Fehér felső sáv -->
   <header class="topbar" role="banner">
     <div class="topbar__logo"><img src="logo.svg" alt="Metori"></div>
     <div class="topbar__center">Soon!</div>
     <div></div>
   </header>
 
-  <!-- Hero -->
   <main class="hero" role="main">
-    <!-- Domináns PNG -->
     <div class="hero__bg" aria-hidden="true"></div>
 
-    <!-- ANIMÁLT NEURON-HÁLÓ (SVG) -->
+    <!-- SVG animáció -->
     <svg class="net" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" aria-hidden="true"
          xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
       <defs>
@@ -119,7 +115,6 @@
         </filter>
       </defs>
 
-      <!-- háttérháló (statikus, nagyon vékony) -->
       <g stroke="url(#wire)" stroke-opacity=".30">
         <path d="M60,520 C220,420 440,560 700,450 940,350 1080,420 1180,330" fill="none" stroke-width="1"/>
         <path d="M40,420 C200,360 430,420 760,340 1000,270 1120,320 1190,240" fill="none" stroke-width="1"/>
@@ -127,7 +122,6 @@
         <path d="M120,600 C260,520 420,600 680,540 900,490 1060,520 1180,480" fill="none" stroke-width="1"/>
       </g>
 
-      <!-- kiemelt adatvonalak: dash anim + fény-pont -->
       <g stroke="url(#wire)" stroke-linecap="round">
         <path id="p1" class="dash" d="M80,560 C260,460 500,560 760,470 1000,390 1120,450 1200,380"
               fill="none" stroke-width="2" stroke-opacity=".65" stroke-dasharray="6 12">
@@ -161,15 +155,12 @@
       </g>
     </svg>
 
-    <!-- Szlogen -->
     <div class="tagline">
       <h1>Von Papier zu Cloud – Ihr Arbeitsnachweis der Zukunft</h1>
       <p>Schnell. Sicher. Digital.</p>
     </div>
 
-    <!-- Alsó diszkrét csík -->
     <div class="flowline" aria-hidden="true"></div>
-
     <footer>© <span id="y"></span> — Metori</footer>
   </main>
 
