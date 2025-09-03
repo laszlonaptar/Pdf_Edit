@@ -7,17 +7,13 @@
   <meta name="robots" content="noindex, nofollow, noarchive">
   <style>
     *{box-sizing:border-box} html,body{height:100%}
-    :root{
-      --ink:#1d1d1f; --ink-quiet:#6e6e73; --line:#e5e5ea;
-      --topbar-h:50px;
-    }
+    :root{ --ink:#1d1d1f; --ink-quiet:#6e6e73; --line:#e5e5ea; --topbar-h:50px; }
     body{
       margin:0; color:var(--ink);
       font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Segoe UI,Roboto,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji";
-      background:#0b2239; /* fallback */
+      background:#0b2239;
     }
 
-    /* --- Top bar --- */
     .topbar{
       position:sticky; top:0; z-index:10; height:var(--topbar-h);
       background:#fff; border-bottom:1px solid var(--line);
@@ -27,45 +23,37 @@
     .topbar__logo img{height:26px;width:auto;display:block}
     .topbar__center{text-align:center;font-weight:600;letter-spacing:.02em;color:var(--ink-quiet)}
 
-    /* --- Hero --- */
     .hero{
       position:relative; min-height:calc(100vh - var(--topbar-h));
       display:grid; place-items:center; padding:clamp(16px,4vw,40px);
-      isolation:isolate; overflow:hidden;
-      background:#0b2239;
+      isolation:isolate; overflow:hidden; background:#0b2239;
     }
 
-    /* Domináns PNG háttér */
+    /* PNG háttér – NINCS 'fixed', cache-buster v=2 */
     .hero__bg{
       position:absolute; inset:0; z-index:-3;
-      background:url("hero-bg.png") center/cover no-repeat fixed;
-      opacity:1;
-      filter:saturate(115%) contrast(112%);
+      background:url("hero-bg.png?v=2") center/cover no-repeat;
+      opacity:1; filter:saturate(115%) contrast(112%);
     }
 
-    /* Finom overlay csak felül */
+    /* Enyhe felső overlay a szöveg miatt */
     .hero::after{
       content:""; position:absolute; inset:0; z-index:-1;
-      background: linear-gradient(180deg, rgba(0,0,0,.15) 0%, rgba(0,0,0,.05) 30%, transparent 60%);
+      background: linear-gradient(180deg, rgba(0,0,0,.12) 0%, rgba(0,0,0,.05) 28%, transparent 55%);
       pointer-events:none;
     }
 
-    /* SVG animáció */
+    /* SVG animáció a PNG fölött */
     .net{ position:absolute; inset:0; z-index:-2; pointer-events:none; opacity:.55 }
 
-    /* Szlogen */
     .tagline{ text-align:center; max-width:min(1000px,92vw); color:#fff; position:relative; z-index:1; }
     .tagline h1{
       margin:0 0 .5em 0; line-height:1.08; font-weight:800;
       font-size:clamp(1.75rem,4.2vw,3.5rem); letter-spacing:.005em; text-wrap:balance;
       text-shadow:0 6px 28px rgba(0,0,0,.35);
     }
-    .tagline p{
-      margin:0; color:rgba(255,255,255,.9);
-      font-size:clamp(1rem,1.3vw + .2rem,1.25rem); letter-spacing:.01em;
-    }
+    .tagline p{ margin:0; color:rgba(255,255,255,.9); font-size:clamp(1rem,1.3vw + .2rem,1.25rem); }
 
-    /* Alsó futófény csík */
     .flowline{
       position:absolute; left:50%; transform:translateX(-50%);
       bottom: clamp(40px, 8vh, 120px);
@@ -101,13 +89,11 @@
   <main class="hero" role="main">
     <div class="hero__bg" aria-hidden="true"></div>
 
-    <!-- SVG animáció -->
     <svg class="net" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" aria-hidden="true"
          xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
       <defs>
         <linearGradient id="wire" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#34d6c2"/>
-          <stop offset="1" stop-color="#58b2f0"/>
+          <stop offset="0" stop-color="#34d6c2"/><stop offset="1" stop-color="#58b2f0"/>
         </linearGradient>
         <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="3" result="b"/>
