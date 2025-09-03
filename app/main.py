@@ -156,7 +156,7 @@ BASE_DIR = Path(os.getcwd())
 DATA_DIR = BASE_DIR / "data"
 GEN_DIR = BASE_DIR / "generated"
 DATA_DIR.mkdir(exist_ok=True)
-GEN_DIR.mkdir(exist_ok=True)
+GEN_DIR.mkdir(existok=True) if hasattr(Path, "mkdir") else GEN_DIR.mkdir(exist_ok=True)  # safe-guard
 DB_PATH = DATA_DIR / "app.db"
 
 # >>> Induláskor megpróbáljuk a DB-t letölteni a Drive-ról
@@ -548,18 +548,15 @@ async def admin_logout(request: Request):
     request.session.clear()
     return RedirectResponse("/admin/login", status_code=303)
 
-# ---------- Public Home (hero) ----------
+# ---------- Public Home (hero / muster redirect) ----------
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    # >>> EGYETLEN MÓDOSÍTÁS: muster.* host esetén a gyökér / loginra megy
     host = (request.headers.get("host") or request.url.hostname or "").lower()
     if host.startswith("muster."):
         return RedirectResponse("/login?next=/form", status_code=302)
-    # <<< minden más változatlan
     return templates.TemplateResponse("home.html", {"request": request})
 
 # ---------- Főoldal (NYELV: csak queryből; default: de) ----------
-# EREDTI: @app.get("/", response_class=HTMLResponse)
 @app.get("/form", response_class=HTMLResponse)
 async def index(request: Request):
     if not _is_user(request):
@@ -984,12 +981,8 @@ if __name__ == "__main__":
 try:
     from fastapi import FastAPI
 except Exception:
-    # Ha máshol van az app objektum importja, ez nem fut le.
     pass
 
-# Feltételezzük, hogy az alkalmazás fő FastAPI példánya 'app' néven elérhető.
-# Nem módosítunk semmit, csak egy új GET útvonalat adunk hozzá.
 @app.get("/healthz")
-def healthz():
-    # Minimál válasz; nem szivárogtat környezeti infót.
+def healthz_append_only():
     return {"ok": True, "service": "pdf_edit", "tenant_hint": "host-based"}
