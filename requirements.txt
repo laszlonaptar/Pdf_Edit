@@ -1,19 +1,4 @@
 fastapi==0.111.0
 uvicorn[standard]==0.30.0
-jinja2==3.1.4
-openpyxl==3.1.5
-pillow==10.4.0
-reportlab==4.2.0
-itsdangerous==2.2.0
-
-# HTTP kliens a fordításhoz
-httpx==0.27.2
-
-# Form adatkezelés FastAPI-hoz
 python-multipart==0.0.9
-
-# Google Drive (service account)
-google-api-python-client==2.149.0
-google-auth==2.35.0
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.1
+jinja2==3.1.4
