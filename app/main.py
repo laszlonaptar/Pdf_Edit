@@ -551,6 +551,11 @@ async def admin_logout(request: Request):
 # ---------- Public Home (hero) ----------
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    # >>> EGYETLEN MÓDOSÍTÁS: muster.* host esetén a gyökér / loginra megy
+    host = (request.headers.get("host") or request.url.hostname or "").lower()
+    if host.startswith("muster."):
+        return RedirectResponse("/login?next=/form", status_code=302)
+    # <<< minden más változatlan
     return templates.TemplateResponse("home.html", {"request": request})
 
 # ---------- Főoldal (NYELV: csak queryből; default: de) ----------
@@ -754,7 +759,7 @@ async def generate_pdf(
         hb = parse_hhmm(bg); he = parse_hhmm(en); total_hours += hours_with_breaks(hb, he, int(break_minutes))
 
     pdf_bytes = _build_pdf_preview(
-        date_text=date_text, bau=bau, basf_beauftragter=basf_beauftragter, beschreibung=beschrijving,
+        date_text=date_text, bau=bau, basf_beauftragter=basf_beauftragter, beschrijving=beschrijving,
         ws=ws, r1=r1, c1=c1, r2=r2, c2=c2, workers=workers, total_hours=total_hours
     )
 
