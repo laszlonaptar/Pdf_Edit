@@ -9,16 +9,17 @@
     *{box-sizing:border-box} html,body{height:100%}
     :root{
       --ink:#1d1d1f; --ink-quiet:#6e6e73; --line:#e5e5ea;
-      --brand:#0b2239; --brand-grad1:#18283a; --brand-grad2:#0b2239;
       --topbar-h:50px;
+      --overlay-top: rgba(0,0,0,.35);   /* finom olvashatósági overlay */
+      --overlay-rest: rgba(0,0,0,.10);
     }
     body{
       margin:0; color:var(--ink);
       font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Segoe UI,Roboto,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji";
-      background:var(--brand);
+      background:#0b2239; /* fallback */
     }
 
-    /* Top bar */
+    /* --- Top bar --- */
     .topbar{
       position:sticky; top:0; z-index:10; height:var(--topbar-h);
       background:#fff; border-bottom:1px solid var(--line);
@@ -26,25 +27,30 @@
       padding:0 clamp(12px,3vw,24px);
     }
     .topbar__logo img{height:26px;width:auto;display:block}
-    .topbar__center{ text-align:center; font-weight:600; letter-spacing:.02em; color:var(--ink-quiet) }
+    .topbar__center{text-align:center;font-weight:600;letter-spacing:.02em;color:var(--ink-quiet)}
 
-    /* Hero */
+    /* --- Hero: PNG domináns + animáció fölötte --- */
     .hero{
       position:relative; min-height:calc(100vh - var(--topbar-h));
       display:grid; place-items:center; padding:clamp(16px,4vw,40px);
       isolation:isolate; overflow:hidden;
-      background:
-        radial-gradient(1200px 800px at 80% -10%, #2dc4b6 0%, transparent 60%),
-        radial-gradient(1000px 700px at -10% 20%, #3aa0e0 0%, transparent 60%),
-        linear-gradient(180deg,var(--brand-grad1),var(--brand-grad2));
+      background:#0b2239; /* csak alap, a PNG viszi a látványt */
     }
+    /* Domináns PNG háttér */
     .hero__bg{
       position:absolute; inset:0; z-index:-3;
       background:url("hero-bg.png") center/cover no-repeat fixed;
-      opacity:.28; filter:saturate(110%) contrast(105%) blur(.2px);
+      opacity:1; /* TELJES erővel */
+      filter:saturate(112%) contrast(110%);
+    }
+    /* Finom sötétítő overlay – felül erősebb a jobb olvashatósághoz */
+    .hero::after{
+      content:""; position:absolute; inset:0; z-index:-1;
+      background: linear-gradient(180deg, var(--overlay-top) 0%, var(--overlay-rest) 35%, transparent 70%);
+      pointer-events:none;
     }
 
-    /* SVG háló (animáció) */
+    /* SVG háló (animáció) – a PNG felett */
     .net{ position:absolute; inset:0; z-index:-2; pointer-events:none; opacity:.55 }
 
     /* Szlogen */
@@ -77,7 +83,7 @@
 
     footer{position:absolute;bottom:10px;left:0;right:0;text-align:center;color:rgba(255,255,255,.65);font-size:.95rem;z-index:1}
 
-    /* Reduce Motion = anim off */
+    /* Motion-reduced: animációk kikapcsolása */
     @media (prefers-reduced-motion: reduce){
       .flowline::before{animation:none}
       .net .dash{animation:none}
@@ -87,7 +93,7 @@
 </head>
 <body>
 
-  <!-- Top bar -->
+  <!-- Fehér felső sáv -->
   <header class="topbar" role="banner">
     <div class="topbar__logo"><img src="logo.svg" alt="Metori"></div>
     <div class="topbar__center">Soon!</div>
@@ -96,6 +102,7 @@
 
   <!-- Hero -->
   <main class="hero" role="main">
+    <!-- Domináns PNG -->
     <div class="hero__bg" aria-hidden="true"></div>
 
     <!-- ANIMÁLT NEURON-HÁLÓ (SVG) -->
@@ -113,14 +120,14 @@
       </defs>
 
       <!-- háttérháló (statikus, nagyon vékony) -->
-      <g stroke="url(#wire)" stroke-opacity=".32">
+      <g stroke="url(#wire)" stroke-opacity=".30">
         <path d="M60,520 C220,420 440,560 700,450 940,350 1080,420 1180,330" fill="none" stroke-width="1"/>
         <path d="M40,420 C200,360 430,420 760,340 1000,270 1120,320 1190,240" fill="none" stroke-width="1"/>
         <path d="M80,320 C260,300 520,300 820,250 1080,210 1180,230 1220,170" fill="none" stroke-width="1"/>
         <path d="M120,600 C260,520 420,600 680,540 900,490 1060,520 1180,480" fill="none" stroke-width="1"/>
       </g>
 
-      <!-- kiemelt adatvonalak: dash anim + fény-pont, véletlenített kezdések -->
+      <!-- kiemelt adatvonalak: dash anim + fény-pont -->
       <g stroke="url(#wire)" stroke-linecap="round">
         <path id="p1" class="dash" d="M80,560 C260,460 500,560 760,470 1000,390 1120,450 1200,380"
               fill="none" stroke-width="2" stroke-opacity=".65" stroke-dasharray="6 12">
