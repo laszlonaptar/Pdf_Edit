@@ -135,9 +135,21 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-# ---- Session a bejelentkezéshez (NYELVHEZ NEM HASZNÁLJUK) ----
+# ---- Session a bejelentkezéshez ----
 SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-dev-secret")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
+
+# ---- Tenant gyökér-átirányítás (SKÁLÁZHATÓ) ----
+#   - BASE_DOMAIN környezeti változóval paraméterezhető; alap: metori.de
+from app.tenant_redirect_middleware import TenantRootRedirectMiddleware
+BASE_DOMAIN = os.getenv("BASE_DOMAIN", "metori.de").strip().lower()
+MAIN_DOMAINS = [BASE_DOMAIN, f"www.{BASE_DOMAIN}"]
+app.add_middleware(
+    TenantRootRedirectMiddleware,
+    base_domain=BASE_DOMAIN,
+    main_domains=MAIN_DOMAINS,
+    login_target="/login?next=/form",
+)
 
 # ---- Login beállítások ----
 APP_USERNAME = os.getenv("APP_USERNAME", "user")
@@ -156,7 +168,7 @@ BASE_DIR = Path(os.getcwd())
 DATA_DIR = BASE_DIR / "data"
 GEN_DIR = BASE_DIR / "generated"
 DATA_DIR.mkdir(exist_ok=True)
-GEN_DIR.mkdir(existok=True) if hasattr(Path, "mkdir") else GEN_DIR.mkdir(exist_ok=True)  # safe-guard
+GEN_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 
 # >>> Induláskor megpróbáljuk a DB-t letölteni a Drive-ról
@@ -351,7 +363,7 @@ def _excel_col_width_to_pixels(width):
 
 def _excel_row_height_to_pixels(height):
     if height is None:
-        height = 15.0
+        return int(round(15.0 * 96 / 72))
     return int(round(height * 96 / 72))
 
 def _get_block_pixel_size(ws, r1, c1, r2, c2):
@@ -452,6 +464,7 @@ def set_print_defaults(ws):
     for r in range(1, ws.max_row + 1):
         for c in range(1, ws.max_column + 1):
             if ws.cell(row=r, column=c).value not in (None, ""):
+            # ...
                 last_data_row = max(last_data_row, r); last_data_col = max(last_data_col, c)
     last_col_letter = get_column_letter(last_data_col)
     ws.print_area = f"A1:{last_col_letter}{last_data_row}"
@@ -548,12 +561,10 @@ async def admin_logout(request: Request):
     request.session.clear()
     return RedirectResponse("/admin/login", status_code=303)
 
-# ---------- Public Home (hero / muster redirect) ----------
+# ---------- Public Home (hero) ----------
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    host = (request.headers.get("host") or request.url.hostname or "").lower()
-    if host.startswith("muster."):
-        return RedirectResponse("/login?next=/form", status_code=302)
+    # NINCS host-alapú if: a middleware elintézi a tenant-gyökér átirányítást
     return templates.TemplateResponse("home.html", {"request": request})
 
 # ---------- Főoldal (NYELV: csak queryből; default: de) ----------
@@ -975,14 +986,4 @@ async def healthz():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "10000")), reload=True)
-
-
-# --- APPEND-ONLY: health check a reverse proxyhoz és uptime figyeléshez ---
-try:
-    from fastapi import FastAPI
-except Exception:
-    pass
-
-@app.get("/healthz")
-def healthz_append_only():
-    return {"ok": True, "service": "pdf_edit", "tenant_hint": "host-based"}
+    
