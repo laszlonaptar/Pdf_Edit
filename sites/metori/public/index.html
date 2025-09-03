@@ -5,37 +5,170 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Metori – Von Papier zu Cloud</title>
   <meta name="robots" content="noindex, nofollow, noarchive">
+
   <style>
-    *{box-sizing:border-box} html,body{height:100%}
+    /* ---- Alapok (Apple-szerű tipó + színek) ---- */
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    :root{
+      --ink:#1d1d1f;            /* sötét szürke (Apple) */
+      --ink-quiet:#6e6e73;      /* csendes szürke szöveg */
+      --line:#e5e5ea;           /* hajszálvékony vonal */
+      --brand: #0b2239;         /* háttér sötétkék árnyalat */
+      --brand-grad1:#18283a;
+      --brand-grad2:#0b2239;
+      --topbar-h:50px;
+    }
     body{
-      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#0b2239;
+      margin:0;
+      color:var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+                   Segoe UI, Roboto, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+      background: var(--brand);
+    }
+
+    /* ---- Felső fehér csík ---- */
+    .topbar{
+      position:sticky; top:0; z-index:10;
+      height:var(--topbar-h);
+      background:#fff;
+      border-bottom:1px solid var(--line);
+      display:grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items:center;
+      padding:0 clamp(12px, 3vw, 24px);
+    }
+    .topbar__logo{
+      display:flex; align-items:center; gap:10px;
+    }
+    .topbar__logo img{ height:26px; width:auto; display:block; }
+    .topbar__center{
+      text-align:center; font-weight:600; letter-spacing:.02em;
+      color:var(--ink-quiet);
+    }
+    .topbar__right{ /* üres helyőrző a gridhez */ }
+
+    /* ---- Hero (háttérkép + overlay + szlogen) ---- */
+    .hero{
+      position:relative;
+      min-height: calc(100vh - var(--topbar-h));
+      display:grid;
+      place-items:center;
+      padding: clamp(16px, 4vw, 40px);
+      isolation:isolate;
       background:
         radial-gradient(1200px 800px at 80% -10%, #2dc4b6 0%, transparent 60%),
         radial-gradient(1000px 700px at -10% 20%, #3aa0e0 0%, transparent 60%),
-        #0b2239;
+        linear-gradient(180deg, var(--brand-grad1), var(--brand-grad2));
+      overflow:hidden;
     }
-    .wrap{min-height:100vh; display:grid; place-items:center; padding:clamp(16px,4vw,48px)}
-    .hero{width:min(1100px,100%); background:rgba(255,255,255,.06); backdrop-filter:blur(6px);
-      border:1px solid rgba(255,255,255,.12); border-radius:18px; padding:clamp(8px,1.8vw,18px);
-      box-shadow:0 10px 30px rgba(0,0,0,.25)}
-    .media{position:relative; width:100%; aspect-ratio:21/9}
-    @media (max-width:767px){ .media{aspect-ratio:4/3} }
-    .media img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position: top center; border-radius:12px; background:#0e2a45}
-    .visually-hidden{position:absolute!important;height:1px;width:1px;overflow:hidden;clip:rect(1px,1px,1px,1px);white-space:nowrap}
-    footer{margin-top:16px; text-align:center; color:rgba(255,255,255,.75); font-size:.9rem}
+
+    /* Háttérkép külön rétegen, hogy szépen skálázzon */
+    .hero__bg{
+      position:absolute; inset:0; z-index:-2;
+      background: url("hero-bg.jpg") center/cover no-repeat fixed;
+      opacity:.28;                    /* finom, elegáns */
+      filter: saturate(110%) contrast(105%) blur(0.2px);
+    }
+
+    /* Sötét overlay a jó kontraszthoz */
+    .hero::after{
+      content:""; position:absolute; inset:0; z-index:-1;
+      background: radial-gradient(120% 70% at 50% 0%, rgba(0,0,0,.45) 0%, rgba(0,0,0,.15) 60%, rgba(0,0,0,0) 100%);
+      pointer-events:none;
+    }
+
+    /* Szlogen konténer */
+    .tagline{
+      text-align:center;
+      max-width:min(1000px, 92vw);
+      color:#fff;
+    }
+    .tagline h1{
+      margin:0 0 .5em 0;
+      line-height:1.08;
+      font-weight:800;
+      /* mobil ~28px → desktop ~56px */
+      font-size: clamp(1.75rem, 4.2vw, 3.5rem);
+      letter-spacing:.005em;
+      text-wrap: balance;
+      text-shadow: 0 6px 28px rgba(0,0,0,.35);
+    }
+    .tagline p{
+      margin:0;
+      color: rgba(255,255,255,.9);
+      font-size: clamp(1rem, 1.3vw + .2rem, 1.25rem);
+      letter-spacing:.01em;
+    }
+
+    /* ---- Finom „adatfutás” animáció (opcionális) ---- */
+    .flowline{
+      position:absolute; left:50%; transform:translateX(-50%);
+      bottom: clamp(40px, 8vh, 120px);
+      width:min(900px, 86vw); height:2px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.6), transparent);
+      overflow:hidden; opacity:.6; mix-blend-mode:screen;
+    }
+    .flowline::before{
+      content:""; position:absolute; top:0; left:-30%;
+      width:30%; height:100%;
+      background: linear-gradient(90deg, transparent, white, transparent);
+      filter: blur(2px);
+      animation: sweep 3.8s ease-in-out infinite;
+    }
+    @keyframes sweep{
+      0%{ transform: translateX(0) }
+      60%{ transform: translateX(360%) }
+      100%{ transform: translateX(360%) }
+    }
+
+    /* ---- Lábléc (diszkrét) ---- */
+    footer{
+      position:absolute; bottom:10px; left:0; right:0;
+      text-align:center; color:rgba(255,255,255,.65);
+      font-size:.95rem; pointer-events:none;
+    }
+
+    /* Kisegítő osztály rejtett címsorhoz, ha szükséges */
+    .visually-hidden{
+      position:absolute!important; height:1px; width:1px; overflow:hidden;
+      clip: rect(1px,1px,1px,1px); white-space:nowrap; border:0; margin:-1px; padding:0;
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      .flowline::before{ animation: none; }
+    }
   </style>
 </head>
 <body>
-  <main class="wrap">
-    <h1 class="visually-hidden">Von Papier zu Cloud – Ihr Arbeitsnachweis der Zukunft</h1>
-    <section class="hero" aria-label="Hero">
-      <figure class="media">
-        <!-- A kép legyen ugyanebben a mappában -->
-        <img src="IMG_6191.png" alt="Digitale Arbeitsnachweise in der Cloud." />
-      </figure>
-    </section>
+
+  <!-- Felső fehér csík -->
+  <header class="topbar" role="banner">
+    <div class="topbar__logo" aria-label="Metori Logo">
+      <!-- Ha PNG-t használsz: cseréld 'logo.svg' → 'logo.png' -->
+      <img src="logo.svg" alt="Metori" />
+    </div>
+    <div class="topbar__center">Soon!</div>
+    <div class="topbar__right"></div>
+  </header>
+
+  <!-- Hero / szlogen -->
+  <main class="hero" role="main">
+    <div class="hero__bg" aria-hidden="true"></div>
+
+    <div class="tagline">
+      <h1>Von Papier zu Cloud – Ihr Arbeitsnachweis der Zukunft</h1>
+      <p>Schnell. Sicher. Digital.</p>
+    </div>
+
+    <!-- Finom „adatfutás” effekt (opcionális, kivehető) -->
+    <div class="flowline" aria-hidden="true"></div>
+
     <footer>© <span id="y"></span> — Metori</footer>
   </main>
-  <script>document.getElementById('y').textContent=new Date().getFullYear()</script>
+
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+  </script>
 </body>
 </html>
