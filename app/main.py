@@ -973,3 +973,18 @@ async def healthz():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "10000")), reload=True)
+
+
+# --- APPEND-ONLY: health check a reverse proxyhoz és uptime figyeléshez ---
+try:
+    from fastapi import FastAPI
+except Exception:
+    # Ha máshol van az app objektum importja, ez nem fut le.
+    pass
+
+# Feltételezzük, hogy az alkalmazás fő FastAPI példánya 'app' néven elérhető.
+# Nem módosítunk semmit, csak egy új GET útvonalat adunk hozzá.
+@app.get("/healthz")
+def healthz():
+    # Minimál válasz; nem szivárogtat környezeti infót.
+    return {"ok": True, "service": "pdf_edit", "tenant_hint": "host-based"}
