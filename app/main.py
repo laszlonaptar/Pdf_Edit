@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form, Response, Body
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -148,7 +148,6 @@ try:
         login_target="/login?next=/form",
     )
 except Exception:
-    # ha nincs ilyen modul, semmi gond – a működés nem ezen múlik
     pass
 
 # ---- Login beállítások ----
@@ -430,15 +429,11 @@ def _make_description_image(text, w_px, h_px):
     return img
 
 def _xlimage_from_pil(pil_img):
-    buf = BytesIO()
-    pil_img.save(buf, format="PNG")
-    buf.seek(0)
-    return XLImage(buf)
+    buf = BytesIO(); pil_img.save(buf, format="PNG"); buf.seek(0); return XLImage(buf)
 
 def insert_description_as_image(ws, r1, c1, r2, c2, text):
     if not PIL_AVAILABLE:
-        print("IMG: PIL not available")
-        return False
+        print("IMG: PIL not available"); return False
     try:
         block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
         colA_w_px = _get_col_pixel_width(ws, 1)
@@ -452,9 +447,7 @@ def insert_description_as_image(ws, r1, c1, r2, c2, text):
         set_text(ws, r1, c1, "", wrap=False, align_left=True, valign_top=True)
         return True
     except Exception as e:
-        print("IMG insert failed:", repr(e))
-        traceback.print_exc()
-        return False
+        print("IMG insert failed:", repr(e)); traceback.print_exc(); return False
 
 def set_print_defaults(ws):
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
@@ -465,13 +458,11 @@ def set_print_defaults(ws):
     if hasattr(ws, "sheet_properties") and hasattr(ws.sheet_properties, "pageSetUpPr"):
         ws.sheet_properties.pageSetUpPr.fitToPage = False
     ws.page_margins = PageMargins(left=0.2, right=0.2, top=0.2, bottom=0.2, header=0, footer=0)
-    last_data_row = 1
-    last_data_col = 1
+    last_data_row = 1; last_data_col = 1
     for r in range(1, ws.max_row + 1):
         for c in range(1, ws.max_column + 1):
             if ws.cell(row=r, column=c).value not in (None, ""):
-                last_data_row = max(last_data_row, r)
-                last_data_col = max(last_data_col, c)
+                last_data_row = max(last_data_row, r); last_data_col = max(last_data_col, c)
     last_col_letter = get_column_letter(last_data_col)
     ws.print_area = f"A1:{last_col_letter}{last_data_row}"
     ws.print_options.horizontalCentered = False
@@ -486,23 +477,14 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     from reportlab.lib.utils import ImageReader
 
     pw, ph = landscape(A4)
-    margin_left = 12 * mm
-    margin_right = 12 * mm
-    margin_top = 12 * mm
-    margin_bottom = 12 * mm
-    buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=(pw, ph))
+    margin_left = 12 * mm; margin_right = 12 * mm; margin_top = 12 * mm; margin_bottom = 12 * mm
+    buf = BytesIO(); c = canvas.Canvas(buf, pagesize=(pw, ph))
     y = ph - margin_top
 
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin_left, y, f"Datum: {date_text}")
-    y -= 16
-    c.setFont("Helvetica", 12)
-    c.drawString(margin_left, y, f"Bau: {bau}")
-    y -= 16
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin_left, y, f"Datum: {date_text}"); y -= 16
+    c.setFont("Helvetica", 12); c.drawString(margin_left, y, f"Bau: {bau}"); y -= 16
     if (basf_beauftragter or "").strip():
-        c.drawString(margin_left, y, f"BASF Beauftragter: {basf_beauftragter}")
-        y -= 10
+        c.drawString(margin_left, y, f"BASF Beauftragter: {basf_beauftragter}"); y -= 10
     y -= 6
 
     block_w_px, block_h_px = _get_block_pixel_size(ws, r1, c1, r2, c2)
@@ -510,49 +492,33 @@ def _build_pdf_preview(date_text, bau, basf_beauftragter, beschreibung, ws, r1, 
     new_w_px = max(40, block_w_px - colA_w_px - LEFT_INSET_PX)
     new_h_px = int(block_h_px * BOTTOM_CROP)
     pil_img = _make_description_image(beschreibung or "", new_w_px, new_h_px)
-    w_pt = new_w_px * 0.75
-    h_pt = new_h_px * 0.75
+    w_pt = new_w_px * 0.75; h_pt = new_h_px * 0.75
     max_w_pt = pw - margin_left - margin_right
     if w_pt > max_w_pt:
-        scale = max_w_pt / w_pt
-        w_pt *= scale
-        h_pt *= scale
+        scale = max_w_pt / w_pt; w_pt *= scale; h_pt *= scale
     y -= h_pt
-    c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto')
-    y -= 12
+    c.drawImage(ImageReader(pil_img), margin_left, y, width=w_pt, height=h_pt, preserveAspectRatio=True, mask='auto'); y -= 12
 
     c.setFont("Helvetica-Bold", 11)
     headers = ["Name", "Vorname", "Ausweis", "Beginn", "Ende", "Stunden", "Vorhaltung"]
     col_widths = [70, 70, 90, 60, 60, 60, 100]
     x = margin_left
     for hdr, w in zip(headers, col_widths):
-        c.drawString(x, y, hdr)
-        x += w
-    y -= 14
-    c.setLineWidth(0.3)
-    c.line(margin_left, y, margin_left + sum(col_widths), y)
-    y -= 6
+        c.drawString(x, y, hdr); x += w
+    y -= 14; c.setLineWidth(0.3); c.line(margin_left, y, margin_left + sum(col_widths), y); y -= 6
 
     c.setFont("Helvetica", 10)
     for (vn, nn, aw, bg, en, vh) in workers:
         x = margin_left
         vals = [nn, vn, aw, bg, en, f"{hours_with_breaks(parse_hhmm(bg), parse_hhmm(en)):.2f}", vh]
         for val, w in zip(vals, col_widths):
-            c.drawString(x, y, str(val or ""))
-            x += w
+            c.drawString(x, y, str(val or "")); x += w
         y -= 14
         if y < margin_bottom + 40:
-            c.showPage()
-            y = ph - margin_top
-            c.setFont("Helvetica", 10)
+            c.showPage(); y = ph - margin_top; c.setFont("Helvetica", 10)
 
-    y -= 6
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
-    c.showPage()
-    c.save()
-    buf.seek(0)
-    return buf.read()
+    y -= 6; c.setFont("Helvetica-Bold", 11); c.drawString(margin_left, y, f"Gesamtstunden: {total_hours:.2f}")
+    c.showPage(); c.save(); buf.seek(0); return buf.read()
 
 # ---------- User Login / Logout ----------
 @app.get("/login", response_class=HTMLResponse)
@@ -564,8 +530,7 @@ async def login_form(request: Request, next: str = "/"):
 @app.post("/login", response_class=HTMLResponse)
 async def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
     if username == APP_USERNAME and password == APP_PASSWORD:
-        request.session.clear()
-        request.session["auth_ok"] = True
+        request.session.clear(); request.session["auth_ok"] = True
         return RedirectResponse(next or "/", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
 
@@ -584,8 +549,7 @@ async def admin_login_form(request: Request, next: str = "/admin"):
 @app.post("/admin/login", response_class=HTMLResponse)
 async def admin_login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/admin")):
     if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-        request.session.clear()
-        request.session["admin_ok"] = True
+        request.session.clear(); request.session["admin_ok"] = True
         return RedirectResponse(next or "/admin", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": True, "next": next}, status_code=401)
 
@@ -599,14 +563,38 @@ async def admin_logout(request: Request):
 async def home(request: Request):
     return templates.TemplateResponse("home.html", {"request": request})
 
-# ---------- Dolgozói űrlap – STATIKUS index.html szolgálása ----------
-@app.get("/form", response_class=HTMLResponse, name="form_page_static")
+# ---------- Dolgozói űrlap – STATIKUS index.html szolgálása, INJEKCIÓVAL ----------
+@app.get("/form", response_class=HTMLResponse)
 async def form_page_static(request: Request):
     if not _is_user(request):
         return RedirectResponse("/login?next=/form", status_code=303)
+
+    # nyelv (alap: de), és opcionális injektált beállítások a JS-nek
+    lang = (request.query_params.get("lang") or "").strip().lower() or "de"
     app_dir = Path(__file__).resolve().parent
     static_index = app_dir / "static" / "index.html"
-    return FileResponse(static_index, media_type="text/html; charset=utf-8")
+
+    try:
+        html = static_index.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        return PlainTextResponse(f"index.html not found: {e}", status_code=500)
+
+    # kis <script> injekció a </head> elé: a JS innen tudja meg a nyelvet stb.
+    inject = (
+        "<script>"
+        f'window.APP_LANG = "{lang}";'
+        "window.API_BASE = '';"
+        "window.STATIC_BASE = '/static';"
+        "</script>"
+    )
+
+    if "</head>" in html:
+        html = html.replace("</head>", inject + "</head>", 1)
+    else:
+        # ha nincs <head>, a body elejére szúrjuk
+        html = inject + html
+
+    return HTMLResponse(html, media_type="text/html; charset=utf-8")
 
 # ---------- Excel generálás + DB mentés + Drive feltöltés ----------
 @app.post("/generate_excel")
@@ -627,13 +615,11 @@ async def generate_excel(
     if not _is_user(request):
         return RedirectResponse("/login?next=/", status_code=303)
 
-    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
-    ws = wb.active
+    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx")); ws = wb.active
 
     date_text = datum
     try:
-        dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")
+        dt = datetime.strptime(datum.strip(), "%Y-%m-%d"); date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
     set_text_addr(ws, "B2", date_text, horizontal="left")
@@ -653,8 +639,7 @@ async def generate_excel(
     if not inserted:
         set_text(ws, r1, c1+1, text_in, wrap=True, align_left=True, valign_top=True)
 
-    pos = find_header_positions(ws)
-    row = pos["data_start_row"]
+    pos = find_header_positions(ws); row = pos["data_start_row"]
     vorhaltung_col = pos.get("vorhaltung_col", None)
 
     workers: List[Tuple[str,str,str,str,str,str]] = []
@@ -665,8 +650,7 @@ async def generate_excel(
         bg = locals().get(f"beginn{i}", "") or ""
         en = locals().get(f"ende{i}", "") or ""
         vh = locals().get(f"vorhaltung{i}", "") or ""
-        if not (vn or nn or aw or bg or en or vh):
-            continue
+        if not (vn or nn or aw or bg or en or vh): continue
         workers.append((vn, nn, aw, bg, en, vh))
 
     total_hours = 0.0
@@ -680,17 +664,13 @@ async def generate_excel(
             set_text(ws, row, vorhaltung_col, vh, wrap=True, align_left=True, valign_top=True)
         hb = parse_hhmm(bg); he = parse_hhmm(en)
         h = round(hours_with_breaks(hb, he, int(break_minutes)), 2)
-        total_hours += h
-        set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True)
-        row += 1
+        total_hours += h; set_text(ws, row, pos["stunden_col"], h, wrap=False, align_left=True); row += 1
 
     right_of_label, stunden_total = find_total_cells(ws, pos["stunden_col"])
     if stunden_total:
-        tr, tc = stunden_total
-        set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
+        tr, tc = stunden_total; set_text(ws, tr, tc, round(total_hours, 2), wrap=False, align_left=True)
     if right_of_label:
-        rr, rc = right_of_label
-        set_text(ws, rr, rc, "", wrap=False, align_left=True)
+        rr, rc = right_of_label; set_text(ws, rr, rc, "", wrap=False, align_left=True)
 
     try:
         set_print_defaults(ws)
@@ -781,12 +761,10 @@ async def generate_pdf(
     if not (REPORTLAB_AVAILABLE and PIL_AVAILABLE):
         return PlainTextResponse("PDF előállítás nem elérhető (telepítsd: reportlab, pillow).", status_code=501)
 
-    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx"))
-    ws = wb.active
+    wb = load_workbook(os.path.join(os.getcwd(), "GP-t.xlsx")); ws = wb.active
     date_text = datum
     try:
-        dt = datetime.strptime(datum.strip(), "%Y-%m-%d")
-        date_text = dt.strftime("%d.%m.%Y")
+        dt = datetime.strptime(datum.strip(), "%Y-%m-%d"); date_text = dt.strftime("%d.%m.%Y")
     except Exception:
         pass
 
@@ -799,14 +777,12 @@ async def generate_pdf(
         bg = locals().get(f"beginn{i}", "") or ""
         en = locals().get(f"ende{i}", "") or ""
         vh = locals().get(f"vorhaltung{i}", "") or ""
-        if not (vn or nn or aw or bg or en or vh):
-            continue
+        if not (vn or nn or aw or bg or en or vh): continue
         workers.append((vn, nn, aw, bg, en, vh))
 
     total_hours = 0.0
     for (_, _, _, bg, en, _) in workers:
-        hb = parse_hhmm(bg); he = parse_hhmm(en)
-        total_hours += hours_with_breaks(hb, he, int(break_minutes))
+        hb = parse_hhmm(bg); he = parse_hhmm(en); total_hours += hours_with_breaks(hb, he, int(break_minutes))
 
     pdf_bytes = _build_pdf_preview(
         date_text=date_text, bau=bau, basf_beauftragter=basf_beauftragter, beschrijving=beschrijving,
@@ -814,11 +790,7 @@ async def generate_pdf(
     )
 
     fname = f"leistungsnachweis_preview_{uuid.uuid4().hex[:8]}.pdf"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{fname}"',
-        "Content-Length": str(len(pdf_bytes)),
-        "Cache-Control": "no-store",
-    }
+    headers = {"Content-Disposition": f'attachment; filename="{fname}"', "Content-Length": str(len(pdf_bytes)), "Cache-Control": "no-store"}
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 # ---------- TRANSLATE: AZURE + (opcionális) LT fallback ----------
@@ -929,16 +901,13 @@ async def translator_info():
     }
     dns = []
     for ep in [LT_ENDPOINT, LT_BACKUP_ENDPOINT]:
-        if not ep:
-            continue
+        if not ep: continue
         host = ""
         try:
             host = ep.split("://",1)[1].split("/",1)[0]
-        except Exception:
-            pass
+        except Exception: pass
         if not host:
-            dns.append({"endpoint": ep, "host": "", "dns_ok": False, "ips": [], "error": "bad url"})
-            continue
+            dns.append({"endpoint": ep, "host": "", "dns_ok": False, "ips": [], "error": "bad url"}); continue
         try:
             infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
             ips = sorted({ai[4][0] for ai in infos})
@@ -990,8 +959,7 @@ async def admin_index(request: Request, q_bau: str = "", q_date: str = ""):
         clauses.append("bau LIKE ?"); params.append(f"%{q_bau.strip()}%")
     if q_date.strip():
         clauses.append("datum LIKE ?"); params.append(f"%{q_date.strip()}%")
-    if clauses:
-        sql += "WHERE " + " AND ".join(clauses) + " "
+    if clauses: sql += "WHERE " + " AND ".join(clauses) + " "
     sql += "ORDER BY created_at DESC LIMIT 200"
     with db_conn() as c:
         rows = c.execute(sql, params).fetchall()
