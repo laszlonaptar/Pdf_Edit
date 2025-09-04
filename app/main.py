@@ -1014,3 +1014,39 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "10000")), reload=True)
     
+# --- APPEND-ONLY: workers CSV az adatbázisból, cég szerint (subdomain -> slug) ---
+from fastapi import Depends
+from fastapi.responses import PlainTextResponse
+
+def _company_slug_from_host(host: str) -> str | None:
+    # pl. host = "muster.metori.de" -> "muster"
+    host = (host or "").split(":")[0].lower()
+    parts = host.split(".")
+    if len(parts) >= 3:  # subdomain.domain.tld
+        return parts[0]
+    return None
+
+@app.get("/api/workers.csv")
+async def api_workers_csv(request: Request):
+    slug = _company_slug_from_host(request.headers.get("host", ""))
+    if not slug:
+        # fallback: 'muster', hogy most működjön egy aldomén nélküli hívásnál is
+        slug = "muster"
+    with db_conn() as c:
+        row = c.execute("SELECT id FROM companies WHERE slug = ?", (slug,)).fetchone()
+        if not row:
+            return PlainTextResponse("Name;Vorname;Ausweis\n", media_type="text/csv; charset=utf-8")
+        company_id = row["id"]
+        rows = c.execute(
+            "SELECT last_name, first_name, COALESCE(badge,'') AS badge "
+            "FROM workers WHERE company_id = ? ORDER BY last_name, first_name",
+            (company_id,)
+        ).fetchall()
+
+    # ugyanaz a fejléckészlet, mint eddig
+    out_lines = ["Name;Vorname;Ausweis"]
+    for r in rows:
+        # pontosvesszővel elválasztva, soronként
+        out_lines.append(f"{r['last_name']};{r['first_name']};{r['badge']}")
+    csv_text = "\n".join(out_lines) + "\n"
+    return PlainTextResponse(csv_text, media_type="text/csv; charset=utf-8")
