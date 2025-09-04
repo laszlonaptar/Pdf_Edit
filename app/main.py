@@ -987,3 +987,16 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "10000")), reload=True)
     
+
+# --- APPEND-ONLY: dolgozói űrlap route (login szükséges) ---
+from fastapi.responses import HTMLResponse
+from starlette.responses import RedirectResponse
+
+@app.get("/form", response_class=HTMLResponse)
+async def form_page(request: Request):
+    # ha nincs bejelentkezve, menjen vissza a loginra
+    if not _is_user(request):
+        return RedirectResponse("/login?next=/form", status_code=303)
+    # a sablon neve: index.html (app/templates/index.html)
+    lang = (request.query_params.get("lang") or "").strip().lower() or "de"
+    return templates.TemplateResponse("index.html", {"request": request, "lang": lang})
