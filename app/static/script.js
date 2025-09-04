@@ -591,3 +591,21 @@ Funkciók:
     recalcAll();
   });
 })();
+document.addEventListener("DOMContentLoaded", () => {
+    const beschr = document.getElementById("beschreibung");
+    if (beschr) {
+        let bcount = document.getElementById("beschr-count");
+        if (!bcount) {
+            bcount = document.createElement("div");
+            bcount.id = "beschr-count";
+            bcount.className = "small muted";
+            bcount.textContent = "0 / 1000";
+            beschr.insertAdjacentElement("afterend", bcount);
+        }
+        beschr.addEventListener("input", () => {
+            const len = (beschr.value || "").length;
+            bcount.textContent = `${len} / 1000`;
+        });
+    }
+});
+
