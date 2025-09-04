@@ -1050,3 +1050,88 @@ async def api_workers_csv(request: Request):
         out_lines.append(f"{r['last_name']};{r['first_name']};{r['badge']}")
     csv_text = "\n".join(out_lines) + "\n"
     return PlainTextResponse(csv_text, media_type="text/csv; charset=utf-8")
+
+
+
+# --- API: dolgozók listája tenant (aldomain) alapján -------------------------
+from fastapi import Query
+
+def _tenant_slug_from_host(request: Request) -> str | None:
+    """
+    Hostból (pl. 'muster.metori.de') kinyeri a tenant slugot ('muster').
+    A fő domaineken (metori.de, www.metori.de) nincs slug.
+    """
+    host = (request.headers.get("x-forwarded-host") or request.url.hostname or "").lower()
+    if not host:
+        return None
+    # ha porttal jön (dev), vágjuk le
+    host = host.split(":")[0]
+    if host in MAIN_DOMAINS:
+        return None
+    # pl. muster.metori.de -> ['muster','metori','de']
+    parts = host.split(".")
+    base_parts = BASE_DOMAIN.split(".")
+    if len(parts) <= len(base_parts):
+        return None
+    # az első komponens az aldomain
+    return parts[0] or None
+
+def _company_id_for_slug(c, slug: str) -> int | None:
+    row = c.execute("SELECT id FROM companies WHERE slug = ?", (slug,)).fetchone()
+    return int(row["id"]) if row else None
+
+@app.get("/api/workers")
+async def api_workers(
+    request: Request,
+    q: str = Query("", description="Opcionális keresőszó (név vagy Ausweis)"),
+    limit: int = Query(200, ge=1, le=1000, description="Max. rekordok száma")
+):
+    # jogosultság: a /form oldalról hívódik, de azért itt is ellenőrizzük
+    if not _is_user(request):
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+    slug = _tenant_slug_from_host(request)
+    # Ha nincs slug (pl. fő domain), opcionálisan megtagadhatjuk vagy fallback.
+    if not slug:
+        # üres lista a biztonság kedvéért
+        return JSONResponse([], status_code=200)
+
+    with db_conn() as c:
+        cid = _company_id_for_slug(c, slug)
+        if not cid:
+            return JSONResponse([], status_code=200)
+
+        params = [cid]
+        where = "WHERE company_id = ?"
+        if q.strip():
+            where += " AND (LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR badge LIKE ?)"
+            like = f"%{q.strip().lower()}%"
+            params += [like, like, f"%{q.strip()}%"]
+
+        sql = f"""
+            SELECT first_name, last_name, badge
+              FROM workers
+            {where}
+            ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE
+            LIMIT ?
+        """
+        params.append(limit)
+        rows = c.execute(sql, params).fetchall()
+
+    # A JS a következő kulcsokat várja: first_name/last_name/badge (vagy vorname/nachname/ausweis).
+    out = [
+        {
+            "first_name": r["first_name"],
+            "last_name": r["last_name"],
+            "badge": r["badge"],
+            # kompatibilitás a régi klienssel
+            "vorname": r["first_name"],
+            "nachname": r["last_name"],
+            "ausweis": r["badge"],
+        }
+        for r in rows
+    ]
+    return JSONResponse(out, headers={
+        # kis cache a böngészőben, de ne legyen agresszív
+        "Cache-Control": "private, max-age=60"
+    })
