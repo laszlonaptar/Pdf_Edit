@@ -136,7 +136,7 @@ templates = Jinja2Templates(directory="app/templates")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-dev-secret")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
 
-# ---- Tenant gyökér-átirányítás (ha használva van) ----
+# ---- Tenant gyökér-átirányítás (opcionális köztesréteg) ----
 try:
     from app.tenant_redirect_middleware import TenantRootRedirectMiddleware
     BASE_DOMAIN = os.getenv("BASE_DOMAIN", "metori.de").strip().lower()
@@ -558,18 +558,17 @@ async def admin_logout(request: Request):
     request.session.clear()
     return RedirectResponse("/admin/login", status_code=303)
 
-# ---------- Public Home (hero) ----------
+# ---------- Public Home ----------
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("home.html", {"request": request})
 
-# ---------- Dolgozói űrlap – STATIKUS index.html szolgálása, INJEKCIÓVAL ----------
+# ---------- Dolgozói űrlap – statikus index.html szolgálása, BŐVÍTETT INJEKCIÓVAL ----------
 @app.get("/form", response_class=HTMLResponse)
 async def form_page_static(request: Request):
     if not _is_user(request):
         return RedirectResponse("/login?next=/form", status_code=303)
 
-    # nyelv (alap: de), és opcionális injektált beállítások a JS-nek
     lang = (request.query_params.get("lang") or "").strip().lower() or "de"
     app_dir = Path(__file__).resolve().parent
     static_index = app_dir / "static" / "index.html"
@@ -579,20 +578,32 @@ async def form_page_static(request: Request):
     except Exception as e:
         return PlainTextResponse(f"index.html not found: {e}", status_code=500)
 
-    # kis <script> injekció a </head> elé: a JS innen tudja meg a nyelvet stb.
+    # INJEKCIÓ – pótolja a jellemzően Jinja-ból érkező globálokat
     inject = (
-        "<script>"
-        f'window.APP_LANG = "{lang}";'
-        "window.API_BASE = '';"
-        "window.STATIC_BASE = '/static';"
-        "</script>"
+        "<script>(function(){try{"
+        f'window.APP_LANG={json.dumps(lang)};'
+        'if(typeof window.lang==="undefined"){window.lang=window.APP_LANG;}'
+        'window.API_BASE=window.API_BASE||"";'
+        'window.STATIC_BASE=window.STATIC_BASE||"/static";'
+        'window.GENERATE_EXCEL_URL=window.GENERATE_EXCEL_URL||"/generate_excel";'
+        'window.GENERATE_PDF_URL=window.GENERATE_PDF_URL||"/generate_pdf";'
+        'window.TRANSLATE_API=window.TRANSLATE_API||"/api/translate";'
+        'window.APP_BUILD=window.APP_BUILD||"server-injected";'
+        '}catch(e){console && console.warn && console.warn("Bootstrap inject error:", e);}})();</script>'
+    )
+
+    # Kis “vészfék”: ne haljon el az oldal, ha egy korai JS-hiba történik
+    safety = (
+        "<script>(function(){"
+        "window.addEventListener('error',function(ev){"
+        "try{console&&console.warn&&console.warn('Client JS error:',ev.message);}catch(_){}});"
+        "})();</script>"
     )
 
     if "</head>" in html:
-        html = html.replace("</head>", inject + "</head>", 1)
+        html = html.replace("</head>", inject + safety + "</head>", 1)
     else:
-        # ha nincs <head>, a body elejére szúrjuk
-        html = inject + html
+        html = inject + safety + html
 
     return HTMLResponse(html, media_type="text/html; charset=utf-8")
 
@@ -971,8 +982,8 @@ async def admin_view(request: Request, sid: int):
         return RedirectResponse(f"/admin/login?next=/admin/view/{sid}", status_code=303)
     with db_conn() as c:
         row = c.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
-        if not row:
-            return PlainTextResponse("Nincs ilyen bejegyzés.", status_code=404)
+    if not row:
+        return PlainTextResponse("Nincs ilyen bejegyzés.", status_code=404)
     try:
         payload = json.loads(row["payload_json"] or "{}")
     except Exception:
