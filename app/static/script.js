@@ -1,7 +1,7 @@
 /* static/script.js
    - HR→DE fordítás gomb (/api/translate)
    - Karakterszámláló
-   - Dolgozó-autocomplete CSV-ből
+   - Dolgozó-autocomplete DB API-ból (/api/workers)
    - 15 perces időválasztó + óraszámítás + szinkron 1. sorból
    - Validáció + Excel letöltés + opcionális PDF
 */
@@ -61,7 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ===== AUTOCOMPLETE =====
+  // ===== AUTOCOMPLETE (DB API helyett CSV) =====
   let WORKERS = [];
   const byAusweis = new Map();
   const byFullName = new Map(); // "nachname|vorname" -> worker
@@ -70,62 +70,37 @@ document.addEventListener("DOMContentLoaded", () => {
   const keyName = (nach, vor) =>
     `${norm(nach).toLowerCase()}|${norm(vor).toLowerCase()}`;
 
+  // --- EGYETLEN VÁLTOZTATÁS: innen DB API-t hívunk ---
   async function loadWorkers() {
     try {
-      const resp = await fetch("/static/workers.csv", { cache: "no-store" });
+      const resp = await fetch("/api/workers", { cache: "no-store" });
       if (!resp.ok) return;
-      let text = await resp.text();
-      parseCSV(text);
-    } catch (_) {}
-  }
+      const data = await resp.json();
+      if (!Array.isArray(data)) return;
 
-  function parseCSV(text) {
-    if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-    const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
-    if (!lines.length) return;
+      WORKERS = [];
+      byAusweis.clear();
+      byFullName.clear();
 
-    const detectDelim = (s) => {
-      const sc = (s.match(/;/g) || []).length;
-      const cc = (s.match(/,/g) || []).length;
-      return sc > cc ? ";" : ",";
-    };
-    const delim = detectDelim(lines[0]);
-
-    const splitCSV = (line) => {
-      const re = new RegExp(`${delim}(?=(?:[^"]*"[^"]*")*[^"]*$)`, "g");
-      return line.split(re).map((x) => {
-        x = x.trim();
-        if (x.startsWith('"') && x.endsWith('"')) x = x.slice(1, -1);
-        return x.replace(/""/g, '"');
+      data.forEach((w) => {
+        if (!w) return;
+        const worker = {
+          nachname: norm(w.last_name || w.nachname),
+          vorname: norm(w.first_name || w.vorname),
+          ausweis: norm(w.badge || w.ausweis),
+        };
+        if (!worker.nachname && !worker.vorname && !worker.ausweis) return;
+        WORKERS.push(worker);
+        if (worker.ausweis) byAusweis.set(worker.ausweis, worker);
+        byFullName.set(keyName(worker.nachname, worker.vorname), worker);
       });
-    };
 
-    const header = splitCSV(lines[0]).map((h) => h.toLowerCase().trim());
-    const idxNach = header.findIndex((h) => h === "nachname" || h === "name");
-    const idxVor = header.findIndex((h) => h === "vorname");
-    const idxAus = header.findIndex((h) => /(ausweis|kennzeichen)/.test(h));
-    if (idxNach < 0 || idxVor < 0 || idxAus < 0) return;
-
-    WORKERS = [];
-    byAusweis.clear();
-    byFullName.clear();
-
-    for (let i = 1; i < lines.length; i++) {
-      const cols = splitCSV(lines[i]);
-      if (cols.length <= Math.max(idxNach, idxVor, idxAus)) continue;
-      const w = {
-        nachname: norm(cols[idxNach]),
-        vorname: norm(cols[idxVor]),
-        ausweis: norm(cols[idxAus]),
-      };
-      if (!w.nachname && !w.vorname && !w.ausweis) continue;
-      WORKERS.push(w);
-      if (w.ausweis) byAusweis.set(w.ausweis, w);
-      byFullName.set(keyName(w.nachname, w.vorname), w);
+      refreshAllAutocompletes();
+    } catch (err) {
+      console.error("Nem sikerült betölteni a /api/workers adatokat:", err);
     }
-
-    refreshAllAutocompletes();
   }
+  // --- VÉGE: változtatás ---
 
   function makeAutocomplete(input, getOptions, onPick) {
     const dd = document.createElement("div");
@@ -537,7 +512,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("pdf")) {
           const text = await res.text().catch(() => "");
-          throw new Error(text || "Unerwartete Antwort – kein PDF.");
+          throw new Error(text vagy "Unerwartete Antwort – kein PDF.");
         }
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
