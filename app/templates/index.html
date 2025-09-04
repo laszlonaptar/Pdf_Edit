@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="{{ lang or 'de' }}">
+<head>
+  <meta charset="utf-8">
+  <title>Arbeitsrapport – Muster</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- FONTOS: mindig /static/ útvonalat használunk -->
+  <link rel="stylesheet" href="/static/style.css?v=16">
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <h1>Arbeitsrapport</h1>
+      <nav>
+        <a class="btn-outline" href="/logout">Abmelden</a>
+      </nav>
+    </header>
+
+    <!-- A JS ezekhez az ID-khez és name-ekhez kötődik -->
+    <form id="rapportForm" class="form" method="post" action="#">
+      <section class="card">
+        <label for="datum" class="lbl">Datum der Leistungsausführung</label>
+        <input id="datum" name="datum" type="date" class="inp" required>
+
+        <label for="bau" class="lbl">Projekt / Bau</label>
+        <input id="bau" name="bau" type="text" class="inp" placeholder="Bau / Projekt" required>
+
+        <label for="basf_beauftragter" class="lbl">BASF-Beauftragter</label>
+        <input id="basf_beauftragter" name="basf_beauftragter" type="text" class="inp" placeholder="Name">
+
+        <label for="beschreibung" class="lbl">Tätigkeiten (Beschreibung)</label>
+        <textarea id="beschreibung" name="beschreibung" class="inp" placeholder="Was wurde gemacht?"></textarea>
+      </section>
+
+      <section class="card">
+        <h2 class="h2">Mitarbeiter</h2>
+
+        <!-- A JS ide injektálja a sorokat -->
+        <div id="workers" class="workers"></div>
+
+        <!-- Gomb az új sorhoz; a script.js figyeli ezt az ID-t -->
+        <button id="add-worker" type="button" class="chip">+ Weiterer Mitarbeiter</button>
+      </section>
+
+      <section class="card">
+        <label for="total_hours" class="lbl">Gesamtstunden (berechnet)</label>
+        <input id="total_hours" name="total_hours" type="text" class="inp" readonly>
+      </section>
+
+      <section class="actions">
+        <button id="btn-excel" class="btn" type="button">Excel generieren</button>
+        <button id="btn-pdf" class="btn-secondary" type="button">PDF Vorschau</button>
+      </section>
+    </form>
+  </main>
+
+  <!-- FONTOS: először i18n, aztán a fő script -->
+  <script src="/static/i18n.js"></script>
+  <script src="/static/script.js" defer></script>
+</body>
+</html>
