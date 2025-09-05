@@ -242,3 +242,24 @@ tbody tr:hover {
     gap: .5rem;
   }
 }
+/* Beviteli mezők */
+.inp, input[type="text"], input[type="time"], textarea, select {
+  width: 100%;
+  max-width: 500px;          /* ne menjen 500px fölé */
+  margin: 0 auto;            /* középre igazítás */
+  display: block;
+  padding: 10px 14px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 15px;
+  color: #333;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  transition: border 0.2s, box-shadow 0.2s;
+}
+
+.inp:focus {
+  border: 1px solid #007aff; /* Apple kék */
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.15);
+  outline: none;
+}
